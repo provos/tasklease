@@ -15,7 +15,7 @@ and verification evidence are recorded in [review-log.md](review-log.md).
 - [x] **1. Contract and foundations:** complete JSON Schema contract and
   examples; deterministic TS validators/types and Python TypedDict generation;
   pinned toolchains; strict checks; Workers-runtime and Python test harnesses.
-- [ ] **2. Service:** registry/auth/scopes; task operations and SQLite
+- [x] **2. Service:** registry/auth/scopes; task operations and SQLite
   migrations; fencing and atomicity; pollers, statistics and alarms; R2 signing.
 - [ ] **3. Client, operator CLI and deployment:** typed client and configuration;
   operator commands; deploy/status with recovery tests; bundled Worker;
@@ -58,9 +58,17 @@ or machine leaves a check unverified, never passed by inference.
 - Identity Add deduplicates expanded create grants and rejects a final list
   longer than 256 before writing anything, preserving every required error
   grant rather than silently discarding some.
+- Per user direction, the complete domain names `.` and `..` are prohibited.
+  Other dotted names and dot segments within longer domains remain valid.
+  Literal `%2F` in blob keys is encoded again to `%252F` in S3 URLs.
+- Identity Add rejects combined compact JSON domain and expanded scope lists
+  above 7 MiB with `invalid`, before writing. This is an aggregate bound;
+  individual globs retain the existing grammar.
 
 ## Current state
 
-Phase 1 accepted after simplify, independent Astra high review, both confirmed
-review fixes, and a clean focused Astra re-review. Phase 2 is next. No remote
+Phase 1 accepted and checkpointed at `776d43d` after simplify, independent
+Astra high review, both confirmed review fixes, and a clean focused re-review.
+Phase 2 is accepted after simplify, independent Astra high review, resource
+boundary fixes and clean focused re-reviews. Phase 3 is next. No remote
 resources have been changed.

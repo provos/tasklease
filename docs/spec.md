@@ -32,7 +32,8 @@ being worked on, workflow definitions, scheduling.
 
 **Domain.** Every task belongs to one domain: a separate namespace for
 topics, tasks, pollers and blobs. A domain name is lowercase segments of
-`[a-z0-9._-]+` joined by `/`, at most 256 characters. The service gives the
+`[a-z0-9._-]+` joined by `/`, at most 256 characters. The complete names `.`
+and `..` are prohibited. The service gives the
 name no meaning. A project on GitHub can use its repository
 (`github.com/provos/fluxshoteditor`); a team or a home lab can use
 `render-farm.example` or `acme/pipeline`. No operation reads or writes across
@@ -115,6 +116,11 @@ most 256 domains, and each scope list at most 256 globs:
   "operator": false
 }
 ```
+
+The combined compact JSON serialization of the domain list and the expanded
+scope lists is limited to 7 MiB of UTF-8 bytes. Identity Add returns `invalid`
+if automatic error grants would exceed either this bound or a scope list's
+256-entry limit, before storing an identity.
 
 **Worker label.** Several workers can share one machine and one identity.
 Each request carries an `X-Worker` header (for example `verify-a`): 1 to 256
@@ -309,7 +315,9 @@ warn when no worker is serving the topic.
 
 The server builds the key as `<D>/<yyyy-mm-dd>/<ULID>/<name>`, where `<D>`
 is the domain name with each `/` written as `%2F`, so the domain is always
-exactly one key segment. Without that encoding, domain `acme`'s prefix
+exactly one key segment. These percent signs are literal bytes in the R2 key
+and are encoded again when constructing its S3 URL. Without that encoding,
+domain `acme`'s prefix
 `acme/` would also be the start of every key in domain `acme/pipeline`. The
 caller never supplies a key, so it cannot write outside its domain. `url` is a
 presigned R2 PUT, valid for 1 hour, with `size` signed as its
@@ -355,6 +363,9 @@ Creates an identity and returns its token. This is the only time the token
 is shown, and the server keeps only its SHA-256. `name` matches
 `[a-z0-9-]{1,64}`. For every glob in `own`, the server adds `<glob>/error` to
 `create`, so a worker can always move a broken task out of the way (§6.1).
+This is an append-only expansion of each glob as written. Manually owning
+an error topic does not also grant `create` on that topic; a manual Consume
+into it needs an explicit create grant.
 
 `identity.revoke {name}` → `{}`. The token stops working within 60 seconds:
 the Worker keeps token lookups in memory for up to that long (§7.1). Tasks
@@ -449,6 +460,12 @@ than run it again.
 
 ### 6.1 Worker loop
 
+Automated workers operate only on non-error work topics. Both the worker
+library and `tl worker` refuse topics ending in `/error` before calling Own.
+Error topics are handled manually by operators. A non-operator manually
+owning an error topic needs an explicit `create` grant to Consume into that
+same topic; the automatic glob expansion in §4.13 does not grant it.
+
 ```text
 LEASE = 600 s; RENEW_EVERY = 180 s; MAX_OWNED = 3
 while not stopping:
@@ -496,9 +513,9 @@ worker that gets `too_large` there sends the bounded form instead:
 whole payload serializes to at most 128 KiB. The cut is measured on the
 serialized payload, not on the strings, because escaping in JSON can make a
 string several times longer. So the bounded form always fits, whatever the
-task or the outcome held. `tl identity add` gives every identity `create` on
-`<topic>/error` for each topic it can `own` (§4.13), so this last Consume is
-always allowed.
+task or the outcome held. For each non-error work topic an identity can
+`own`, the glob expansion in §4.13 grants `create` on `<topic>/error`, so
+this automated worker's last Consume is always allowed.
 
 **Replies stay small.** A reply echoes the request's identifying fields only,
 never the whole request data. A request near the size limit would otherwise

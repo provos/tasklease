@@ -208,6 +208,18 @@ hash, domains, scopes as JSON, operator flag, created_at, last_seen_at).
 - `add`, `revoke`, `rotate`, `list`, `whoami` as in spec §4.13–4.14. `add`
   generates the token (32 random bytes, base64url, prefixed `tl_`) and expands
   each `own` glob into a `create` grant on `<glob>/error`.
+- `add` serializes the domain and expanded scope lists once, rejects a
+  combined size above 7 MiB before insertion (spec §3), and reuses those
+  serialized values. This leaves room for other fields below SQLite's row
+  limit.
+- Identity List uses bounded internal RPC pages (at most 100 records and an
+  8 MiB conservative serialized-size budget per page). The Worker streams
+  the same public `{ok: true, identities: [...]}` JSON response with
+  backpressure and cancellation. Neither side assembles the complete list,
+  so individually valid identities cannot overflow RPC's message limit when
+  listed together. These cursors are internal, not part of the wire protocol.
+  Concurrent registry changes can appear between pages; each page is read in
+  one transaction, and the overall list is a best-effort view.
 
 ### 4.4 Token cache
 
@@ -216,12 +228,22 @@ entries kept for 60 seconds. Only found identities are cached. Each isolate
 has its own cache; that is why revocation is "within 60 seconds" rather than
 exact.
 
+The cache also has an 8 MiB conservative retained-byte budget and a 4096-entry
+cap. Charges include UTF-16 string lengths and container overhead. Oversized
+entries still authenticate but are not cached; expired and evicted entries
+release their charges. Large legal scope lists cannot exhaust the isolate
+through cache retention.
+
 ### 4.5 Blob URLs
 
 Presigned with `aws4fetch` against R2's S3 endpoint, using an R2 API token
 (access key ID and secret) stored as Worker secrets. Before signing a GET,
 the Worker checks the object exists through the R2 binding (`head`), so a
 missing blob is `not_found`, not a URL that fails later.
+
+Domain-key encoding follows spec §4.10. Encode each key segment again for
+the S3 URL: a literal `%2F` in the key becomes `%252F` on the wire. The domain
+names `.` and `..` are prohibited (spec §2).
 
 **Size of uploads.** The PUT URL should sign `Content-Length`, so R2 rejects
 an upload of any other size (`403 SignatureDoesNotMatch`). With `aws4fetch`,
@@ -361,8 +383,11 @@ different agent IDs and so different folders. `tl inbox --all` and
 
 ### 5.4 `worker.py`
 
-The generic worker loop from spec §6.1, as a library. A profile supplies two
-objects:
+The generic worker loop from spec §6.1, as a library. The library refuses
+topics ending in `/error` before polling, just as
+`tl worker` does (§5.5). Operators handle error topics manually; a
+non-operator doing so needs explicit create grants for its Consume targets.
+A profile supplies two objects:
 
 ```python
 class Capacity(Protocol):

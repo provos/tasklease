@@ -7,6 +7,7 @@
     "Request": {
       "title": "IdentityAddRequest",
       "type": "object",
+      "$comment": "Runtime validation expands and deduplicates error grants, checks each final scope list has at most 256 entries, and limits combined compact UTF-8 JSON of domains and expanded scopes to 7 MiB before insertion.",
       "properties": {
         "name": {
           "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentityName"

@@ -114,9 +114,46 @@ function validate21(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err3 = {};
+        if (vErrors === null) {
+          vErrors = [err3];
+        } else {
+          vErrors.push(err3);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err4 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err4];
+        } else {
+          vErrors.push(err4);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err3 = {
+          const err5 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -125,14 +162,14 @@ function validate21(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err3];
+            vErrors = [err5];
           } else {
-            vErrors.push(err3);
+            vErrors.push(err5);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err4 = {
+          const err6 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -141,14 +178,14 @@ function validate21(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err4];
+            vErrors = [err6];
           } else {
-            vErrors.push(err4);
+            vErrors.push(err6);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err5 = {
+          const err7 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -156,41 +193,6 @@ function validate21(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err5];
-          } else {
-            vErrors.push(err5);
-          }
-          errors++;
-        }
-      } else {
-        const err6 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err6];
-        } else {
-          vErrors.push(err6);
-        }
-        errors++;
-      }
-    }
-    if (data.key !== void 0) {
-      let data1 = data.key;
-      if (typeof data1 === "string") {
-        if (func1(data1) < 1) {
-          const err7 = {
-            instancePath: instancePath + "/key",
-            schemaPath: "#/properties/key/minLength",
-            keyword: "minLength",
-            params: { limit: 1 },
-            message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
             vErrors = [err7];
@@ -201,8 +203,9 @@ function validate21(
         }
       } else {
         const err8 = {
-          instancePath: instancePath + "/key",
-          schemaPath: "#/properties/key/type",
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -215,8 +218,42 @@ function validate21(
         errors++;
       }
     }
+    if (data.key !== void 0) {
+      let data1 = data.key;
+      if (typeof data1 === "string") {
+        if (func1(data1) < 1) {
+          const err9 = {
+            instancePath: instancePath + "/key",
+            schemaPath: "#/properties/key/minLength",
+            keyword: "minLength",
+            params: { limit: 1 },
+            message: "must NOT have fewer than 1 characters",
+          };
+          if (vErrors === null) {
+            vErrors = [err9];
+          } else {
+            vErrors.push(err9);
+          }
+          errors++;
+        }
+      } else {
+        const err10 = {
+          instancePath: instancePath + "/key",
+          schemaPath: "#/properties/key/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err10];
+        } else {
+          vErrors.push(err10);
+        }
+        errors++;
+      }
+    }
   } else {
-    const err9 = {
+    const err11 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -224,9 +261,9 @@ function validate21(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err9];
+      vErrors = [err11];
     } else {
-      vErrors.push(err9);
+      vErrors.push(err11);
     }
     errors++;
   }
@@ -509,9 +546,46 @@ function validate25(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err5 = {};
+        if (vErrors === null) {
+          vErrors = [err5];
+        } else {
+          vErrors.push(err5);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err6 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err6];
+        } else {
+          vErrors.push(err6);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err5 = {
+          const err7 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -520,14 +594,14 @@ function validate25(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err5];
+            vErrors = [err7];
           } else {
-            vErrors.push(err5);
+            vErrors.push(err7);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err6 = {
+          const err8 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -536,14 +610,14 @@ function validate25(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err6];
+            vErrors = [err8];
           } else {
-            vErrors.push(err6);
+            vErrors.push(err8);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err7 = {
+          const err9 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -553,14 +627,14 @@ function validate25(
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err7];
+            vErrors = [err9];
           } else {
-            vErrors.push(err7);
+            vErrors.push(err9);
           }
           errors++;
         }
       } else {
-        const err8 = {
+        const err10 = {
           instancePath: instancePath + "/domain",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
@@ -569,29 +643,29 @@ function validate25(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err8];
+          vErrors = [err10];
         } else {
-          vErrors.push(err8);
+          vErrors.push(err10);
         }
         errors++;
       }
     }
     if (data.name !== void 0) {
       let data1 = data.name;
-      const _errs7 = errors;
-      const _errs8 = errors;
+      const _errs9 = errors;
+      const _errs10 = errors;
       if (!(data1 === "." || data1 === "..")) {
-        const err9 = {};
+        const err11 = {};
         if (vErrors === null) {
-          vErrors = [err9];
+          vErrors = [err11];
         } else {
-          vErrors.push(err9);
+          vErrors.push(err11);
         }
         errors++;
       }
-      var valid2 = _errs8 === errors;
-      if (valid2) {
-        const err10 = {
+      var valid3 = _errs10 === errors;
+      if (valid3) {
+        const err12 = {
           instancePath: instancePath + "/name",
           schemaPath: "#/properties/name/not",
           keyword: "not",
@@ -599,16 +673,16 @@ function validate25(
           message: "must NOT be valid",
         };
         if (vErrors === null) {
-          vErrors = [err10];
+          vErrors = [err12];
         } else {
-          vErrors.push(err10);
+          vErrors.push(err12);
         }
         errors++;
       } else {
-        errors = _errs7;
+        errors = _errs9;
         if (vErrors !== null) {
-          if (_errs7) {
-            vErrors.length = _errs7;
+          if (_errs9) {
+            vErrors.length = _errs9;
           } else {
             vErrors = null;
           }
@@ -616,7 +690,7 @@ function validate25(
       }
       if (typeof data1 === "string") {
         if (!pattern6.test(data1)) {
-          const err11 = {
+          const err13 = {
             instancePath: instancePath + "/name",
             schemaPath: "#/properties/name/pattern",
             keyword: "pattern",
@@ -624,14 +698,14 @@ function validate25(
             message: 'must match pattern "^[A-Za-z0-9._-]{1,128}(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err11];
+            vErrors = [err13];
           } else {
-            vErrors.push(err11);
+            vErrors.push(err13);
           }
           errors++;
         }
       } else {
-        const err12 = {
+        const err14 = {
           instancePath: instancePath + "/name",
           schemaPath: "#/properties/name/type",
           keyword: "type",
@@ -639,9 +713,9 @@ function validate25(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err12];
+          vErrors = [err14];
         } else {
-          vErrors.push(err12);
+          vErrors.push(err14);
         }
         errors++;
       }
@@ -654,7 +728,7 @@ function validate25(
         !isNaN(data2) &&
         isFinite(data2)
       )) {
-        const err13 = {
+        const err15 = {
           instancePath: instancePath + "/size",
           schemaPath: "#/properties/size/type",
           keyword: "type",
@@ -662,15 +736,15 @@ function validate25(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err13];
+          vErrors = [err15];
         } else {
-          vErrors.push(err13);
+          vErrors.push(err15);
         }
         errors++;
       }
       if (typeof data2 == "number" && isFinite(data2)) {
         if (data2 > 2147483648 || isNaN(data2)) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/size",
             schemaPath: "#/properties/size/maximum",
             keyword: "maximum",
@@ -678,14 +752,14 @@ function validate25(
             message: "must be <= 2147483648",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
         if (data2 < 1 || isNaN(data2)) {
-          const err15 = {
+          const err17 = {
             instancePath: instancePath + "/size",
             schemaPath: "#/properties/size/minimum",
             keyword: "minimum",
@@ -693,9 +767,9 @@ function validate25(
             message: "must be >= 1",
           };
           if (vErrors === null) {
-            vErrors = [err15];
+            vErrors = [err17];
           } else {
-            vErrors.push(err15);
+            vErrors.push(err17);
           }
           errors++;
         }
@@ -705,7 +779,7 @@ function validate25(
       let data3 = data.sha256;
       if (typeof data3 === "string") {
         if (!pattern7.test(data3)) {
-          const err16 = {
+          const err18 = {
             instancePath: instancePath + "/sha256",
             schemaPath: "#/properties/sha256/pattern",
             keyword: "pattern",
@@ -713,14 +787,14 @@ function validate25(
             message: 'must match pattern "^[a-fA-F0-9]{64}(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err16];
+            vErrors = [err18];
           } else {
-            vErrors.push(err16);
+            vErrors.push(err18);
           }
           errors++;
         }
       } else {
-        const err17 = {
+        const err19 = {
           instancePath: instancePath + "/sha256",
           schemaPath: "#/properties/sha256/type",
           keyword: "type",
@@ -728,15 +802,15 @@ function validate25(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err17];
+          vErrors = [err19];
         } else {
-          vErrors.push(err17);
+          vErrors.push(err19);
         }
         errors++;
       }
     }
   } else {
-    const err18 = {
+    const err20 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -744,9 +818,9 @@ function validate25(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err18];
+      vErrors = [err20];
     } else {
-      vErrors.push(err18);
+      vErrors.push(err20);
     }
     errors++;
   }
@@ -1593,9 +1667,46 @@ function validate28(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err5 = {};
+        if (vErrors === null) {
+          vErrors = [err5];
+        } else {
+          vErrors.push(err5);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err6 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err6];
+        } else {
+          vErrors.push(err6);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err5 = {
+          const err7 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -1604,14 +1715,14 @@ function validate28(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err5];
+            vErrors = [err7];
           } else {
-            vErrors.push(err5);
+            vErrors.push(err7);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err6 = {
+          const err8 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -1620,14 +1731,14 @@ function validate28(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err6];
+            vErrors = [err8];
           } else {
-            vErrors.push(err6);
+            vErrors.push(err8);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err7 = {
+          const err9 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -1635,45 +1746,6 @@ function validate28(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err7];
-          } else {
-            vErrors.push(err7);
-          }
-          errors++;
-        }
-      } else {
-        const err8 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err8];
-        } else {
-          vErrors.push(err8);
-        }
-        errors++;
-      }
-    }
-    if (data.topic !== void 0) {
-      let data1 = data.topic;
-      const _errs8 = errors;
-      let valid3 = false;
-      const _errs9 = errors;
-      if (typeof data1 === "string") {
-        if (func1(data1) > 128) {
-          const err9 = {
-            instancePath: instancePath + "/topic",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
-            keyword: "maxLength",
-            params: { limit: 128 },
-            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err9];
@@ -1684,9 +1756,9 @@ function validate28(
         }
       } else {
         const err10 = {
-          instancePath: instancePath + "/topic",
+          instancePath: instancePath + "/domain",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -1698,18 +1770,21 @@ function validate28(
         }
         errors++;
       }
-      var _valid0 = _errs9 === errors;
-      valid3 = valid3 || _valid0;
+    }
+    if (data.topic !== void 0) {
+      let data1 = data.topic;
+      const _errs10 = errors;
+      let valid4 = false;
       const _errs11 = errors;
       if (typeof data1 === "string") {
-        if (!pattern9.test(data1)) {
+        if (func1(data1) > 128) {
           const err11 = {
             instancePath: instancePath + "/topic",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
-            keyword: "pattern",
-            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
-            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
+            keyword: "maxLength",
+            params: { limit: 128 },
+            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err11];
@@ -1722,7 +1797,7 @@ function validate28(
         const err12 = {
           instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -1735,9 +1810,45 @@ function validate28(
         errors++;
       }
       var _valid0 = _errs11 === errors;
-      valid3 = valid3 || _valid0;
-      if (!valid3) {
-        const err13 = {
+      valid4 = valid4 || _valid0;
+      const _errs13 = errors;
+      if (typeof data1 === "string") {
+        if (!pattern9.test(data1)) {
+          const err13 = {
+            instancePath: instancePath + "/topic",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
+            keyword: "pattern",
+            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
+            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err13];
+          } else {
+            vErrors.push(err13);
+          }
+          errors++;
+        }
+      } else {
+        const err14 = {
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err14];
+        } else {
+          vErrors.push(err14);
+        }
+        errors++;
+      }
+      var _valid0 = _errs13 === errors;
+      valid4 = valid4 || _valid0;
+      if (!valid4) {
+        const err15 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf",
@@ -1746,16 +1857,16 @@ function validate28(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err13];
+          vErrors = [err15];
         } else {
-          vErrors.push(err13);
+          vErrors.push(err15);
         }
         errors++;
       } else {
-        errors = _errs8;
+        errors = _errs10;
         if (vErrors !== null) {
-          if (_errs8) {
-            vErrors.length = _errs8;
+          if (_errs10) {
+            vErrors.length = _errs10;
           } else {
             vErrors = null;
           }
@@ -1763,7 +1874,7 @@ function validate28(
       }
       if (typeof data1 === "string") {
         if (func1(data1) > 134) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/maxLength",
@@ -1772,14 +1883,14 @@ function validate28(
             message: "must NOT have more than 134 characters",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err15 = {
+          const err17 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/minLength",
@@ -1788,14 +1899,14 @@ function validate28(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err15];
+            vErrors = [err17];
           } else {
-            vErrors.push(err15);
+            vErrors.push(err17);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err16 = {
+          const err18 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/pattern",
@@ -1803,43 +1914,6 @@ function validate28(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err16];
-          } else {
-            vErrors.push(err16);
-          }
-          errors++;
-        }
-      } else {
-        const err17 = {
-          instancePath: instancePath + "/topic",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err17];
-        } else {
-          vErrors.push(err17);
-        }
-        errors++;
-      }
-    }
-    if (data.id !== void 0) {
-      let data2 = data.id;
-      if (typeof data2 === "string") {
-        if (!pattern11.test(data2)) {
-          const err18 = {
-            instancePath: instancePath + "/id",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TaskId/pattern",
-            keyword: "pattern",
-            params: { pattern: "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])" },
-            message:
-              'must match pattern "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])"',
           };
           if (vErrors === null) {
             vErrors = [err18];
@@ -1850,9 +1924,9 @@ function validate28(
         }
       } else {
         const err19 = {
-          instancePath: instancePath + "/id",
+          instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TaskId/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -1865,11 +1939,48 @@ function validate28(
         errors++;
       }
     }
+    if (data.id !== void 0) {
+      let data2 = data.id;
+      if (typeof data2 === "string") {
+        if (!pattern11.test(data2)) {
+          const err20 = {
+            instancePath: instancePath + "/id",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TaskId/pattern",
+            keyword: "pattern",
+            params: { pattern: "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])" },
+            message:
+              'must match pattern "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err20];
+          } else {
+            vErrors.push(err20);
+          }
+          errors++;
+        }
+      } else {
+        const err21 = {
+          instancePath: instancePath + "/id",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TaskId/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err21];
+        } else {
+          vErrors.push(err21);
+        }
+        errors++;
+      }
+    }
     if (data.tasks !== void 0) {
       let data3 = data.tasks;
       if (Array.isArray(data3)) {
         if (data3.length > 16) {
-          const err20 = {
+          const err22 = {
             instancePath: instancePath + "/tasks",
             schemaPath: "#/properties/tasks/maxItems",
             keyword: "maxItems",
@@ -1877,9 +1988,9 @@ function validate28(
             message: "must NOT have more than 16 items",
           };
           if (vErrors === null) {
-            vErrors = [err20];
+            vErrors = [err22];
           } else {
-            vErrors.push(err20);
+            vErrors.push(err22);
           }
           errors++;
         }
@@ -1902,7 +2013,7 @@ function validate28(
           }
         }
       } else {
-        const err21 = {
+        const err23 = {
           instancePath: instancePath + "/tasks",
           schemaPath: "#/properties/tasks/type",
           keyword: "type",
@@ -1910,15 +2021,15 @@ function validate28(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err21];
+          vErrors = [err23];
         } else {
-          vErrors.push(err21);
+          vErrors.push(err23);
         }
         errors++;
       }
     }
   } else {
-    const err22 = {
+    const err24 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -1926,9 +2037,9 @@ function validate28(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err22];
+      vErrors = [err24];
     } else {
-      vErrors.push(err22);
+      vErrors.push(err24);
     }
     errors++;
   }
@@ -2268,9 +2379,46 @@ function validate37(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err4 = {};
+        if (vErrors === null) {
+          vErrors = [err4];
+        } else {
+          vErrors.push(err4);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err5 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err5];
+        } else {
+          vErrors.push(err5);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err4 = {
+          const err6 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -2279,14 +2427,14 @@ function validate37(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err4];
+            vErrors = [err6];
           } else {
-            vErrors.push(err4);
+            vErrors.push(err6);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err5 = {
+          const err7 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -2295,14 +2443,14 @@ function validate37(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err5];
+            vErrors = [err7];
           } else {
-            vErrors.push(err5);
+            vErrors.push(err7);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err6 = {
+          const err8 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -2310,45 +2458,6 @@ function validate37(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err6];
-          } else {
-            vErrors.push(err6);
-          }
-          errors++;
-        }
-      } else {
-        const err7 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err7];
-        } else {
-          vErrors.push(err7);
-        }
-        errors++;
-      }
-    }
-    if (data.topic !== void 0) {
-      let data1 = data.topic;
-      const _errs8 = errors;
-      let valid3 = false;
-      const _errs9 = errors;
-      if (typeof data1 === "string") {
-        if (func1(data1) > 128) {
-          const err8 = {
-            instancePath: instancePath + "/topic",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
-            keyword: "maxLength",
-            params: { limit: 128 },
-            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err8];
@@ -2359,9 +2468,9 @@ function validate37(
         }
       } else {
         const err9 = {
-          instancePath: instancePath + "/topic",
+          instancePath: instancePath + "/domain",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -2373,18 +2482,21 @@ function validate37(
         }
         errors++;
       }
-      var _valid0 = _errs9 === errors;
-      valid3 = valid3 || _valid0;
+    }
+    if (data.topic !== void 0) {
+      let data1 = data.topic;
+      const _errs10 = errors;
+      let valid4 = false;
       const _errs11 = errors;
       if (typeof data1 === "string") {
-        if (!pattern9.test(data1)) {
+        if (func1(data1) > 128) {
           const err10 = {
             instancePath: instancePath + "/topic",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
-            keyword: "pattern",
-            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
-            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
+            keyword: "maxLength",
+            params: { limit: 128 },
+            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err10];
@@ -2397,7 +2509,7 @@ function validate37(
         const err11 = {
           instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -2410,9 +2522,45 @@ function validate37(
         errors++;
       }
       var _valid0 = _errs11 === errors;
-      valid3 = valid3 || _valid0;
-      if (!valid3) {
-        const err12 = {
+      valid4 = valid4 || _valid0;
+      const _errs13 = errors;
+      if (typeof data1 === "string") {
+        if (!pattern9.test(data1)) {
+          const err12 = {
+            instancePath: instancePath + "/topic",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
+            keyword: "pattern",
+            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
+            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err12];
+          } else {
+            vErrors.push(err12);
+          }
+          errors++;
+        }
+      } else {
+        const err13 = {
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err13];
+        } else {
+          vErrors.push(err13);
+        }
+        errors++;
+      }
+      var _valid0 = _errs13 === errors;
+      valid4 = valid4 || _valid0;
+      if (!valid4) {
+        const err14 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf",
@@ -2421,16 +2569,16 @@ function validate37(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err12];
+          vErrors = [err14];
         } else {
-          vErrors.push(err12);
+          vErrors.push(err14);
         }
         errors++;
       } else {
-        errors = _errs8;
+        errors = _errs10;
         if (vErrors !== null) {
-          if (_errs8) {
-            vErrors.length = _errs8;
+          if (_errs10) {
+            vErrors.length = _errs10;
           } else {
             vErrors = null;
           }
@@ -2438,7 +2586,7 @@ function validate37(
       }
       if (typeof data1 === "string") {
         if (func1(data1) > 134) {
-          const err13 = {
+          const err15 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/maxLength",
@@ -2447,14 +2595,14 @@ function validate37(
             message: "must NOT have more than 134 characters",
           };
           if (vErrors === null) {
-            vErrors = [err13];
+            vErrors = [err15];
           } else {
-            vErrors.push(err13);
+            vErrors.push(err15);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/minLength",
@@ -2463,14 +2611,14 @@ function validate37(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err15 = {
+          const err17 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/pattern",
@@ -2480,14 +2628,14 @@ function validate37(
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err15];
+            vErrors = [err17];
           } else {
-            vErrors.push(err15);
+            vErrors.push(err17);
           }
           errors++;
         }
       } else {
-        const err16 = {
+        const err18 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
@@ -2496,9 +2644,9 @@ function validate37(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err16];
+          vErrors = [err18];
         } else {
-          vErrors.push(err16);
+          vErrors.push(err18);
         }
         errors++;
       }
@@ -2521,7 +2669,7 @@ function validate37(
       }
     }
   } else {
-    const err17 = {
+    const err19 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -2529,9 +2677,9 @@ function validate37(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err17];
+      vErrors = [err19];
     } else {
-      vErrors.push(err17);
+      vErrors.push(err19);
     }
     errors++;
   }
@@ -2773,9 +2921,46 @@ function validate43(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err4 = {};
+        if (vErrors === null) {
+          vErrors = [err4];
+        } else {
+          vErrors.push(err4);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err5 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err5];
+        } else {
+          vErrors.push(err5);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err4 = {
+          const err6 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -2784,14 +2969,14 @@ function validate43(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err4];
+            vErrors = [err6];
           } else {
-            vErrors.push(err4);
+            vErrors.push(err6);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err5 = {
+          const err7 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -2800,14 +2985,14 @@ function validate43(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err5];
+            vErrors = [err7];
           } else {
-            vErrors.push(err5);
+            vErrors.push(err7);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err6 = {
+          const err8 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -2815,45 +3000,6 @@ function validate43(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err6];
-          } else {
-            vErrors.push(err6);
-          }
-          errors++;
-        }
-      } else {
-        const err7 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err7];
-        } else {
-          vErrors.push(err7);
-        }
-        errors++;
-      }
-    }
-    if (data.topic !== void 0) {
-      let data1 = data.topic;
-      const _errs8 = errors;
-      let valid3 = false;
-      const _errs9 = errors;
-      if (typeof data1 === "string") {
-        if (func1(data1) > 128) {
-          const err8 = {
-            instancePath: instancePath + "/topic",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
-            keyword: "maxLength",
-            params: { limit: 128 },
-            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err8];
@@ -2864,9 +3010,9 @@ function validate43(
         }
       } else {
         const err9 = {
-          instancePath: instancePath + "/topic",
+          instancePath: instancePath + "/domain",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -2878,18 +3024,21 @@ function validate43(
         }
         errors++;
       }
-      var _valid0 = _errs9 === errors;
-      valid3 = valid3 || _valid0;
+    }
+    if (data.topic !== void 0) {
+      let data1 = data.topic;
+      const _errs10 = errors;
+      let valid4 = false;
       const _errs11 = errors;
       if (typeof data1 === "string") {
-        if (!pattern9.test(data1)) {
+        if (func1(data1) > 128) {
           const err10 = {
             instancePath: instancePath + "/topic",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
-            keyword: "pattern",
-            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
-            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
+            keyword: "maxLength",
+            params: { limit: 128 },
+            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err10];
@@ -2902,7 +3051,7 @@ function validate43(
         const err11 = {
           instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -2915,9 +3064,45 @@ function validate43(
         errors++;
       }
       var _valid0 = _errs11 === errors;
-      valid3 = valid3 || _valid0;
-      if (!valid3) {
-        const err12 = {
+      valid4 = valid4 || _valid0;
+      const _errs13 = errors;
+      if (typeof data1 === "string") {
+        if (!pattern9.test(data1)) {
+          const err12 = {
+            instancePath: instancePath + "/topic",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
+            keyword: "pattern",
+            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
+            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err12];
+          } else {
+            vErrors.push(err12);
+          }
+          errors++;
+        }
+      } else {
+        const err13 = {
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err13];
+        } else {
+          vErrors.push(err13);
+        }
+        errors++;
+      }
+      var _valid0 = _errs13 === errors;
+      valid4 = valid4 || _valid0;
+      if (!valid4) {
+        const err14 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf",
@@ -2926,16 +3111,16 @@ function validate43(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err12];
+          vErrors = [err14];
         } else {
-          vErrors.push(err12);
+          vErrors.push(err14);
         }
         errors++;
       } else {
-        errors = _errs8;
+        errors = _errs10;
         if (vErrors !== null) {
-          if (_errs8) {
-            vErrors.length = _errs8;
+          if (_errs10) {
+            vErrors.length = _errs10;
           } else {
             vErrors = null;
           }
@@ -2943,7 +3128,7 @@ function validate43(
       }
       if (typeof data1 === "string") {
         if (func1(data1) > 134) {
-          const err13 = {
+          const err15 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/maxLength",
@@ -2952,14 +3137,14 @@ function validate43(
             message: "must NOT have more than 134 characters",
           };
           if (vErrors === null) {
-            vErrors = [err13];
+            vErrors = [err15];
           } else {
-            vErrors.push(err13);
+            vErrors.push(err15);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/minLength",
@@ -2968,14 +3153,14 @@ function validate43(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err15 = {
+          const err17 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/pattern",
@@ -2983,43 +3168,6 @@ function validate43(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err15];
-          } else {
-            vErrors.push(err15);
-          }
-          errors++;
-        }
-      } else {
-        const err16 = {
-          instancePath: instancePath + "/topic",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err16];
-        } else {
-          vErrors.push(err16);
-        }
-        errors++;
-      }
-    }
-    if (data.id !== void 0) {
-      let data2 = data.id;
-      if (typeof data2 === "string") {
-        if (!pattern11.test(data2)) {
-          const err17 = {
-            instancePath: instancePath + "/id",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TaskId/pattern",
-            keyword: "pattern",
-            params: { pattern: "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])" },
-            message:
-              'must match pattern "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])"',
           };
           if (vErrors === null) {
             vErrors = [err17];
@@ -3030,9 +3178,9 @@ function validate43(
         }
       } else {
         const err18 = {
-          instancePath: instancePath + "/id",
+          instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TaskId/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -3045,8 +3193,45 @@ function validate43(
         errors++;
       }
     }
+    if (data.id !== void 0) {
+      let data2 = data.id;
+      if (typeof data2 === "string") {
+        if (!pattern11.test(data2)) {
+          const err19 = {
+            instancePath: instancePath + "/id",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TaskId/pattern",
+            keyword: "pattern",
+            params: { pattern: "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])" },
+            message:
+              'must match pattern "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err19];
+          } else {
+            vErrors.push(err19);
+          }
+          errors++;
+        }
+      } else {
+        const err20 = {
+          instancePath: instancePath + "/id",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TaskId/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err20];
+        } else {
+          vErrors.push(err20);
+        }
+        errors++;
+      }
+    }
   } else {
-    const err19 = {
+    const err21 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -3054,9 +3239,9 @@ function validate43(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err19];
+      vErrors = [err21];
     } else {
-      vErrors.push(err19);
+      vErrors.push(err21);
     }
     errors++;
   }
@@ -3704,9 +3889,46 @@ function validate46(
         const len0 = data1.length;
         for (let i0 = 0; i0 < len0; i0++) {
           let data2 = data1[i0];
+          const _errs11 = errors;
+          const _errs12 = errors;
+          if (!(data2 === "." || data2 === "..")) {
+            const err8 = {};
+            if (vErrors === null) {
+              vErrors = [err8];
+            } else {
+              vErrors.push(err8);
+            }
+            errors++;
+          }
+          var valid5 = _errs12 === errors;
+          if (valid5) {
+            const err9 = {
+              instancePath: instancePath + "/domains/" + i0,
+              schemaPath:
+                "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+              keyword: "not",
+              params: {},
+              message: "must NOT be valid",
+            };
+            if (vErrors === null) {
+              vErrors = [err9];
+            } else {
+              vErrors.push(err9);
+            }
+            errors++;
+          } else {
+            errors = _errs11;
+            if (vErrors !== null) {
+              if (_errs11) {
+                vErrors.length = _errs11;
+              } else {
+                vErrors = null;
+              }
+            }
+          }
           if (typeof data2 === "string") {
             if (func1(data2) > 256) {
-              const err8 = {
+              const err10 = {
                 instancePath: instancePath + "/domains/" + i0,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -3715,14 +3937,14 @@ function validate46(
                 message: "must NOT have more than 256 characters",
               };
               if (vErrors === null) {
-                vErrors = [err8];
+                vErrors = [err10];
               } else {
-                vErrors.push(err8);
+                vErrors.push(err10);
               }
               errors++;
             }
             if (func1(data2) < 1) {
-              const err9 = {
+              const err11 = {
                 instancePath: instancePath + "/domains/" + i0,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -3731,14 +3953,14 @@ function validate46(
                 message: "must NOT have fewer than 1 characters",
               };
               if (vErrors === null) {
-                vErrors = [err9];
+                vErrors = [err11];
               } else {
-                vErrors.push(err9);
+                vErrors.push(err11);
               }
               errors++;
             }
             if (!pattern4.test(data2)) {
-              const err10 = {
+              const err12 = {
                 instancePath: instancePath + "/domains/" + i0,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -3750,14 +3972,14 @@ function validate46(
                   'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
               };
               if (vErrors === null) {
-                vErrors = [err10];
+                vErrors = [err12];
               } else {
-                vErrors.push(err10);
+                vErrors.push(err12);
               }
               errors++;
             }
           } else {
-            const err11 = {
+            const err13 = {
               instancePath: instancePath + "/domains/" + i0,
               schemaPath:
                 "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
@@ -3766,15 +3988,15 @@ function validate46(
               message: "must be string",
             };
             if (vErrors === null) {
-              vErrors = [err11];
+              vErrors = [err13];
             } else {
-              vErrors.push(err11);
+              vErrors.push(err13);
             }
             errors++;
           }
         }
       } else {
-        const err12 = {
+        const err14 = {
           instancePath: instancePath + "/domains",
           schemaPath: "#/properties/domains/type",
           keyword: "type",
@@ -3782,9 +4004,9 @@ function validate46(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err12];
+          vErrors = [err14];
         } else {
-          vErrors.push(err12);
+          vErrors.push(err14);
         }
         errors++;
       }
@@ -3808,7 +4030,7 @@ function validate46(
     }
     if (data.operator !== void 0) {
       if (typeof data.operator !== "boolean") {
-        const err13 = {
+        const err15 = {
           instancePath: instancePath + "/operator",
           schemaPath: "#/properties/operator/type",
           keyword: "type",
@@ -3816,15 +4038,15 @@ function validate46(
           message: "must be boolean",
         };
         if (vErrors === null) {
-          vErrors = [err13];
+          vErrors = [err15];
         } else {
-          vErrors.push(err13);
+          vErrors.push(err15);
         }
         errors++;
       }
     }
   } else {
-    const err14 = {
+    const err16 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -3832,9 +4054,9 @@ function validate46(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err14];
+      vErrors = [err16];
     } else {
-      vErrors.push(err14);
+      vErrors.push(err16);
     }
     errors++;
   }
@@ -4669,9 +4891,46 @@ function validate53(
         const len0 = data1.length;
         for (let i0 = 0; i0 < len0; i0++) {
           let data2 = data1[i0];
+          const _errs10 = errors;
+          const _errs11 = errors;
+          if (!(data2 === "." || data2 === "..")) {
+            const err10 = {};
+            if (vErrors === null) {
+              vErrors = [err10];
+            } else {
+              vErrors.push(err10);
+            }
+            errors++;
+          }
+          var valid5 = _errs11 === errors;
+          if (valid5) {
+            const err11 = {
+              instancePath: instancePath + "/domains/" + i0,
+              schemaPath:
+                "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+              keyword: "not",
+              params: {},
+              message: "must NOT be valid",
+            };
+            if (vErrors === null) {
+              vErrors = [err11];
+            } else {
+              vErrors.push(err11);
+            }
+            errors++;
+          } else {
+            errors = _errs10;
+            if (vErrors !== null) {
+              if (_errs10) {
+                vErrors.length = _errs10;
+              } else {
+                vErrors = null;
+              }
+            }
+          }
           if (typeof data2 === "string") {
             if (func1(data2) > 256) {
-              const err10 = {
+              const err12 = {
                 instancePath: instancePath + "/domains/" + i0,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -4680,14 +4939,14 @@ function validate53(
                 message: "must NOT have more than 256 characters",
               };
               if (vErrors === null) {
-                vErrors = [err10];
+                vErrors = [err12];
               } else {
-                vErrors.push(err10);
+                vErrors.push(err12);
               }
               errors++;
             }
             if (func1(data2) < 1) {
-              const err11 = {
+              const err13 = {
                 instancePath: instancePath + "/domains/" + i0,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -4696,14 +4955,14 @@ function validate53(
                 message: "must NOT have fewer than 1 characters",
               };
               if (vErrors === null) {
-                vErrors = [err11];
+                vErrors = [err13];
               } else {
-                vErrors.push(err11);
+                vErrors.push(err13);
               }
               errors++;
             }
             if (!pattern4.test(data2)) {
-              const err12 = {
+              const err14 = {
                 instancePath: instancePath + "/domains/" + i0,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -4715,14 +4974,14 @@ function validate53(
                   'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
               };
               if (vErrors === null) {
-                vErrors = [err12];
+                vErrors = [err14];
               } else {
-                vErrors.push(err12);
+                vErrors.push(err14);
               }
               errors++;
             }
           } else {
-            const err13 = {
+            const err15 = {
               instancePath: instancePath + "/domains/" + i0,
               schemaPath:
                 "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
@@ -4731,15 +4990,15 @@ function validate53(
               message: "must be string",
             };
             if (vErrors === null) {
-              vErrors = [err13];
+              vErrors = [err15];
             } else {
-              vErrors.push(err13);
+              vErrors.push(err15);
             }
             errors++;
           }
         }
       } else {
-        const err14 = {
+        const err16 = {
           instancePath: instancePath + "/domains",
           schemaPath: "#/properties/domains/type",
           keyword: "type",
@@ -4747,9 +5006,9 @@ function validate53(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err14];
+          vErrors = [err16];
         } else {
-          vErrors.push(err14);
+          vErrors.push(err16);
         }
         errors++;
       }
@@ -4773,7 +5032,7 @@ function validate53(
     }
     if (data.operator !== void 0) {
       if (typeof data.operator !== "boolean") {
-        const err15 = {
+        const err17 = {
           instancePath: instancePath + "/operator",
           schemaPath: "#/properties/operator/type",
           keyword: "type",
@@ -4781,9 +5040,9 @@ function validate53(
           message: "must be boolean",
         };
         if (vErrors === null) {
-          vErrors = [err15];
+          vErrors = [err17];
         } else {
-          vErrors.push(err15);
+          vErrors.push(err17);
         }
         errors++;
       }
@@ -4796,7 +5055,7 @@ function validate53(
         !isNaN(data5) &&
         isFinite(data5)
       )) {
-        const err16 = {
+        const err18 = {
           instancePath: instancePath + "/created_at",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
@@ -4805,25 +5064,25 @@ function validate53(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err16];
+          vErrors = [err18];
         } else {
-          vErrors.push(err16);
+          vErrors.push(err18);
         }
         errors++;
       }
     }
     if (data.last_seen_at !== void 0) {
       let data6 = data.last_seen_at;
-      const _errs17 = errors;
-      let valid6 = false;
-      const _errs18 = errors;
+      const _errs19 = errors;
+      let valid7 = false;
+      const _errs20 = errors;
       if (!(
         typeof data6 == "number" &&
         !(data6 % 1) &&
         !isNaN(data6) &&
         isFinite(data6)
       )) {
-        const err17 = {
+        const err19 = {
           instancePath: instancePath + "/last_seen_at",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
@@ -4832,17 +5091,17 @@ function validate53(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err17];
+          vErrors = [err19];
         } else {
-          vErrors.push(err17);
+          vErrors.push(err19);
         }
         errors++;
       }
-      var _valid0 = _errs18 === errors;
-      valid6 = valid6 || _valid0;
-      const _errs21 = errors;
+      var _valid0 = _errs20 === errors;
+      valid7 = valid7 || _valid0;
+      const _errs23 = errors;
       if (data6 !== null) {
-        const err18 = {
+        const err20 = {
           instancePath: instancePath + "/last_seen_at",
           schemaPath: "#/properties/last_seen_at/anyOf/1/type",
           keyword: "type",
@@ -4850,16 +5109,16 @@ function validate53(
           message: "must be null",
         };
         if (vErrors === null) {
-          vErrors = [err18];
+          vErrors = [err20];
         } else {
-          vErrors.push(err18);
+          vErrors.push(err20);
         }
         errors++;
       }
-      var _valid0 = _errs21 === errors;
-      valid6 = valid6 || _valid0;
-      if (!valid6) {
-        const err19 = {
+      var _valid0 = _errs23 === errors;
+      valid7 = valid7 || _valid0;
+      if (!valid7) {
+        const err21 = {
           instancePath: instancePath + "/last_seen_at",
           schemaPath: "#/properties/last_seen_at/anyOf",
           keyword: "anyOf",
@@ -4867,16 +5126,16 @@ function validate53(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err19];
+          vErrors = [err21];
         } else {
-          vErrors.push(err19);
+          vErrors.push(err21);
         }
         errors++;
       } else {
-        errors = _errs17;
+        errors = _errs19;
         if (vErrors !== null) {
-          if (_errs17) {
-            vErrors.length = _errs17;
+          if (_errs19) {
+            vErrors.length = _errs19;
           } else {
             vErrors = null;
           }
@@ -4884,7 +5143,7 @@ function validate53(
       }
     }
   } else {
-    const err20 = {
+    const err22 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -4892,9 +5151,9 @@ function validate53(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err20];
+      vErrors = [err22];
     } else {
-      vErrors.push(err20);
+      vErrors.push(err22);
     }
     errors++;
   }
@@ -6139,9 +6398,46 @@ function validate65(
         const len0 = data2.length;
         for (let i0 = 0; i0 < len0; i0++) {
           let data3 = data2[i0];
+          const _errs11 = errors;
+          const _errs12 = errors;
+          if (!(data3 === "." || data3 === "..")) {
+            const err10 = {};
+            if (vErrors === null) {
+              vErrors = [err10];
+            } else {
+              vErrors.push(err10);
+            }
+            errors++;
+          }
+          var valid5 = _errs12 === errors;
+          if (valid5) {
+            const err11 = {
+              instancePath: instancePath + "/domains/" + i0,
+              schemaPath:
+                "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+              keyword: "not",
+              params: {},
+              message: "must NOT be valid",
+            };
+            if (vErrors === null) {
+              vErrors = [err11];
+            } else {
+              vErrors.push(err11);
+            }
+            errors++;
+          } else {
+            errors = _errs11;
+            if (vErrors !== null) {
+              if (_errs11) {
+                vErrors.length = _errs11;
+              } else {
+                vErrors = null;
+              }
+            }
+          }
           if (typeof data3 === "string") {
             if (func1(data3) > 256) {
-              const err10 = {
+              const err12 = {
                 instancePath: instancePath + "/domains/" + i0,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -6150,14 +6446,14 @@ function validate65(
                 message: "must NOT have more than 256 characters",
               };
               if (vErrors === null) {
-                vErrors = [err10];
+                vErrors = [err12];
               } else {
-                vErrors.push(err10);
+                vErrors.push(err12);
               }
               errors++;
             }
             if (func1(data3) < 1) {
-              const err11 = {
+              const err13 = {
                 instancePath: instancePath + "/domains/" + i0,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -6166,14 +6462,14 @@ function validate65(
                 message: "must NOT have fewer than 1 characters",
               };
               if (vErrors === null) {
-                vErrors = [err11];
+                vErrors = [err13];
               } else {
-                vErrors.push(err11);
+                vErrors.push(err13);
               }
               errors++;
             }
             if (!pattern4.test(data3)) {
-              const err12 = {
+              const err14 = {
                 instancePath: instancePath + "/domains/" + i0,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -6185,14 +6481,14 @@ function validate65(
                   'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
               };
               if (vErrors === null) {
-                vErrors = [err12];
+                vErrors = [err14];
               } else {
-                vErrors.push(err12);
+                vErrors.push(err14);
               }
               errors++;
             }
           } else {
-            const err13 = {
+            const err15 = {
               instancePath: instancePath + "/domains/" + i0,
               schemaPath:
                 "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
@@ -6201,15 +6497,15 @@ function validate65(
               message: "must be string",
             };
             if (vErrors === null) {
-              vErrors = [err13];
+              vErrors = [err15];
             } else {
-              vErrors.push(err13);
+              vErrors.push(err15);
             }
             errors++;
           }
         }
       } else {
-        const err14 = {
+        const err16 = {
           instancePath: instancePath + "/domains",
           schemaPath: "#/properties/domains/type",
           keyword: "type",
@@ -6217,9 +6513,9 @@ function validate65(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err14];
+          vErrors = [err16];
         } else {
-          vErrors.push(err14);
+          vErrors.push(err16);
         }
         errors++;
       }
@@ -6243,7 +6539,7 @@ function validate65(
     }
     if (data.operator !== void 0) {
       if (typeof data.operator !== "boolean") {
-        const err15 = {
+        const err17 = {
           instancePath: instancePath + "/operator",
           schemaPath: "#/properties/operator/type",
           keyword: "type",
@@ -6251,15 +6547,15 @@ function validate65(
           message: "must be boolean",
         };
         if (vErrors === null) {
-          vErrors = [err15];
+          vErrors = [err17];
         } else {
-          vErrors.push(err15);
+          vErrors.push(err17);
         }
         errors++;
       }
     }
   } else {
-    const err16 = {
+    const err18 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -6267,9 +6563,9 @@ function validate65(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err16];
+      vErrors = [err18];
     } else {
-      vErrors.push(err16);
+      vErrors.push(err18);
     }
     errors++;
   }
@@ -6336,9 +6632,46 @@ function validate69(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err2 = {};
+        if (vErrors === null) {
+          vErrors = [err2];
+        } else {
+          vErrors.push(err2);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err3 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err3];
+        } else {
+          vErrors.push(err3);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err2 = {
+          const err4 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -6347,14 +6680,14 @@ function validate69(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err2];
+            vErrors = [err4];
           } else {
-            vErrors.push(err2);
+            vErrors.push(err4);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err3 = {
+          const err5 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -6363,14 +6696,14 @@ function validate69(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err3];
+            vErrors = [err5];
           } else {
-            vErrors.push(err3);
+            vErrors.push(err5);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err4 = {
+          const err6 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -6380,14 +6713,14 @@ function validate69(
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err4];
+            vErrors = [err6];
           } else {
-            vErrors.push(err4);
+            vErrors.push(err6);
           }
           errors++;
         }
       } else {
-        const err5 = {
+        const err7 = {
           instancePath: instancePath + "/domain",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
@@ -6396,9 +6729,9 @@ function validate69(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err5];
+          vErrors = [err7];
         } else {
-          vErrors.push(err5);
+          vErrors.push(err7);
         }
         errors++;
       }
@@ -6411,7 +6744,7 @@ function validate69(
         !isNaN(data1) &&
         isFinite(data1)
       )) {
-        const err6 = {
+        const err8 = {
           instancePath: instancePath + "/hours",
           schemaPath: "#/properties/hours/type",
           keyword: "type",
@@ -6419,15 +6752,15 @@ function validate69(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err6];
+          vErrors = [err8];
         } else {
-          vErrors.push(err6);
+          vErrors.push(err8);
         }
         errors++;
       }
       if (typeof data1 == "number" && isFinite(data1)) {
         if (data1 > 720 || isNaN(data1)) {
-          const err7 = {
+          const err9 = {
             instancePath: instancePath + "/hours",
             schemaPath: "#/properties/hours/maximum",
             keyword: "maximum",
@@ -6435,14 +6768,14 @@ function validate69(
             message: "must be <= 720",
           };
           if (vErrors === null) {
-            vErrors = [err7];
+            vErrors = [err9];
           } else {
-            vErrors.push(err7);
+            vErrors.push(err9);
           }
           errors++;
         }
         if (data1 < 1 || isNaN(data1)) {
-          const err8 = {
+          const err10 = {
             instancePath: instancePath + "/hours",
             schemaPath: "#/properties/hours/minimum",
             keyword: "minimum",
@@ -6450,16 +6783,16 @@ function validate69(
             message: "must be >= 1",
           };
           if (vErrors === null) {
-            vErrors = [err8];
+            vErrors = [err10];
           } else {
-            vErrors.push(err8);
+            vErrors.push(err10);
           }
           errors++;
         }
       }
     }
   } else {
-    const err9 = {
+    const err11 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -6467,9 +6800,9 @@ function validate69(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err9];
+      vErrors = [err11];
     } else {
-      vErrors.push(err9);
+      vErrors.push(err11);
     }
     errors++;
   }
@@ -9281,9 +9614,46 @@ function validate70(
     }
     if (data.domain !== void 0) {
       let data1 = data.domain;
+      const _errs6 = errors;
+      const _errs7 = errors;
+      if (!(data1 === "." || data1 === "..")) {
+        const err7 = {};
+        if (vErrors === null) {
+          vErrors = [err7];
+        } else {
+          vErrors.push(err7);
+        }
+        errors++;
+      }
+      var valid2 = _errs7 === errors;
+      if (valid2) {
+        const err8 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err8];
+        } else {
+          vErrors.push(err8);
+        }
+        errors++;
+      } else {
+        errors = _errs6;
+        if (vErrors !== null) {
+          if (_errs6) {
+            vErrors.length = _errs6;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data1 === "string") {
         if (func1(data1) > 256) {
-          const err7 = {
+          const err9 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -9292,14 +9662,14 @@ function validate70(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err7];
+            vErrors = [err9];
           } else {
-            vErrors.push(err7);
+            vErrors.push(err9);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err8 = {
+          const err10 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -9308,14 +9678,14 @@ function validate70(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err8];
+            vErrors = [err10];
           } else {
-            vErrors.push(err8);
+            vErrors.push(err10);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err9 = {
+          const err11 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -9325,14 +9695,14 @@ function validate70(
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err9];
+            vErrors = [err11];
           } else {
-            vErrors.push(err9);
+            vErrors.push(err11);
           }
           errors++;
         }
       } else {
-        const err10 = {
+        const err12 = {
           instancePath: instancePath + "/domain",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
@@ -9341,9 +9711,9 @@ function validate70(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err10];
+          vErrors = [err12];
         } else {
-          vErrors.push(err10);
+          vErrors.push(err12);
         }
         errors++;
       }
@@ -9356,7 +9726,7 @@ function validate70(
         !isNaN(data2) &&
         isFinite(data2)
       )) {
-        const err11 = {
+        const err13 = {
           instancePath: instancePath + "/generated_at",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
@@ -9365,9 +9735,9 @@ function validate70(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err11];
+          vErrors = [err13];
         } else {
-          vErrors.push(err11);
+          vErrors.push(err13);
         }
         errors++;
       }
@@ -9394,7 +9764,7 @@ function validate70(
           }
         }
       } else {
-        const err12 = {
+        const err14 = {
           instancePath: instancePath + "/topics",
           schemaPath: "#/properties/topics/type",
           keyword: "type",
@@ -9402,9 +9772,9 @@ function validate70(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err12];
+          vErrors = [err14];
         } else {
-          vErrors.push(err12);
+          vErrors.push(err14);
         }
         errors++;
       }
@@ -9431,7 +9801,7 @@ function validate70(
           }
         }
       } else {
-        const err13 = {
+        const err15 = {
           instancePath: instancePath + "/stats",
           schemaPath: "#/properties/stats/type",
           keyword: "type",
@@ -9439,15 +9809,15 @@ function validate70(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err13];
+          vErrors = [err15];
         } else {
-          vErrors.push(err13);
+          vErrors.push(err15);
         }
         errors++;
       }
     }
   } else {
-    const err14 = {
+    const err16 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -9455,9 +9825,9 @@ function validate70(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err14];
+      vErrors = [err16];
     } else {
-      vErrors.push(err14);
+      vErrors.push(err16);
     }
     errors++;
   }
@@ -9554,9 +9924,46 @@ function validate82(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err4 = {};
+        if (vErrors === null) {
+          vErrors = [err4];
+        } else {
+          vErrors.push(err4);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err5 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err5];
+        } else {
+          vErrors.push(err5);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err4 = {
+          const err6 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -9565,14 +9972,14 @@ function validate82(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err4];
+            vErrors = [err6];
           } else {
-            vErrors.push(err4);
+            vErrors.push(err6);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err5 = {
+          const err7 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -9581,14 +9988,14 @@ function validate82(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err5];
+            vErrors = [err7];
           } else {
-            vErrors.push(err5);
+            vErrors.push(err7);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err6 = {
+          const err8 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -9596,45 +10003,6 @@ function validate82(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err6];
-          } else {
-            vErrors.push(err6);
-          }
-          errors++;
-        }
-      } else {
-        const err7 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err7];
-        } else {
-          vErrors.push(err7);
-        }
-        errors++;
-      }
-    }
-    if (data.topic !== void 0) {
-      let data1 = data.topic;
-      const _errs8 = errors;
-      let valid3 = false;
-      const _errs9 = errors;
-      if (typeof data1 === "string") {
-        if (func1(data1) > 128) {
-          const err8 = {
-            instancePath: instancePath + "/topic",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
-            keyword: "maxLength",
-            params: { limit: 128 },
-            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err8];
@@ -9645,9 +10013,9 @@ function validate82(
         }
       } else {
         const err9 = {
-          instancePath: instancePath + "/topic",
+          instancePath: instancePath + "/domain",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -9659,18 +10027,21 @@ function validate82(
         }
         errors++;
       }
-      var _valid0 = _errs9 === errors;
-      valid3 = valid3 || _valid0;
+    }
+    if (data.topic !== void 0) {
+      let data1 = data.topic;
+      const _errs10 = errors;
+      let valid4 = false;
       const _errs11 = errors;
       if (typeof data1 === "string") {
-        if (!pattern9.test(data1)) {
+        if (func1(data1) > 128) {
           const err10 = {
             instancePath: instancePath + "/topic",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
-            keyword: "pattern",
-            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
-            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
+            keyword: "maxLength",
+            params: { limit: 128 },
+            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err10];
@@ -9683,7 +10054,7 @@ function validate82(
         const err11 = {
           instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -9696,9 +10067,45 @@ function validate82(
         errors++;
       }
       var _valid0 = _errs11 === errors;
-      valid3 = valid3 || _valid0;
-      if (!valid3) {
-        const err12 = {
+      valid4 = valid4 || _valid0;
+      const _errs13 = errors;
+      if (typeof data1 === "string") {
+        if (!pattern9.test(data1)) {
+          const err12 = {
+            instancePath: instancePath + "/topic",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
+            keyword: "pattern",
+            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
+            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err12];
+          } else {
+            vErrors.push(err12);
+          }
+          errors++;
+        }
+      } else {
+        const err13 = {
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err13];
+        } else {
+          vErrors.push(err13);
+        }
+        errors++;
+      }
+      var _valid0 = _errs13 === errors;
+      valid4 = valid4 || _valid0;
+      if (!valid4) {
+        const err14 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf",
@@ -9707,16 +10114,16 @@ function validate82(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err12];
+          vErrors = [err14];
         } else {
-          vErrors.push(err12);
+          vErrors.push(err14);
         }
         errors++;
       } else {
-        errors = _errs8;
+        errors = _errs10;
         if (vErrors !== null) {
-          if (_errs8) {
-            vErrors.length = _errs8;
+          if (_errs10) {
+            vErrors.length = _errs10;
           } else {
             vErrors = null;
           }
@@ -9724,7 +10131,7 @@ function validate82(
       }
       if (typeof data1 === "string") {
         if (func1(data1) > 134) {
-          const err13 = {
+          const err15 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/maxLength",
@@ -9733,14 +10140,14 @@ function validate82(
             message: "must NOT have more than 134 characters",
           };
           if (vErrors === null) {
-            vErrors = [err13];
+            vErrors = [err15];
           } else {
-            vErrors.push(err13);
+            vErrors.push(err15);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/minLength",
@@ -9749,14 +10156,14 @@ function validate82(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err15 = {
+          const err17 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/pattern",
@@ -9766,14 +10173,14 @@ function validate82(
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err15];
+            vErrors = [err17];
           } else {
-            vErrors.push(err15);
+            vErrors.push(err17);
           }
           errors++;
         }
       } else {
-        const err16 = {
+        const err18 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
@@ -9782,9 +10189,9 @@ function validate82(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err16];
+          vErrors = [err18];
         } else {
-          vErrors.push(err16);
+          vErrors.push(err18);
         }
         errors++;
       }
@@ -9797,7 +10204,7 @@ function validate82(
         !isNaN(data2) &&
         isFinite(data2)
       )) {
-        const err17 = {
+        const err19 = {
           instancePath: instancePath + "/hold_seconds",
           schemaPath: "#/properties/hold_seconds/type",
           keyword: "type",
@@ -9805,15 +10212,15 @@ function validate82(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err17];
+          vErrors = [err19];
         } else {
-          vErrors.push(err17);
+          vErrors.push(err19);
         }
         errors++;
       }
       if (typeof data2 == "number" && isFinite(data2)) {
         if (data2 > 86400 || isNaN(data2)) {
-          const err18 = {
+          const err20 = {
             instancePath: instancePath + "/hold_seconds",
             schemaPath: "#/properties/hold_seconds/maximum",
             keyword: "maximum",
@@ -9821,14 +10228,14 @@ function validate82(
             message: "must be <= 86400",
           };
           if (vErrors === null) {
-            vErrors = [err18];
+            vErrors = [err20];
           } else {
-            vErrors.push(err18);
+            vErrors.push(err20);
           }
           errors++;
         }
         if (data2 < 1 || isNaN(data2)) {
-          const err19 = {
+          const err21 = {
             instancePath: instancePath + "/hold_seconds",
             schemaPath: "#/properties/hold_seconds/minimum",
             keyword: "minimum",
@@ -9836,16 +10243,16 @@ function validate82(
             message: "must be >= 1",
           };
           if (vErrors === null) {
-            vErrors = [err19];
+            vErrors = [err21];
           } else {
-            vErrors.push(err19);
+            vErrors.push(err21);
           }
           errors++;
         }
       }
     }
   } else {
-    const err20 = {
+    const err22 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -9853,9 +10260,9 @@ function validate82(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err20];
+      vErrors = [err22];
     } else {
-      vErrors.push(err20);
+      vErrors.push(err22);
     }
     errors++;
   }
@@ -10143,9 +10550,46 @@ function validate84(
     }
     if (data.domain !== void 0) {
       let data1 = data.domain;
+      const _errs8 = errors;
+      const _errs9 = errors;
+      if (!(data1 === "." || data1 === "..")) {
+        const err13 = {};
+        if (vErrors === null) {
+          vErrors = [err13];
+        } else {
+          vErrors.push(err13);
+        }
+        errors++;
+      }
+      var valid3 = _errs9 === errors;
+      if (valid3) {
+        const err14 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err14];
+        } else {
+          vErrors.push(err14);
+        }
+        errors++;
+      } else {
+        errors = _errs8;
+        if (vErrors !== null) {
+          if (_errs8) {
+            vErrors.length = _errs8;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data1 === "string") {
         if (func1(data1) > 256) {
-          const err13 = {
+          const err15 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -10154,14 +10598,14 @@ function validate84(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err13];
+            vErrors = [err15];
           } else {
-            vErrors.push(err13);
+            vErrors.push(err15);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -10170,14 +10614,14 @@ function validate84(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err15 = {
+          const err17 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -10185,45 +10629,6 @@ function validate84(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err15];
-          } else {
-            vErrors.push(err15);
-          }
-          errors++;
-        }
-      } else {
-        const err16 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err16];
-        } else {
-          vErrors.push(err16);
-        }
-        errors++;
-      }
-    }
-    if (data.topic !== void 0) {
-      let data2 = data.topic;
-      const _errs11 = errors;
-      let valid4 = false;
-      const _errs12 = errors;
-      if (typeof data2 === "string") {
-        if (func1(data2) > 128) {
-          const err17 = {
-            instancePath: instancePath + "/topic",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
-            keyword: "maxLength",
-            params: { limit: 128 },
-            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err17];
@@ -10234,9 +10639,9 @@ function validate84(
         }
       } else {
         const err18 = {
-          instancePath: instancePath + "/topic",
+          instancePath: instancePath + "/domain",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -10248,18 +10653,21 @@ function validate84(
         }
         errors++;
       }
-      var _valid0 = _errs12 === errors;
-      valid4 = valid4 || _valid0;
+    }
+    if (data.topic !== void 0) {
+      let data2 = data.topic;
+      const _errs13 = errors;
+      let valid5 = false;
       const _errs14 = errors;
       if (typeof data2 === "string") {
-        if (!pattern9.test(data2)) {
+        if (func1(data2) > 128) {
           const err19 = {
             instancePath: instancePath + "/topic",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
-            keyword: "pattern",
-            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
-            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
+            keyword: "maxLength",
+            params: { limit: 128 },
+            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err19];
@@ -10272,7 +10680,7 @@ function validate84(
         const err20 = {
           instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -10285,9 +10693,45 @@ function validate84(
         errors++;
       }
       var _valid0 = _errs14 === errors;
-      valid4 = valid4 || _valid0;
-      if (!valid4) {
-        const err21 = {
+      valid5 = valid5 || _valid0;
+      const _errs16 = errors;
+      if (typeof data2 === "string") {
+        if (!pattern9.test(data2)) {
+          const err21 = {
+            instancePath: instancePath + "/topic",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
+            keyword: "pattern",
+            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
+            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err21];
+          } else {
+            vErrors.push(err21);
+          }
+          errors++;
+        }
+      } else {
+        const err22 = {
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err22];
+        } else {
+          vErrors.push(err22);
+        }
+        errors++;
+      }
+      var _valid0 = _errs16 === errors;
+      valid5 = valid5 || _valid0;
+      if (!valid5) {
+        const err23 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf",
@@ -10296,16 +10740,16 @@ function validate84(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err21];
+          vErrors = [err23];
         } else {
-          vErrors.push(err21);
+          vErrors.push(err23);
         }
         errors++;
       } else {
-        errors = _errs11;
+        errors = _errs13;
         if (vErrors !== null) {
-          if (_errs11) {
-            vErrors.length = _errs11;
+          if (_errs13) {
+            vErrors.length = _errs13;
           } else {
             vErrors = null;
           }
@@ -10313,7 +10757,7 @@ function validate84(
       }
       if (typeof data2 === "string") {
         if (func1(data2) > 134) {
-          const err22 = {
+          const err24 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/maxLength",
@@ -10322,14 +10766,14 @@ function validate84(
             message: "must NOT have more than 134 characters",
           };
           if (vErrors === null) {
-            vErrors = [err22];
+            vErrors = [err24];
           } else {
-            vErrors.push(err22);
+            vErrors.push(err24);
           }
           errors++;
         }
         if (func1(data2) < 1) {
-          const err23 = {
+          const err25 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/minLength",
@@ -10338,14 +10782,14 @@ function validate84(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err23];
+            vErrors = [err25];
           } else {
-            vErrors.push(err23);
+            vErrors.push(err25);
           }
           errors++;
         }
         if (!pattern4.test(data2)) {
-          const err24 = {
+          const err26 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/pattern",
@@ -10355,14 +10799,14 @@ function validate84(
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err24];
+            vErrors = [err26];
           } else {
-            vErrors.push(err24);
+            vErrors.push(err26);
           }
           errors++;
         }
       } else {
-        const err25 = {
+        const err27 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
@@ -10371,9 +10815,9 @@ function validate84(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err25];
+          vErrors = [err27];
         } else {
-          vErrors.push(err25);
+          vErrors.push(err27);
         }
         errors++;
       }
@@ -10386,7 +10830,7 @@ function validate84(
         !isNaN(data3) &&
         isFinite(data3)
       )) {
-        const err26 = {
+        const err28 = {
           instancePath: instancePath + "/created_at",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
@@ -10395,9 +10839,9 @@ function validate84(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err26];
+          vErrors = [err28];
         } else {
-          vErrors.push(err26);
+          vErrors.push(err28);
         }
         errors++;
       }
@@ -10410,7 +10854,7 @@ function validate84(
         !isNaN(data4) &&
         isFinite(data4)
       )) {
-        const err27 = {
+        const err29 = {
           instancePath: instancePath + "/lease_until",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
@@ -10419,9 +10863,9 @@ function validate84(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err27];
+          vErrors = [err29];
         } else {
-          vErrors.push(err27);
+          vErrors.push(err29);
         }
         errors++;
       }
@@ -10434,7 +10878,7 @@ function validate84(
         !isNaN(data5) &&
         isFinite(data5)
       )) {
-        const err28 = {
+        const err30 = {
           instancePath: instancePath + "/owned_count",
           schemaPath: "#/properties/owned_count/type",
           keyword: "type",
@@ -10442,15 +10886,15 @@ function validate84(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err28];
+          vErrors = [err30];
         } else {
-          vErrors.push(err28);
+          vErrors.push(err30);
         }
         errors++;
       }
       if (typeof data5 == "number" && isFinite(data5)) {
         if (data5 < 0 || isNaN(data5)) {
-          const err29 = {
+          const err31 = {
             instancePath: instancePath + "/owned_count",
             schemaPath: "#/properties/owned_count/minimum",
             keyword: "minimum",
@@ -10458,9 +10902,9 @@ function validate84(
             message: "must be >= 0",
           };
           if (vErrors === null) {
-            vErrors = [err29];
+            vErrors = [err31];
           } else {
-            vErrors.push(err29);
+            vErrors.push(err31);
           }
           errors++;
         }
@@ -10470,7 +10914,7 @@ function validate84(
       let data6 = data.creator;
       if (typeof data6 === "string") {
         if (!pattern23.test(data6)) {
-          const err30 = {
+          const err32 = {
             instancePath: instancePath + "/creator",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/IdentityName/pattern",
@@ -10479,14 +10923,14 @@ function validate84(
             message: 'must match pattern "^[a-z0-9-]{1,64}(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err30];
+            vErrors = [err32];
           } else {
-            vErrors.push(err30);
+            vErrors.push(err32);
           }
           errors++;
         }
       } else {
-        const err31 = {
+        const err33 = {
           instancePath: instancePath + "/creator",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/IdentityName/type",
@@ -10495,18 +10939,18 @@ function validate84(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err31];
+          vErrors = [err33];
         } else {
-          vErrors.push(err31);
+          vErrors.push(err33);
         }
         errors++;
       }
     }
     if (data.owner !== void 0) {
       let data7 = data.owner;
-      const _errs28 = errors;
-      let valid8 = false;
-      const _errs29 = errors;
+      const _errs30 = errors;
+      let valid9 = false;
+      const _errs31 = errors;
       if (
         !validate75(data7, {
           instancePath: instancePath + "/owner",
@@ -10522,69 +10966,16 @@ function validate84(
             : vErrors.concat(validate75.errors);
         errors = vErrors.length;
       }
-      var _valid1 = _errs29 === errors;
-      valid8 = valid8 || _valid1;
-      const _errs30 = errors;
+      var _valid1 = _errs31 === errors;
+      valid9 = valid9 || _valid1;
+      const _errs32 = errors;
       if (data7 !== null) {
-        const err32 = {
+        const err34 = {
           instancePath: instancePath + "/owner",
           schemaPath: "#/properties/owner/anyOf/1/type",
           keyword: "type",
           params: { type: "null" },
           message: "must be null",
-        };
-        if (vErrors === null) {
-          vErrors = [err32];
-        } else {
-          vErrors.push(err32);
-        }
-        errors++;
-      }
-      var _valid1 = _errs30 === errors;
-      valid8 = valid8 || _valid1;
-      if (!valid8) {
-        const err33 = {
-          instancePath: instancePath + "/owner",
-          schemaPath: "#/properties/owner/anyOf",
-          keyword: "anyOf",
-          params: {},
-          message: "must match a schema in anyOf",
-        };
-        if (vErrors === null) {
-          vErrors = [err33];
-        } else {
-          vErrors.push(err33);
-        }
-        errors++;
-      } else {
-        errors = _errs28;
-        if (vErrors !== null) {
-          if (_errs28) {
-            vErrors.length = _errs28;
-          } else {
-            vErrors = null;
-          }
-        }
-      }
-    }
-    if (data.owned_at !== void 0) {
-      let data8 = data.owned_at;
-      const _errs33 = errors;
-      let valid9 = false;
-      const _errs34 = errors;
-      if (!(
-        typeof data8 == "number" &&
-        !(data8 % 1) &&
-        !isNaN(data8) &&
-        isFinite(data8)
-      )) {
-        const err34 = {
-          instancePath: instancePath + "/owned_at",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
-          keyword: "type",
-          params: { type: "integer" },
-          message: "must be integer",
         };
         if (vErrors === null) {
           vErrors = [err34];
@@ -10593,16 +10984,15 @@ function validate84(
         }
         errors++;
       }
-      var _valid2 = _errs34 === errors;
-      valid9 = valid9 || _valid2;
-      const _errs37 = errors;
-      if (data8 !== null) {
+      var _valid1 = _errs32 === errors;
+      valid9 = valid9 || _valid1;
+      if (!valid9) {
         const err35 = {
-          instancePath: instancePath + "/owned_at",
-          schemaPath: "#/properties/owned_at/anyOf/1/type",
-          keyword: "type",
-          params: { type: "null" },
-          message: "must be null",
+          instancePath: instancePath + "/owner",
+          schemaPath: "#/properties/owner/anyOf",
+          keyword: "anyOf",
+          params: {},
+          message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
           vErrors = [err35];
@@ -10610,16 +11000,35 @@ function validate84(
           vErrors.push(err35);
         }
         errors++;
+      } else {
+        errors = _errs30;
+        if (vErrors !== null) {
+          if (_errs30) {
+            vErrors.length = _errs30;
+          } else {
+            vErrors = null;
+          }
+        }
       }
-      var _valid2 = _errs37 === errors;
-      valid9 = valid9 || _valid2;
-      if (!valid9) {
+    }
+    if (data.owned_at !== void 0) {
+      let data8 = data.owned_at;
+      const _errs35 = errors;
+      let valid10 = false;
+      const _errs36 = errors;
+      if (!(
+        typeof data8 == "number" &&
+        !(data8 % 1) &&
+        !isNaN(data8) &&
+        isFinite(data8)
+      )) {
         const err36 = {
           instancePath: instancePath + "/owned_at",
-          schemaPath: "#/properties/owned_at/anyOf",
-          keyword: "anyOf",
-          params: {},
-          message: "must match a schema in anyOf",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
+          keyword: "type",
+          params: { type: "integer" },
+          message: "must be integer",
         };
         if (vErrors === null) {
           vErrors = [err36];
@@ -10627,11 +11036,46 @@ function validate84(
           vErrors.push(err36);
         }
         errors++;
+      }
+      var _valid2 = _errs36 === errors;
+      valid10 = valid10 || _valid2;
+      const _errs39 = errors;
+      if (data8 !== null) {
+        const err37 = {
+          instancePath: instancePath + "/owned_at",
+          schemaPath: "#/properties/owned_at/anyOf/1/type",
+          keyword: "type",
+          params: { type: "null" },
+          message: "must be null",
+        };
+        if (vErrors === null) {
+          vErrors = [err37];
+        } else {
+          vErrors.push(err37);
+        }
+        errors++;
+      }
+      var _valid2 = _errs39 === errors;
+      valid10 = valid10 || _valid2;
+      if (!valid10) {
+        const err38 = {
+          instancePath: instancePath + "/owned_at",
+          schemaPath: "#/properties/owned_at/anyOf",
+          keyword: "anyOf",
+          params: {},
+          message: "must match a schema in anyOf",
+        };
+        if (vErrors === null) {
+          vErrors = [err38];
+        } else {
+          vErrors.push(err38);
+        }
+        errors++;
       } else {
-        errors = _errs33;
+        errors = _errs35;
         if (vErrors !== null) {
-          if (_errs33) {
-            vErrors.length = _errs33;
+          if (_errs35) {
+            vErrors.length = _errs35;
           } else {
             vErrors = null;
           }
@@ -10656,7 +11100,7 @@ function validate84(
       }
     }
   } else {
-    const err37 = {
+    const err39 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -10664,9 +11108,9 @@ function validate84(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err37];
+      vErrors = [err39];
     } else {
-      vErrors.push(err37);
+      vErrors.push(err39);
     }
     errors++;
   }
@@ -10887,9 +11331,46 @@ function validate89(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err4 = {};
+        if (vErrors === null) {
+          vErrors = [err4];
+        } else {
+          vErrors.push(err4);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err5 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err5];
+        } else {
+          vErrors.push(err5);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err4 = {
+          const err6 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -10898,14 +11379,14 @@ function validate89(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err4];
+            vErrors = [err6];
           } else {
-            vErrors.push(err4);
+            vErrors.push(err6);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err5 = {
+          const err7 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -10914,14 +11395,14 @@ function validate89(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err5];
+            vErrors = [err7];
           } else {
-            vErrors.push(err5);
+            vErrors.push(err7);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err6 = {
+          const err8 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -10929,45 +11410,6 @@ function validate89(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err6];
-          } else {
-            vErrors.push(err6);
-          }
-          errors++;
-        }
-      } else {
-        const err7 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err7];
-        } else {
-          vErrors.push(err7);
-        }
-        errors++;
-      }
-    }
-    if (data.topic !== void 0) {
-      let data1 = data.topic;
-      const _errs8 = errors;
-      let valid3 = false;
-      const _errs9 = errors;
-      if (typeof data1 === "string") {
-        if (func1(data1) > 128) {
-          const err8 = {
-            instancePath: instancePath + "/topic",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
-            keyword: "maxLength",
-            params: { limit: 128 },
-            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err8];
@@ -10978,9 +11420,9 @@ function validate89(
         }
       } else {
         const err9 = {
-          instancePath: instancePath + "/topic",
+          instancePath: instancePath + "/domain",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -10992,18 +11434,21 @@ function validate89(
         }
         errors++;
       }
-      var _valid0 = _errs9 === errors;
-      valid3 = valid3 || _valid0;
+    }
+    if (data.topic !== void 0) {
+      let data1 = data.topic;
+      const _errs10 = errors;
+      let valid4 = false;
       const _errs11 = errors;
       if (typeof data1 === "string") {
-        if (!pattern9.test(data1)) {
+        if (func1(data1) > 128) {
           const err10 = {
             instancePath: instancePath + "/topic",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
-            keyword: "pattern",
-            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
-            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
+            keyword: "maxLength",
+            params: { limit: 128 },
+            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err10];
@@ -11016,7 +11461,7 @@ function validate89(
         const err11 = {
           instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -11029,9 +11474,45 @@ function validate89(
         errors++;
       }
       var _valid0 = _errs11 === errors;
-      valid3 = valid3 || _valid0;
-      if (!valid3) {
-        const err12 = {
+      valid4 = valid4 || _valid0;
+      const _errs13 = errors;
+      if (typeof data1 === "string") {
+        if (!pattern9.test(data1)) {
+          const err12 = {
+            instancePath: instancePath + "/topic",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
+            keyword: "pattern",
+            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
+            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err12];
+          } else {
+            vErrors.push(err12);
+          }
+          errors++;
+        }
+      } else {
+        const err13 = {
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err13];
+        } else {
+          vErrors.push(err13);
+        }
+        errors++;
+      }
+      var _valid0 = _errs13 === errors;
+      valid4 = valid4 || _valid0;
+      if (!valid4) {
+        const err14 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf",
@@ -11040,16 +11521,16 @@ function validate89(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err12];
+          vErrors = [err14];
         } else {
-          vErrors.push(err12);
+          vErrors.push(err14);
         }
         errors++;
       } else {
-        errors = _errs8;
+        errors = _errs10;
         if (vErrors !== null) {
-          if (_errs8) {
-            vErrors.length = _errs8;
+          if (_errs10) {
+            vErrors.length = _errs10;
           } else {
             vErrors = null;
           }
@@ -11057,7 +11538,7 @@ function validate89(
       }
       if (typeof data1 === "string") {
         if (func1(data1) > 134) {
-          const err13 = {
+          const err15 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/maxLength",
@@ -11066,14 +11547,14 @@ function validate89(
             message: "must NOT have more than 134 characters",
           };
           if (vErrors === null) {
-            vErrors = [err13];
+            vErrors = [err15];
           } else {
-            vErrors.push(err13);
+            vErrors.push(err15);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/minLength",
@@ -11082,14 +11563,14 @@ function validate89(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err15 = {
+          const err17 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/pattern",
@@ -11097,43 +11578,6 @@ function validate89(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err15];
-          } else {
-            vErrors.push(err15);
-          }
-          errors++;
-        }
-      } else {
-        const err16 = {
-          instancePath: instancePath + "/topic",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err16];
-        } else {
-          vErrors.push(err16);
-        }
-        errors++;
-      }
-    }
-    if (data.id !== void 0) {
-      let data2 = data.id;
-      if (typeof data2 === "string") {
-        if (!pattern11.test(data2)) {
-          const err17 = {
-            instancePath: instancePath + "/id",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TaskId/pattern",
-            keyword: "pattern",
-            params: { pattern: "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])" },
-            message:
-              'must match pattern "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])"',
           };
           if (vErrors === null) {
             vErrors = [err17];
@@ -11144,9 +11588,9 @@ function validate89(
         }
       } else {
         const err18 = {
-          instancePath: instancePath + "/id",
+          instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TaskId/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -11159,8 +11603,45 @@ function validate89(
         errors++;
       }
     }
+    if (data.id !== void 0) {
+      let data2 = data.id;
+      if (typeof data2 === "string") {
+        if (!pattern11.test(data2)) {
+          const err19 = {
+            instancePath: instancePath + "/id",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TaskId/pattern",
+            keyword: "pattern",
+            params: { pattern: "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])" },
+            message:
+              'must match pattern "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err19];
+          } else {
+            vErrors.push(err19);
+          }
+          errors++;
+        }
+      } else {
+        const err20 = {
+          instancePath: instancePath + "/id",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TaskId/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err20];
+        } else {
+          vErrors.push(err20);
+        }
+        errors++;
+      }
+    }
   } else {
-    const err19 = {
+    const err21 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -11168,9 +11649,9 @@ function validate89(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err19];
+      vErrors = [err21];
     } else {
-      vErrors.push(err19);
+      vErrors.push(err21);
     }
     errors++;
   }
@@ -11409,9 +11890,46 @@ function validate91(
     }
     if (data.domain !== void 0) {
       let data1 = data.domain;
+      const _errs8 = errors;
+      const _errs9 = errors;
+      if (!(data1 === "." || data1 === "..")) {
+        const err13 = {};
+        if (vErrors === null) {
+          vErrors = [err13];
+        } else {
+          vErrors.push(err13);
+        }
+        errors++;
+      }
+      var valid3 = _errs9 === errors;
+      if (valid3) {
+        const err14 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err14];
+        } else {
+          vErrors.push(err14);
+        }
+        errors++;
+      } else {
+        errors = _errs8;
+        if (vErrors !== null) {
+          if (_errs8) {
+            vErrors.length = _errs8;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data1 === "string") {
         if (func1(data1) > 256) {
-          const err13 = {
+          const err15 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -11420,14 +11938,14 @@ function validate91(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err13];
+            vErrors = [err15];
           } else {
-            vErrors.push(err13);
+            vErrors.push(err15);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -11436,14 +11954,14 @@ function validate91(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err15 = {
+          const err17 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -11451,45 +11969,6 @@ function validate91(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err15];
-          } else {
-            vErrors.push(err15);
-          }
-          errors++;
-        }
-      } else {
-        const err16 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err16];
-        } else {
-          vErrors.push(err16);
-        }
-        errors++;
-      }
-    }
-    if (data.topic !== void 0) {
-      let data2 = data.topic;
-      const _errs11 = errors;
-      let valid4 = false;
-      const _errs12 = errors;
-      if (typeof data2 === "string") {
-        if (func1(data2) > 128) {
-          const err17 = {
-            instancePath: instancePath + "/topic",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
-            keyword: "maxLength",
-            params: { limit: 128 },
-            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err17];
@@ -11500,9 +11979,9 @@ function validate91(
         }
       } else {
         const err18 = {
-          instancePath: instancePath + "/topic",
+          instancePath: instancePath + "/domain",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -11514,18 +11993,21 @@ function validate91(
         }
         errors++;
       }
-      var _valid0 = _errs12 === errors;
-      valid4 = valid4 || _valid0;
+    }
+    if (data.topic !== void 0) {
+      let data2 = data.topic;
+      const _errs13 = errors;
+      let valid5 = false;
       const _errs14 = errors;
       if (typeof data2 === "string") {
-        if (!pattern9.test(data2)) {
+        if (func1(data2) > 128) {
           const err19 = {
             instancePath: instancePath + "/topic",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
-            keyword: "pattern",
-            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
-            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
+            keyword: "maxLength",
+            params: { limit: 128 },
+            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err19];
@@ -11538,7 +12020,7 @@ function validate91(
         const err20 = {
           instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -11551,9 +12033,45 @@ function validate91(
         errors++;
       }
       var _valid0 = _errs14 === errors;
-      valid4 = valid4 || _valid0;
-      if (!valid4) {
-        const err21 = {
+      valid5 = valid5 || _valid0;
+      const _errs16 = errors;
+      if (typeof data2 === "string") {
+        if (!pattern9.test(data2)) {
+          const err21 = {
+            instancePath: instancePath + "/topic",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
+            keyword: "pattern",
+            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
+            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err21];
+          } else {
+            vErrors.push(err21);
+          }
+          errors++;
+        }
+      } else {
+        const err22 = {
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err22];
+        } else {
+          vErrors.push(err22);
+        }
+        errors++;
+      }
+      var _valid0 = _errs16 === errors;
+      valid5 = valid5 || _valid0;
+      if (!valid5) {
+        const err23 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf",
@@ -11562,16 +12080,16 @@ function validate91(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err21];
+          vErrors = [err23];
         } else {
-          vErrors.push(err21);
+          vErrors.push(err23);
         }
         errors++;
       } else {
-        errors = _errs11;
+        errors = _errs13;
         if (vErrors !== null) {
-          if (_errs11) {
-            vErrors.length = _errs11;
+          if (_errs13) {
+            vErrors.length = _errs13;
           } else {
             vErrors = null;
           }
@@ -11579,7 +12097,7 @@ function validate91(
       }
       if (typeof data2 === "string") {
         if (func1(data2) > 134) {
-          const err22 = {
+          const err24 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/maxLength",
@@ -11588,14 +12106,14 @@ function validate91(
             message: "must NOT have more than 134 characters",
           };
           if (vErrors === null) {
-            vErrors = [err22];
+            vErrors = [err24];
           } else {
-            vErrors.push(err22);
+            vErrors.push(err24);
           }
           errors++;
         }
         if (func1(data2) < 1) {
-          const err23 = {
+          const err25 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/minLength",
@@ -11604,14 +12122,14 @@ function validate91(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err23];
+            vErrors = [err25];
           } else {
-            vErrors.push(err23);
+            vErrors.push(err25);
           }
           errors++;
         }
         if (!pattern4.test(data2)) {
-          const err24 = {
+          const err26 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/pattern",
@@ -11621,14 +12139,14 @@ function validate91(
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err24];
+            vErrors = [err26];
           } else {
-            vErrors.push(err24);
+            vErrors.push(err26);
           }
           errors++;
         }
       } else {
-        const err25 = {
+        const err27 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
@@ -11637,9 +12155,9 @@ function validate91(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err25];
+          vErrors = [err27];
         } else {
-          vErrors.push(err25);
+          vErrors.push(err27);
         }
         errors++;
       }
@@ -11652,7 +12170,7 @@ function validate91(
         !isNaN(data3) &&
         isFinite(data3)
       )) {
-        const err26 = {
+        const err28 = {
           instancePath: instancePath + "/created_at",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
@@ -11661,9 +12179,9 @@ function validate91(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err26];
+          vErrors = [err28];
         } else {
-          vErrors.push(err26);
+          vErrors.push(err28);
         }
         errors++;
       }
@@ -11676,7 +12194,7 @@ function validate91(
         !isNaN(data4) &&
         isFinite(data4)
       )) {
-        const err27 = {
+        const err29 = {
           instancePath: instancePath + "/lease_until",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
@@ -11685,9 +12203,9 @@ function validate91(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err27];
+          vErrors = [err29];
         } else {
-          vErrors.push(err27);
+          vErrors.push(err29);
         }
         errors++;
       }
@@ -11700,7 +12218,7 @@ function validate91(
         !isNaN(data5) &&
         isFinite(data5)
       )) {
-        const err28 = {
+        const err30 = {
           instancePath: instancePath + "/owned_count",
           schemaPath: "#/properties/owned_count/type",
           keyword: "type",
@@ -11708,15 +12226,15 @@ function validate91(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err28];
+          vErrors = [err30];
         } else {
-          vErrors.push(err28);
+          vErrors.push(err30);
         }
         errors++;
       }
       if (typeof data5 == "number" && isFinite(data5)) {
         if (data5 < 0 || isNaN(data5)) {
-          const err29 = {
+          const err31 = {
             instancePath: instancePath + "/owned_count",
             schemaPath: "#/properties/owned_count/minimum",
             keyword: "minimum",
@@ -11724,9 +12242,9 @@ function validate91(
             message: "must be >= 0",
           };
           if (vErrors === null) {
-            vErrors = [err29];
+            vErrors = [err31];
           } else {
-            vErrors.push(err29);
+            vErrors.push(err31);
           }
           errors++;
         }
@@ -11736,7 +12254,7 @@ function validate91(
       let data6 = data.creator;
       if (typeof data6 === "string") {
         if (!pattern23.test(data6)) {
-          const err30 = {
+          const err32 = {
             instancePath: instancePath + "/creator",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/IdentityName/pattern",
@@ -11745,14 +12263,14 @@ function validate91(
             message: 'must match pattern "^[a-z0-9-]{1,64}(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err30];
+            vErrors = [err32];
           } else {
-            vErrors.push(err30);
+            vErrors.push(err32);
           }
           errors++;
         }
       } else {
-        const err31 = {
+        const err33 = {
           instancePath: instancePath + "/creator",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/IdentityName/type",
@@ -11761,18 +12279,18 @@ function validate91(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err31];
+          vErrors = [err33];
         } else {
-          vErrors.push(err31);
+          vErrors.push(err33);
         }
         errors++;
       }
     }
     if (data.owner !== void 0) {
       let data7 = data.owner;
-      const _errs28 = errors;
-      let valid8 = false;
-      const _errs29 = errors;
+      const _errs30 = errors;
+      let valid9 = false;
+      const _errs31 = errors;
       if (
         !validate75(data7, {
           instancePath: instancePath + "/owner",
@@ -11788,69 +12306,16 @@ function validate91(
             : vErrors.concat(validate75.errors);
         errors = vErrors.length;
       }
-      var _valid1 = _errs29 === errors;
-      valid8 = valid8 || _valid1;
-      const _errs30 = errors;
+      var _valid1 = _errs31 === errors;
+      valid9 = valid9 || _valid1;
+      const _errs32 = errors;
       if (data7 !== null) {
-        const err32 = {
+        const err34 = {
           instancePath: instancePath + "/owner",
           schemaPath: "#/properties/owner/anyOf/1/type",
           keyword: "type",
           params: { type: "null" },
           message: "must be null",
-        };
-        if (vErrors === null) {
-          vErrors = [err32];
-        } else {
-          vErrors.push(err32);
-        }
-        errors++;
-      }
-      var _valid1 = _errs30 === errors;
-      valid8 = valid8 || _valid1;
-      if (!valid8) {
-        const err33 = {
-          instancePath: instancePath + "/owner",
-          schemaPath: "#/properties/owner/anyOf",
-          keyword: "anyOf",
-          params: {},
-          message: "must match a schema in anyOf",
-        };
-        if (vErrors === null) {
-          vErrors = [err33];
-        } else {
-          vErrors.push(err33);
-        }
-        errors++;
-      } else {
-        errors = _errs28;
-        if (vErrors !== null) {
-          if (_errs28) {
-            vErrors.length = _errs28;
-          } else {
-            vErrors = null;
-          }
-        }
-      }
-    }
-    if (data.owned_at !== void 0) {
-      let data8 = data.owned_at;
-      const _errs33 = errors;
-      let valid9 = false;
-      const _errs34 = errors;
-      if (!(
-        typeof data8 == "number" &&
-        !(data8 % 1) &&
-        !isNaN(data8) &&
-        isFinite(data8)
-      )) {
-        const err34 = {
-          instancePath: instancePath + "/owned_at",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
-          keyword: "type",
-          params: { type: "integer" },
-          message: "must be integer",
         };
         if (vErrors === null) {
           vErrors = [err34];
@@ -11859,16 +12324,15 @@ function validate91(
         }
         errors++;
       }
-      var _valid2 = _errs34 === errors;
-      valid9 = valid9 || _valid2;
-      const _errs37 = errors;
-      if (data8 !== null) {
+      var _valid1 = _errs32 === errors;
+      valid9 = valid9 || _valid1;
+      if (!valid9) {
         const err35 = {
-          instancePath: instancePath + "/owned_at",
-          schemaPath: "#/properties/owned_at/anyOf/1/type",
-          keyword: "type",
-          params: { type: "null" },
-          message: "must be null",
+          instancePath: instancePath + "/owner",
+          schemaPath: "#/properties/owner/anyOf",
+          keyword: "anyOf",
+          params: {},
+          message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
           vErrors = [err35];
@@ -11876,16 +12340,35 @@ function validate91(
           vErrors.push(err35);
         }
         errors++;
+      } else {
+        errors = _errs30;
+        if (vErrors !== null) {
+          if (_errs30) {
+            vErrors.length = _errs30;
+          } else {
+            vErrors = null;
+          }
+        }
       }
-      var _valid2 = _errs37 === errors;
-      valid9 = valid9 || _valid2;
-      if (!valid9) {
+    }
+    if (data.owned_at !== void 0) {
+      let data8 = data.owned_at;
+      const _errs35 = errors;
+      let valid10 = false;
+      const _errs36 = errors;
+      if (!(
+        typeof data8 == "number" &&
+        !(data8 % 1) &&
+        !isNaN(data8) &&
+        isFinite(data8)
+      )) {
         const err36 = {
           instancePath: instancePath + "/owned_at",
-          schemaPath: "#/properties/owned_at/anyOf",
-          keyword: "anyOf",
-          params: {},
-          message: "must match a schema in anyOf",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
+          keyword: "type",
+          params: { type: "integer" },
+          message: "must be integer",
         };
         if (vErrors === null) {
           vErrors = [err36];
@@ -11893,11 +12376,46 @@ function validate91(
           vErrors.push(err36);
         }
         errors++;
+      }
+      var _valid2 = _errs36 === errors;
+      valid10 = valid10 || _valid2;
+      const _errs39 = errors;
+      if (data8 !== null) {
+        const err37 = {
+          instancePath: instancePath + "/owned_at",
+          schemaPath: "#/properties/owned_at/anyOf/1/type",
+          keyword: "type",
+          params: { type: "null" },
+          message: "must be null",
+        };
+        if (vErrors === null) {
+          vErrors = [err37];
+        } else {
+          vErrors.push(err37);
+        }
+        errors++;
+      }
+      var _valid2 = _errs39 === errors;
+      valid10 = valid10 || _valid2;
+      if (!valid10) {
+        const err38 = {
+          instancePath: instancePath + "/owned_at",
+          schemaPath: "#/properties/owned_at/anyOf",
+          keyword: "anyOf",
+          params: {},
+          message: "must match a schema in anyOf",
+        };
+        if (vErrors === null) {
+          vErrors = [err38];
+        } else {
+          vErrors.push(err38);
+        }
+        errors++;
       } else {
-        errors = _errs33;
+        errors = _errs35;
         if (vErrors !== null) {
-          if (_errs33) {
-            vErrors.length = _errs33;
+          if (_errs35) {
+            vErrors.length = _errs35;
           } else {
             vErrors = null;
           }
@@ -11922,7 +12440,7 @@ function validate91(
       }
     }
   } else {
-    const err37 = {
+    const err39 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -11930,9 +12448,9 @@ function validate91(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err37];
+      vErrors = [err39];
     } else {
-      vErrors.push(err37);
+      vErrors.push(err39);
     }
     errors++;
   }
@@ -12173,9 +12691,46 @@ function validate96(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err5 = {};
+        if (vErrors === null) {
+          vErrors = [err5];
+        } else {
+          vErrors.push(err5);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err6 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err6];
+        } else {
+          vErrors.push(err6);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err5 = {
+          const err7 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -12184,14 +12739,14 @@ function validate96(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err5];
+            vErrors = [err7];
           } else {
-            vErrors.push(err5);
+            vErrors.push(err7);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err6 = {
+          const err8 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -12200,14 +12755,14 @@ function validate96(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err6];
+            vErrors = [err8];
           } else {
-            vErrors.push(err6);
+            vErrors.push(err8);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err7 = {
+          const err9 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -12215,45 +12770,6 @@ function validate96(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err7];
-          } else {
-            vErrors.push(err7);
-          }
-          errors++;
-        }
-      } else {
-        const err8 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err8];
-        } else {
-          vErrors.push(err8);
-        }
-        errors++;
-      }
-    }
-    if (data.topic !== void 0) {
-      let data1 = data.topic;
-      const _errs8 = errors;
-      let valid3 = false;
-      const _errs9 = errors;
-      if (typeof data1 === "string") {
-        if (func1(data1) > 128) {
-          const err9 = {
-            instancePath: instancePath + "/topic",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
-            keyword: "maxLength",
-            params: { limit: 128 },
-            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err9];
@@ -12264,9 +12780,9 @@ function validate96(
         }
       } else {
         const err10 = {
-          instancePath: instancePath + "/topic",
+          instancePath: instancePath + "/domain",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -12278,18 +12794,21 @@ function validate96(
         }
         errors++;
       }
-      var _valid0 = _errs9 === errors;
-      valid3 = valid3 || _valid0;
+    }
+    if (data.topic !== void 0) {
+      let data1 = data.topic;
+      const _errs10 = errors;
+      let valid4 = false;
       const _errs11 = errors;
       if (typeof data1 === "string") {
-        if (!pattern9.test(data1)) {
+        if (func1(data1) > 128) {
           const err11 = {
             instancePath: instancePath + "/topic",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
-            keyword: "pattern",
-            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
-            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
+            keyword: "maxLength",
+            params: { limit: 128 },
+            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err11];
@@ -12302,7 +12821,7 @@ function validate96(
         const err12 = {
           instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -12315,9 +12834,45 @@ function validate96(
         errors++;
       }
       var _valid0 = _errs11 === errors;
-      valid3 = valid3 || _valid0;
-      if (!valid3) {
-        const err13 = {
+      valid4 = valid4 || _valid0;
+      const _errs13 = errors;
+      if (typeof data1 === "string") {
+        if (!pattern9.test(data1)) {
+          const err13 = {
+            instancePath: instancePath + "/topic",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
+            keyword: "pattern",
+            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
+            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err13];
+          } else {
+            vErrors.push(err13);
+          }
+          errors++;
+        }
+      } else {
+        const err14 = {
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err14];
+        } else {
+          vErrors.push(err14);
+        }
+        errors++;
+      }
+      var _valid0 = _errs13 === errors;
+      valid4 = valid4 || _valid0;
+      if (!valid4) {
+        const err15 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf",
@@ -12326,16 +12881,16 @@ function validate96(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err13];
+          vErrors = [err15];
         } else {
-          vErrors.push(err13);
+          vErrors.push(err15);
         }
         errors++;
       } else {
-        errors = _errs8;
+        errors = _errs10;
         if (vErrors !== null) {
-          if (_errs8) {
-            vErrors.length = _errs8;
+          if (_errs10) {
+            vErrors.length = _errs10;
           } else {
             vErrors = null;
           }
@@ -12343,7 +12898,7 @@ function validate96(
       }
       if (typeof data1 === "string") {
         if (func1(data1) > 134) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/maxLength",
@@ -12352,14 +12907,14 @@ function validate96(
             message: "must NOT have more than 134 characters",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err15 = {
+          const err17 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/minLength",
@@ -12368,14 +12923,14 @@ function validate96(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err15];
+            vErrors = [err17];
           } else {
-            vErrors.push(err15);
+            vErrors.push(err17);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err16 = {
+          const err18 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/pattern",
@@ -12383,43 +12938,6 @@ function validate96(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err16];
-          } else {
-            vErrors.push(err16);
-          }
-          errors++;
-        }
-      } else {
-        const err17 = {
-          instancePath: instancePath + "/topic",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err17];
-        } else {
-          vErrors.push(err17);
-        }
-        errors++;
-      }
-    }
-    if (data.id !== void 0) {
-      let data2 = data.id;
-      if (typeof data2 === "string") {
-        if (!pattern11.test(data2)) {
-          const err18 = {
-            instancePath: instancePath + "/id",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TaskId/pattern",
-            keyword: "pattern",
-            params: { pattern: "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])" },
-            message:
-              'must match pattern "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])"',
           };
           if (vErrors === null) {
             vErrors = [err18];
@@ -12430,9 +12948,9 @@ function validate96(
         }
       } else {
         const err19 = {
-          instancePath: instancePath + "/id",
+          instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TaskId/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -12445,6 +12963,43 @@ function validate96(
         errors++;
       }
     }
+    if (data.id !== void 0) {
+      let data2 = data.id;
+      if (typeof data2 === "string") {
+        if (!pattern11.test(data2)) {
+          const err20 = {
+            instancePath: instancePath + "/id",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TaskId/pattern",
+            keyword: "pattern",
+            params: { pattern: "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])" },
+            message:
+              'must match pattern "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err20];
+          } else {
+            vErrors.push(err20);
+          }
+          errors++;
+        }
+      } else {
+        const err21 = {
+          instancePath: instancePath + "/id",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TaskId/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err21];
+        } else {
+          vErrors.push(err21);
+        }
+        errors++;
+      }
+    }
     if (data.hold_seconds !== void 0) {
       let data3 = data.hold_seconds;
       if (!(
@@ -12453,7 +13008,7 @@ function validate96(
         !isNaN(data3) &&
         isFinite(data3)
       )) {
-        const err20 = {
+        const err22 = {
           instancePath: instancePath + "/hold_seconds",
           schemaPath: "#/properties/hold_seconds/type",
           keyword: "type",
@@ -12461,15 +13016,15 @@ function validate96(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err20];
+          vErrors = [err22];
         } else {
-          vErrors.push(err20);
+          vErrors.push(err22);
         }
         errors++;
       }
       if (typeof data3 == "number" && isFinite(data3)) {
         if (data3 > 86400 || isNaN(data3)) {
-          const err21 = {
+          const err23 = {
             instancePath: instancePath + "/hold_seconds",
             schemaPath: "#/properties/hold_seconds/maximum",
             keyword: "maximum",
@@ -12477,14 +13032,14 @@ function validate96(
             message: "must be <= 86400",
           };
           if (vErrors === null) {
-            vErrors = [err21];
+            vErrors = [err23];
           } else {
-            vErrors.push(err21);
+            vErrors.push(err23);
           }
           errors++;
         }
         if (data3 < 1 || isNaN(data3)) {
-          const err22 = {
+          const err24 = {
             instancePath: instancePath + "/hold_seconds",
             schemaPath: "#/properties/hold_seconds/minimum",
             keyword: "minimum",
@@ -12492,16 +13047,16 @@ function validate96(
             message: "must be >= 1",
           };
           if (vErrors === null) {
-            vErrors = [err22];
+            vErrors = [err24];
           } else {
-            vErrors.push(err22);
+            vErrors.push(err24);
           }
           errors++;
         }
       }
     }
   } else {
-    const err23 = {
+    const err25 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -12509,9 +13064,9 @@ function validate96(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err23];
+      vErrors = [err25];
     } else {
-      vErrors.push(err23);
+      vErrors.push(err25);
     }
     errors++;
   }
@@ -12750,9 +13305,46 @@ function validate98(
     }
     if (data.domain !== void 0) {
       let data1 = data.domain;
+      const _errs8 = errors;
+      const _errs9 = errors;
+      if (!(data1 === "." || data1 === "..")) {
+        const err13 = {};
+        if (vErrors === null) {
+          vErrors = [err13];
+        } else {
+          vErrors.push(err13);
+        }
+        errors++;
+      }
+      var valid3 = _errs9 === errors;
+      if (valid3) {
+        const err14 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err14];
+        } else {
+          vErrors.push(err14);
+        }
+        errors++;
+      } else {
+        errors = _errs8;
+        if (vErrors !== null) {
+          if (_errs8) {
+            vErrors.length = _errs8;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data1 === "string") {
         if (func1(data1) > 256) {
-          const err13 = {
+          const err15 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -12761,14 +13353,14 @@ function validate98(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err13];
+            vErrors = [err15];
           } else {
-            vErrors.push(err13);
+            vErrors.push(err15);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -12777,14 +13369,14 @@ function validate98(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err15 = {
+          const err17 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -12792,45 +13384,6 @@ function validate98(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err15];
-          } else {
-            vErrors.push(err15);
-          }
-          errors++;
-        }
-      } else {
-        const err16 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err16];
-        } else {
-          vErrors.push(err16);
-        }
-        errors++;
-      }
-    }
-    if (data.topic !== void 0) {
-      let data2 = data.topic;
-      const _errs11 = errors;
-      let valid4 = false;
-      const _errs12 = errors;
-      if (typeof data2 === "string") {
-        if (func1(data2) > 128) {
-          const err17 = {
-            instancePath: instancePath + "/topic",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
-            keyword: "maxLength",
-            params: { limit: 128 },
-            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err17];
@@ -12841,9 +13394,9 @@ function validate98(
         }
       } else {
         const err18 = {
-          instancePath: instancePath + "/topic",
+          instancePath: instancePath + "/domain",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -12855,18 +13408,21 @@ function validate98(
         }
         errors++;
       }
-      var _valid0 = _errs12 === errors;
-      valid4 = valid4 || _valid0;
+    }
+    if (data.topic !== void 0) {
+      let data2 = data.topic;
+      const _errs13 = errors;
+      let valid5 = false;
       const _errs14 = errors;
       if (typeof data2 === "string") {
-        if (!pattern9.test(data2)) {
+        if (func1(data2) > 128) {
           const err19 = {
             instancePath: instancePath + "/topic",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
-            keyword: "pattern",
-            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
-            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
+            keyword: "maxLength",
+            params: { limit: 128 },
+            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err19];
@@ -12879,7 +13435,7 @@ function validate98(
         const err20 = {
           instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -12892,9 +13448,45 @@ function validate98(
         errors++;
       }
       var _valid0 = _errs14 === errors;
-      valid4 = valid4 || _valid0;
-      if (!valid4) {
-        const err21 = {
+      valid5 = valid5 || _valid0;
+      const _errs16 = errors;
+      if (typeof data2 === "string") {
+        if (!pattern9.test(data2)) {
+          const err21 = {
+            instancePath: instancePath + "/topic",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
+            keyword: "pattern",
+            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
+            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err21];
+          } else {
+            vErrors.push(err21);
+          }
+          errors++;
+        }
+      } else {
+        const err22 = {
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err22];
+        } else {
+          vErrors.push(err22);
+        }
+        errors++;
+      }
+      var _valid0 = _errs16 === errors;
+      valid5 = valid5 || _valid0;
+      if (!valid5) {
+        const err23 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf",
@@ -12903,16 +13495,16 @@ function validate98(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err21];
+          vErrors = [err23];
         } else {
-          vErrors.push(err21);
+          vErrors.push(err23);
         }
         errors++;
       } else {
-        errors = _errs11;
+        errors = _errs13;
         if (vErrors !== null) {
-          if (_errs11) {
-            vErrors.length = _errs11;
+          if (_errs13) {
+            vErrors.length = _errs13;
           } else {
             vErrors = null;
           }
@@ -12920,7 +13512,7 @@ function validate98(
       }
       if (typeof data2 === "string") {
         if (func1(data2) > 134) {
-          const err22 = {
+          const err24 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/maxLength",
@@ -12929,14 +13521,14 @@ function validate98(
             message: "must NOT have more than 134 characters",
           };
           if (vErrors === null) {
-            vErrors = [err22];
+            vErrors = [err24];
           } else {
-            vErrors.push(err22);
+            vErrors.push(err24);
           }
           errors++;
         }
         if (func1(data2) < 1) {
-          const err23 = {
+          const err25 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/minLength",
@@ -12945,14 +13537,14 @@ function validate98(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err23];
+            vErrors = [err25];
           } else {
-            vErrors.push(err23);
+            vErrors.push(err25);
           }
           errors++;
         }
         if (!pattern4.test(data2)) {
-          const err24 = {
+          const err26 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/pattern",
@@ -12962,14 +13554,14 @@ function validate98(
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err24];
+            vErrors = [err26];
           } else {
-            vErrors.push(err24);
+            vErrors.push(err26);
           }
           errors++;
         }
       } else {
-        const err25 = {
+        const err27 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
@@ -12978,9 +13570,9 @@ function validate98(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err25];
+          vErrors = [err27];
         } else {
-          vErrors.push(err25);
+          vErrors.push(err27);
         }
         errors++;
       }
@@ -12993,7 +13585,7 @@ function validate98(
         !isNaN(data3) &&
         isFinite(data3)
       )) {
-        const err26 = {
+        const err28 = {
           instancePath: instancePath + "/created_at",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
@@ -13002,9 +13594,9 @@ function validate98(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err26];
+          vErrors = [err28];
         } else {
-          vErrors.push(err26);
+          vErrors.push(err28);
         }
         errors++;
       }
@@ -13017,7 +13609,7 @@ function validate98(
         !isNaN(data4) &&
         isFinite(data4)
       )) {
-        const err27 = {
+        const err29 = {
           instancePath: instancePath + "/lease_until",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
@@ -13026,9 +13618,9 @@ function validate98(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err27];
+          vErrors = [err29];
         } else {
-          vErrors.push(err27);
+          vErrors.push(err29);
         }
         errors++;
       }
@@ -13041,7 +13633,7 @@ function validate98(
         !isNaN(data5) &&
         isFinite(data5)
       )) {
-        const err28 = {
+        const err30 = {
           instancePath: instancePath + "/owned_count",
           schemaPath: "#/properties/owned_count/type",
           keyword: "type",
@@ -13049,15 +13641,15 @@ function validate98(
           message: "must be integer",
         };
         if (vErrors === null) {
-          vErrors = [err28];
+          vErrors = [err30];
         } else {
-          vErrors.push(err28);
+          vErrors.push(err30);
         }
         errors++;
       }
       if (typeof data5 == "number" && isFinite(data5)) {
         if (data5 < 0 || isNaN(data5)) {
-          const err29 = {
+          const err31 = {
             instancePath: instancePath + "/owned_count",
             schemaPath: "#/properties/owned_count/minimum",
             keyword: "minimum",
@@ -13065,9 +13657,9 @@ function validate98(
             message: "must be >= 0",
           };
           if (vErrors === null) {
-            vErrors = [err29];
+            vErrors = [err31];
           } else {
-            vErrors.push(err29);
+            vErrors.push(err31);
           }
           errors++;
         }
@@ -13077,7 +13669,7 @@ function validate98(
       let data6 = data.creator;
       if (typeof data6 === "string") {
         if (!pattern23.test(data6)) {
-          const err30 = {
+          const err32 = {
             instancePath: instancePath + "/creator",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/IdentityName/pattern",
@@ -13086,14 +13678,14 @@ function validate98(
             message: 'must match pattern "^[a-z0-9-]{1,64}(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err30];
+            vErrors = [err32];
           } else {
-            vErrors.push(err30);
+            vErrors.push(err32);
           }
           errors++;
         }
       } else {
-        const err31 = {
+        const err33 = {
           instancePath: instancePath + "/creator",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/IdentityName/type",
@@ -13102,18 +13694,18 @@ function validate98(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err31];
+          vErrors = [err33];
         } else {
-          vErrors.push(err31);
+          vErrors.push(err33);
         }
         errors++;
       }
     }
     if (data.owner !== void 0) {
       let data7 = data.owner;
-      const _errs28 = errors;
-      let valid8 = false;
-      const _errs29 = errors;
+      const _errs30 = errors;
+      let valid9 = false;
+      const _errs31 = errors;
       if (
         !validate75(data7, {
           instancePath: instancePath + "/owner",
@@ -13129,69 +13721,16 @@ function validate98(
             : vErrors.concat(validate75.errors);
         errors = vErrors.length;
       }
-      var _valid1 = _errs29 === errors;
-      valid8 = valid8 || _valid1;
-      const _errs30 = errors;
+      var _valid1 = _errs31 === errors;
+      valid9 = valid9 || _valid1;
+      const _errs32 = errors;
       if (data7 !== null) {
-        const err32 = {
+        const err34 = {
           instancePath: instancePath + "/owner",
           schemaPath: "#/properties/owner/anyOf/1/type",
           keyword: "type",
           params: { type: "null" },
           message: "must be null",
-        };
-        if (vErrors === null) {
-          vErrors = [err32];
-        } else {
-          vErrors.push(err32);
-        }
-        errors++;
-      }
-      var _valid1 = _errs30 === errors;
-      valid8 = valid8 || _valid1;
-      if (!valid8) {
-        const err33 = {
-          instancePath: instancePath + "/owner",
-          schemaPath: "#/properties/owner/anyOf",
-          keyword: "anyOf",
-          params: {},
-          message: "must match a schema in anyOf",
-        };
-        if (vErrors === null) {
-          vErrors = [err33];
-        } else {
-          vErrors.push(err33);
-        }
-        errors++;
-      } else {
-        errors = _errs28;
-        if (vErrors !== null) {
-          if (_errs28) {
-            vErrors.length = _errs28;
-          } else {
-            vErrors = null;
-          }
-        }
-      }
-    }
-    if (data.owned_at !== void 0) {
-      let data8 = data.owned_at;
-      const _errs33 = errors;
-      let valid9 = false;
-      const _errs34 = errors;
-      if (!(
-        typeof data8 == "number" &&
-        !(data8 % 1) &&
-        !isNaN(data8) &&
-        isFinite(data8)
-      )) {
-        const err34 = {
-          instancePath: instancePath + "/owned_at",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
-          keyword: "type",
-          params: { type: "integer" },
-          message: "must be integer",
         };
         if (vErrors === null) {
           vErrors = [err34];
@@ -13200,16 +13739,15 @@ function validate98(
         }
         errors++;
       }
-      var _valid2 = _errs34 === errors;
-      valid9 = valid9 || _valid2;
-      const _errs37 = errors;
-      if (data8 !== null) {
+      var _valid1 = _errs32 === errors;
+      valid9 = valid9 || _valid1;
+      if (!valid9) {
         const err35 = {
-          instancePath: instancePath + "/owned_at",
-          schemaPath: "#/properties/owned_at/anyOf/1/type",
-          keyword: "type",
-          params: { type: "null" },
-          message: "must be null",
+          instancePath: instancePath + "/owner",
+          schemaPath: "#/properties/owner/anyOf",
+          keyword: "anyOf",
+          params: {},
+          message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
           vErrors = [err35];
@@ -13217,16 +13755,35 @@ function validate98(
           vErrors.push(err35);
         }
         errors++;
+      } else {
+        errors = _errs30;
+        if (vErrors !== null) {
+          if (_errs30) {
+            vErrors.length = _errs30;
+          } else {
+            vErrors = null;
+          }
+        }
       }
-      var _valid2 = _errs37 === errors;
-      valid9 = valid9 || _valid2;
-      if (!valid9) {
+    }
+    if (data.owned_at !== void 0) {
+      let data8 = data.owned_at;
+      const _errs35 = errors;
+      let valid10 = false;
+      const _errs36 = errors;
+      if (!(
+        typeof data8 == "number" &&
+        !(data8 % 1) &&
+        !isNaN(data8) &&
+        isFinite(data8)
+      )) {
         const err36 = {
           instancePath: instancePath + "/owned_at",
-          schemaPath: "#/properties/owned_at/anyOf",
-          keyword: "anyOf",
-          params: {},
-          message: "must match a schema in anyOf",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
+          keyword: "type",
+          params: { type: "integer" },
+          message: "must be integer",
         };
         if (vErrors === null) {
           vErrors = [err36];
@@ -13234,11 +13791,46 @@ function validate98(
           vErrors.push(err36);
         }
         errors++;
+      }
+      var _valid2 = _errs36 === errors;
+      valid10 = valid10 || _valid2;
+      const _errs39 = errors;
+      if (data8 !== null) {
+        const err37 = {
+          instancePath: instancePath + "/owned_at",
+          schemaPath: "#/properties/owned_at/anyOf/1/type",
+          keyword: "type",
+          params: { type: "null" },
+          message: "must be null",
+        };
+        if (vErrors === null) {
+          vErrors = [err37];
+        } else {
+          vErrors.push(err37);
+        }
+        errors++;
+      }
+      var _valid2 = _errs39 === errors;
+      valid10 = valid10 || _valid2;
+      if (!valid10) {
+        const err38 = {
+          instancePath: instancePath + "/owned_at",
+          schemaPath: "#/properties/owned_at/anyOf",
+          keyword: "anyOf",
+          params: {},
+          message: "must match a schema in anyOf",
+        };
+        if (vErrors === null) {
+          vErrors = [err38];
+        } else {
+          vErrors.push(err38);
+        }
+        errors++;
       } else {
-        errors = _errs33;
+        errors = _errs35;
         if (vErrors !== null) {
-          if (_errs33) {
-            vErrors.length = _errs33;
+          if (_errs35) {
+            vErrors.length = _errs35;
           } else {
             vErrors = null;
           }
@@ -13263,7 +13855,7 @@ function validate98(
       }
     }
   } else {
-    const err37 = {
+    const err39 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -13271,9 +13863,9 @@ function validate98(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err37];
+      vErrors = [err39];
     } else {
-      vErrors.push(err37);
+      vErrors.push(err39);
     }
     errors++;
   }
@@ -13479,9 +14071,46 @@ function validate103(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err3 = {};
+        if (vErrors === null) {
+          vErrors = [err3];
+        } else {
+          vErrors.push(err3);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err4 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err4];
+        } else {
+          vErrors.push(err4);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err3 = {
+          const err5 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -13490,14 +14119,14 @@ function validate103(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err3];
+            vErrors = [err5];
           } else {
-            vErrors.push(err3);
+            vErrors.push(err5);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err4 = {
+          const err6 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -13506,14 +14135,14 @@ function validate103(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err4];
+            vErrors = [err6];
           } else {
-            vErrors.push(err4);
+            vErrors.push(err6);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err5 = {
+          const err7 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -13521,45 +14150,6 @@ function validate103(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err5];
-          } else {
-            vErrors.push(err5);
-          }
-          errors++;
-        }
-      } else {
-        const err6 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err6];
-        } else {
-          vErrors.push(err6);
-        }
-        errors++;
-      }
-    }
-    if (data.topic !== void 0) {
-      let data1 = data.topic;
-      const _errs8 = errors;
-      let valid3 = false;
-      const _errs9 = errors;
-      if (typeof data1 === "string") {
-        if (func1(data1) > 128) {
-          const err7 = {
-            instancePath: instancePath + "/topic",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
-            keyword: "maxLength",
-            params: { limit: 128 },
-            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err7];
@@ -13570,9 +14160,9 @@ function validate103(
         }
       } else {
         const err8 = {
-          instancePath: instancePath + "/topic",
+          instancePath: instancePath + "/domain",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -13584,18 +14174,21 @@ function validate103(
         }
         errors++;
       }
-      var _valid0 = _errs9 === errors;
-      valid3 = valid3 || _valid0;
+    }
+    if (data.topic !== void 0) {
+      let data1 = data.topic;
+      const _errs10 = errors;
+      let valid4 = false;
       const _errs11 = errors;
       if (typeof data1 === "string") {
-        if (!pattern9.test(data1)) {
+        if (func1(data1) > 128) {
           const err9 = {
             instancePath: instancePath + "/topic",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
-            keyword: "pattern",
-            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
-            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
+            keyword: "maxLength",
+            params: { limit: 128 },
+            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err9];
@@ -13608,7 +14201,7 @@ function validate103(
         const err10 = {
           instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -13621,9 +14214,45 @@ function validate103(
         errors++;
       }
       var _valid0 = _errs11 === errors;
-      valid3 = valid3 || _valid0;
-      if (!valid3) {
-        const err11 = {
+      valid4 = valid4 || _valid0;
+      const _errs13 = errors;
+      if (typeof data1 === "string") {
+        if (!pattern9.test(data1)) {
+          const err11 = {
+            instancePath: instancePath + "/topic",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
+            keyword: "pattern",
+            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
+            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err11];
+          } else {
+            vErrors.push(err11);
+          }
+          errors++;
+        }
+      } else {
+        const err12 = {
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err12];
+        } else {
+          vErrors.push(err12);
+        }
+        errors++;
+      }
+      var _valid0 = _errs13 === errors;
+      valid4 = valid4 || _valid0;
+      if (!valid4) {
+        const err13 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf",
@@ -13632,16 +14261,16 @@ function validate103(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err11];
+          vErrors = [err13];
         } else {
-          vErrors.push(err11);
+          vErrors.push(err13);
         }
         errors++;
       } else {
-        errors = _errs8;
+        errors = _errs10;
         if (vErrors !== null) {
-          if (_errs8) {
-            vErrors.length = _errs8;
+          if (_errs10) {
+            vErrors.length = _errs10;
           } else {
             vErrors = null;
           }
@@ -13649,7 +14278,7 @@ function validate103(
       }
       if (typeof data1 === "string") {
         if (func1(data1) > 134) {
-          const err12 = {
+          const err14 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/maxLength",
@@ -13658,14 +14287,14 @@ function validate103(
             message: "must NOT have more than 134 characters",
           };
           if (vErrors === null) {
-            vErrors = [err12];
+            vErrors = [err14];
           } else {
-            vErrors.push(err12);
+            vErrors.push(err14);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err13 = {
+          const err15 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/minLength",
@@ -13674,14 +14303,14 @@ function validate103(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err13];
+            vErrors = [err15];
           } else {
-            vErrors.push(err13);
+            vErrors.push(err15);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/pattern",
@@ -13689,41 +14318,6 @@ function validate103(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err14];
-          } else {
-            vErrors.push(err14);
-          }
-          errors++;
-        }
-      } else {
-        const err15 = {
-          instancePath: instancePath + "/topic",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err15];
-        } else {
-          vErrors.push(err15);
-        }
-        errors++;
-      }
-    }
-    if (data.cursor !== void 0) {
-      let data2 = data.cursor;
-      if (typeof data2 === "string") {
-        if (func1(data2) < 1) {
-          const err16 = {
-            instancePath: instancePath + "/cursor",
-            schemaPath: "#/properties/cursor/minLength",
-            keyword: "minLength",
-            params: { limit: 1 },
-            message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
             vErrors = [err16];
@@ -13734,8 +14328,9 @@ function validate103(
         }
       } else {
         const err17 = {
-          instancePath: instancePath + "/cursor",
-          schemaPath: "#/properties/cursor/type",
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -13748,8 +14343,42 @@ function validate103(
         errors++;
       }
     }
+    if (data.cursor !== void 0) {
+      let data2 = data.cursor;
+      if (typeof data2 === "string") {
+        if (func1(data2) < 1) {
+          const err18 = {
+            instancePath: instancePath + "/cursor",
+            schemaPath: "#/properties/cursor/minLength",
+            keyword: "minLength",
+            params: { limit: 1 },
+            message: "must NOT have fewer than 1 characters",
+          };
+          if (vErrors === null) {
+            vErrors = [err18];
+          } else {
+            vErrors.push(err18);
+          }
+          errors++;
+        }
+      } else {
+        const err19 = {
+          instancePath: instancePath + "/cursor",
+          schemaPath: "#/properties/cursor/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err19];
+        } else {
+          vErrors.push(err19);
+        }
+        errors++;
+      }
+    }
   } else {
-    const err18 = {
+    const err20 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -13757,9 +14386,9 @@ function validate103(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err18];
+      vErrors = [err20];
     } else {
-      vErrors.push(err18);
+      vErrors.push(err20);
     }
     errors++;
   }
@@ -14554,9 +15183,46 @@ function validate109(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err4 = {};
+        if (vErrors === null) {
+          vErrors = [err4];
+        } else {
+          vErrors.push(err4);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err5 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err5];
+        } else {
+          vErrors.push(err5);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err4 = {
+          const err6 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -14565,14 +15231,14 @@ function validate109(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err4];
+            vErrors = [err6];
           } else {
-            vErrors.push(err4);
+            vErrors.push(err6);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err5 = {
+          const err7 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -14581,14 +15247,14 @@ function validate109(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err5];
+            vErrors = [err7];
           } else {
-            vErrors.push(err5);
+            vErrors.push(err7);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err6 = {
+          const err8 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -14596,45 +15262,6 @@ function validate109(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err6];
-          } else {
-            vErrors.push(err6);
-          }
-          errors++;
-        }
-      } else {
-        const err7 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err7];
-        } else {
-          vErrors.push(err7);
-        }
-        errors++;
-      }
-    }
-    if (data.topic !== void 0) {
-      let data1 = data.topic;
-      const _errs8 = errors;
-      let valid3 = false;
-      const _errs9 = errors;
-      if (typeof data1 === "string") {
-        if (func1(data1) > 128) {
-          const err8 = {
-            instancePath: instancePath + "/topic",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
-            keyword: "maxLength",
-            params: { limit: 128 },
-            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err8];
@@ -14645,9 +15272,9 @@ function validate109(
         }
       } else {
         const err9 = {
-          instancePath: instancePath + "/topic",
+          instancePath: instancePath + "/domain",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -14659,18 +15286,21 @@ function validate109(
         }
         errors++;
       }
-      var _valid0 = _errs9 === errors;
-      valid3 = valid3 || _valid0;
+    }
+    if (data.topic !== void 0) {
+      let data1 = data.topic;
+      const _errs10 = errors;
+      let valid4 = false;
       const _errs11 = errors;
       if (typeof data1 === "string") {
-        if (!pattern9.test(data1)) {
+        if (func1(data1) > 128) {
           const err10 = {
             instancePath: instancePath + "/topic",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
-            keyword: "pattern",
-            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
-            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
+            keyword: "maxLength",
+            params: { limit: 128 },
+            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err10];
@@ -14683,7 +15313,7 @@ function validate109(
         const err11 = {
           instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -14696,9 +15326,45 @@ function validate109(
         errors++;
       }
       var _valid0 = _errs11 === errors;
-      valid3 = valid3 || _valid0;
-      if (!valid3) {
-        const err12 = {
+      valid4 = valid4 || _valid0;
+      const _errs13 = errors;
+      if (typeof data1 === "string") {
+        if (!pattern9.test(data1)) {
+          const err12 = {
+            instancePath: instancePath + "/topic",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
+            keyword: "pattern",
+            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
+            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err12];
+          } else {
+            vErrors.push(err12);
+          }
+          errors++;
+        }
+      } else {
+        const err13 = {
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err13];
+        } else {
+          vErrors.push(err13);
+        }
+        errors++;
+      }
+      var _valid0 = _errs13 === errors;
+      valid4 = valid4 || _valid0;
+      if (!valid4) {
+        const err14 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf",
@@ -14707,16 +15373,16 @@ function validate109(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err12];
+          vErrors = [err14];
         } else {
-          vErrors.push(err12);
+          vErrors.push(err14);
         }
         errors++;
       } else {
-        errors = _errs8;
+        errors = _errs10;
         if (vErrors !== null) {
-          if (_errs8) {
-            vErrors.length = _errs8;
+          if (_errs10) {
+            vErrors.length = _errs10;
           } else {
             vErrors = null;
           }
@@ -14724,7 +15390,7 @@ function validate109(
       }
       if (typeof data1 === "string") {
         if (func1(data1) > 134) {
-          const err13 = {
+          const err15 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/maxLength",
@@ -14733,14 +15399,14 @@ function validate109(
             message: "must NOT have more than 134 characters",
           };
           if (vErrors === null) {
-            vErrors = [err13];
+            vErrors = [err15];
           } else {
-            vErrors.push(err13);
+            vErrors.push(err15);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/minLength",
@@ -14749,14 +15415,14 @@ function validate109(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err15 = {
+          const err17 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/pattern",
@@ -14766,14 +15432,14 @@ function validate109(
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err15];
+            vErrors = [err17];
           } else {
-            vErrors.push(err15);
+            vErrors.push(err17);
           }
           errors++;
         }
       } else {
-        const err16 = {
+        const err18 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
@@ -14782,16 +15448,16 @@ function validate109(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err16];
+          vErrors = [err18];
         } else {
-          vErrors.push(err16);
+          vErrors.push(err18);
         }
         errors++;
       }
     }
     if (data.declared !== void 0) {
       if (typeof data.declared !== "boolean") {
-        const err17 = {
+        const err19 = {
           instancePath: instancePath + "/declared",
           schemaPath: "#/properties/declared/type",
           keyword: "type",
@@ -14799,15 +15465,15 @@ function validate109(
           message: "must be boolean",
         };
         if (vErrors === null) {
-          vErrors = [err17];
+          vErrors = [err19];
         } else {
-          vErrors.push(err17);
+          vErrors.push(err19);
         }
         errors++;
       }
     }
   } else {
-    const err18 = {
+    const err20 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -14815,9 +15481,9 @@ function validate109(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err18];
+      vErrors = [err20];
     } else {
-      vErrors.push(err18);
+      vErrors.push(err20);
     }
     errors++;
   }
@@ -14992,9 +15658,46 @@ function validate112(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err3 = {};
+        if (vErrors === null) {
+          vErrors = [err3];
+        } else {
+          vErrors.push(err3);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err4 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err4];
+        } else {
+          vErrors.push(err4);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err3 = {
+          const err5 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -15003,14 +15706,14 @@ function validate112(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err3];
+            vErrors = [err5];
           } else {
-            vErrors.push(err3);
+            vErrors.push(err5);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err4 = {
+          const err6 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -15019,14 +15722,14 @@ function validate112(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err4];
+            vErrors = [err6];
           } else {
-            vErrors.push(err4);
+            vErrors.push(err6);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err5 = {
+          const err7 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -15034,45 +15737,6 @@ function validate112(
             params: { pattern: "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])" },
             message:
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
-          };
-          if (vErrors === null) {
-            vErrors = [err5];
-          } else {
-            vErrors.push(err5);
-          }
-          errors++;
-        }
-      } else {
-        const err6 = {
-          instancePath: instancePath + "/domain",
-          schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
-          keyword: "type",
-          params: { type: "string" },
-          message: "must be string",
-        };
-        if (vErrors === null) {
-          vErrors = [err6];
-        } else {
-          vErrors.push(err6);
-        }
-        errors++;
-      }
-    }
-    if (data.topic !== void 0) {
-      let data1 = data.topic;
-      const _errs8 = errors;
-      let valid3 = false;
-      const _errs9 = errors;
-      if (typeof data1 === "string") {
-        if (func1(data1) > 128) {
-          const err7 = {
-            instancePath: instancePath + "/topic",
-            schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
-            keyword: "maxLength",
-            params: { limit: 128 },
-            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err7];
@@ -15083,9 +15747,9 @@ function validate112(
         }
       } else {
         const err8 = {
-          instancePath: instancePath + "/topic",
+          instancePath: instancePath + "/domain",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -15097,18 +15761,21 @@ function validate112(
         }
         errors++;
       }
-      var _valid0 = _errs9 === errors;
-      valid3 = valid3 || _valid0;
+    }
+    if (data.topic !== void 0) {
+      let data1 = data.topic;
+      const _errs10 = errors;
+      let valid4 = false;
       const _errs11 = errors;
       if (typeof data1 === "string") {
-        if (!pattern9.test(data1)) {
+        if (func1(data1) > 128) {
           const err9 = {
             instancePath: instancePath + "/topic",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
-            keyword: "pattern",
-            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
-            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/maxLength",
+            keyword: "maxLength",
+            params: { limit: 128 },
+            message: "must NOT have more than 128 characters",
           };
           if (vErrors === null) {
             vErrors = [err9];
@@ -15121,7 +15788,7 @@ function validate112(
         const err10 = {
           instancePath: instancePath + "/topic",
           schemaPath:
-            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/0/type",
           keyword: "type",
           params: { type: "string" },
           message: "must be string",
@@ -15134,9 +15801,45 @@ function validate112(
         errors++;
       }
       var _valid0 = _errs11 === errors;
-      valid3 = valid3 || _valid0;
-      if (!valid3) {
-        const err11 = {
+      valid4 = valid4 || _valid0;
+      const _errs13 = errors;
+      if (typeof data1 === "string") {
+        if (!pattern9.test(data1)) {
+          const err11 = {
+            instancePath: instancePath + "/topic",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/pattern",
+            keyword: "pattern",
+            params: { pattern: "^.{1,128}/error(?![\\s\\S])" },
+            message: 'must match pattern "^.{1,128}/error(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err11];
+          } else {
+            vErrors.push(err11);
+          }
+          errors++;
+        }
+      } else {
+        const err12 = {
+          instancePath: instancePath + "/topic",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf/1/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err12];
+        } else {
+          vErrors.push(err12);
+        }
+        errors++;
+      }
+      var _valid0 = _errs13 === errors;
+      valid4 = valid4 || _valid0;
+      if (!valid4) {
+        const err13 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/anyOf",
@@ -15145,16 +15848,16 @@ function validate112(
           message: "must match a schema in anyOf",
         };
         if (vErrors === null) {
-          vErrors = [err11];
+          vErrors = [err13];
         } else {
-          vErrors.push(err11);
+          vErrors.push(err13);
         }
         errors++;
       } else {
-        errors = _errs8;
+        errors = _errs10;
         if (vErrors !== null) {
-          if (_errs8) {
-            vErrors.length = _errs8;
+          if (_errs10) {
+            vErrors.length = _errs10;
           } else {
             vErrors = null;
           }
@@ -15162,7 +15865,7 @@ function validate112(
       }
       if (typeof data1 === "string") {
         if (func1(data1) > 134) {
-          const err12 = {
+          const err14 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/maxLength",
@@ -15171,14 +15874,14 @@ function validate112(
             message: "must NOT have more than 134 characters",
           };
           if (vErrors === null) {
-            vErrors = [err12];
+            vErrors = [err14];
           } else {
-            vErrors.push(err12);
+            vErrors.push(err14);
           }
           errors++;
         }
         if (func1(data1) < 1) {
-          const err13 = {
+          const err15 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/minLength",
@@ -15187,14 +15890,14 @@ function validate112(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err13];
+            vErrors = [err15];
           } else {
-            vErrors.push(err13);
+            vErrors.push(err15);
           }
           errors++;
         }
         if (!pattern4.test(data1)) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/topic",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicName/pattern",
@@ -15204,14 +15907,14 @@ function validate112(
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
       } else {
-        const err15 = {
+        const err17 = {
           instancePath: instancePath + "/topic",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicName/type",
@@ -15220,15 +15923,15 @@ function validate112(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err15];
+          vErrors = [err17];
         } else {
-          vErrors.push(err15);
+          vErrors.push(err17);
         }
         errors++;
       }
     }
   } else {
-    const err16 = {
+    const err18 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -15236,9 +15939,9 @@ function validate112(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err16];
+      vErrors = [err18];
     } else {
-      vErrors.push(err16);
+      vErrors.push(err18);
     }
     errors++;
   }
@@ -15774,9 +16477,46 @@ function validate117(
     }
     if (data.domain !== void 0) {
       let data0 = data.domain;
+      const _errs5 = errors;
+      const _errs6 = errors;
+      if (!(data0 === "." || data0 === "..")) {
+        const err2 = {};
+        if (vErrors === null) {
+          vErrors = [err2];
+        } else {
+          vErrors.push(err2);
+        }
+        errors++;
+      }
+      var valid2 = _errs6 === errors;
+      if (valid2) {
+        const err3 = {
+          instancePath: instancePath + "/domain",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/DomainName/not",
+          keyword: "not",
+          params: {},
+          message: "must NOT be valid",
+        };
+        if (vErrors === null) {
+          vErrors = [err3];
+        } else {
+          vErrors.push(err3);
+        }
+        errors++;
+      } else {
+        errors = _errs5;
+        if (vErrors !== null) {
+          if (_errs5) {
+            vErrors.length = _errs5;
+          } else {
+            vErrors = null;
+          }
+        }
+      }
       if (typeof data0 === "string") {
         if (func1(data0) > 256) {
-          const err2 = {
+          const err4 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/maxLength",
@@ -15785,14 +16525,14 @@ function validate117(
             message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
-            vErrors = [err2];
+            vErrors = [err4];
           } else {
-            vErrors.push(err2);
+            vErrors.push(err4);
           }
           errors++;
         }
         if (func1(data0) < 1) {
-          const err3 = {
+          const err5 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/minLength",
@@ -15801,14 +16541,14 @@ function validate117(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err3];
+            vErrors = [err5];
           } else {
-            vErrors.push(err3);
+            vErrors.push(err5);
           }
           errors++;
         }
         if (!pattern4.test(data0)) {
-          const err4 = {
+          const err6 = {
             instancePath: instancePath + "/domain",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/DomainName/pattern",
@@ -15818,14 +16558,14 @@ function validate117(
               'must match pattern "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err4];
+            vErrors = [err6];
           } else {
-            vErrors.push(err4);
+            vErrors.push(err6);
           }
           errors++;
         }
       } else {
-        const err5 = {
+        const err7 = {
           instancePath: instancePath + "/domain",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/DomainName/type",
@@ -15834,9 +16574,9 @@ function validate117(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err5];
+          vErrors = [err7];
         } else {
-          vErrors.push(err5);
+          vErrors.push(err7);
         }
         errors++;
       }
@@ -15845,7 +16585,7 @@ function validate117(
       let data1 = data.glob;
       if (typeof data1 === "string") {
         if (func1(data1) < 1) {
-          const err6 = {
+          const err8 = {
             instancePath: instancePath + "/glob",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
@@ -15854,14 +16594,14 @@ function validate117(
             message: "must NOT have fewer than 1 characters",
           };
           if (vErrors === null) {
-            vErrors = [err6];
+            vErrors = [err8];
           } else {
-            vErrors.push(err6);
+            vErrors.push(err8);
           }
           errors++;
         }
         if (!pattern25.test(data1)) {
-          const err7 = {
+          const err9 = {
             instancePath: instancePath + "/glob",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
@@ -15874,14 +16614,14 @@ function validate117(
               'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err7];
+            vErrors = [err9];
           } else {
-            vErrors.push(err7);
+            vErrors.push(err9);
           }
           errors++;
         }
       } else {
-        const err8 = {
+        const err10 = {
           instancePath: instancePath + "/glob",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/type",
@@ -15890,15 +16630,15 @@ function validate117(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err8];
+          vErrors = [err10];
         } else {
-          vErrors.push(err8);
+          vErrors.push(err10);
         }
         errors++;
       }
     }
   } else {
-    const err9 = {
+    const err11 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -15906,9 +16646,9 @@ function validate117(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err9];
+      vErrors = [err11];
     } else {
-      vErrors.push(err9);
+      vErrors.push(err11);
     }
     errors++;
   }

@@ -36,8 +36,8 @@ describe("runtime foundations", () => {
         expect(
           state.storage.sql
             .exec<{ version: number }>("SELECT version FROM schema_version")
-            .toArray(),
-        ).toEqual([{ version: 1 }]);
+            .one().version,
+        ).toBeGreaterThanOrEqual(1);
         expect(state.storage.sql.databaseSize).toBeGreaterThan(0);
       });
     }
