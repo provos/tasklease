@@ -1,6 +1,6 @@
 # FluxShot Editor profiles
 
-Draft 2, 2026-11-07. These build on [spec.md](spec.md).
+Draft 3, 2026-11-07. These build on [spec.md](spec.md).
 
 Repo key: `github.com/provos/fluxshoteditor`.
 
@@ -12,7 +12,7 @@ Repo key: `github.com/provos/fluxshoteditor`.
 | `build/linux`, `build/macos`, `build/windows` | packaging workers on that OS | packaging agent |
 | `advise` | adviser workers (one at first, more later) | agents |
 | `verified/<agent-id>`, `built/<agent-id>`, `advised/<agent-id>` | the one requesting agent | workers, through Consume |
-| `<topic>/error` | the operator | workers, for requests they cannot parse |
+| `<topic>/error` | the operator | workers, for tasks they cannot answer (spec §6.1) |
 
 **Agent ID.** Each agent session uses a stable ID, for example `mac-a1b2`
 (hostname plus a short session hash). The `tl` CLI reads it from
@@ -23,6 +23,19 @@ the operator to prune.
 has its own label and its own checkout. A machine may run several verify
 workers, several build workers, or both. They share the machine's lock lanes
 (§3.2).
+
+**Scopes.** A worker machine's identity gets `own` on its OS's topics
+(`verify/linux`, `build/linux`, and `advise` on an adviser machine) and
+`create` on the reply topics (`verified/*`, `built/*`, `advised/*`). The
+`<topic>/error` grants are added automatically. An agent host's identity
+gets `create` on `verify/*`, `build/*` and `advise`, `own` on its own reply
+topics, and `read` on `verify/*`, `build/*` and `advise`. It needs that read
+access to check who sent a reply (spec §6.3).
+
+**Who may answer.** Since a reply must come from an identity in the request
+topic's poller list, a `verify/macos` result is accepted only from a machine
+that serves `verify/macos`. Keep each OS's `own` grants on that OS's
+machines.
 
 ## 2. Common envelope
 
@@ -44,13 +57,19 @@ Every reply also carries:
 {
   "schema": "fse.verify.result/1",
   "request_id": "…",
-  "request": { "...": "the request data, echoed" },
+  "request": { "...": "the request's identifying fields only (see below)" },
   "status": "passed",
   "worker": { "identity": "linux-1", "label": "verify-a", "os": "linux", "arch": "x86_64" },
   "started_at": "…", "finished_at": "…",
   "message": "one line a person can read"
 }
 ```
+
+`request` echoes only the fields that identify the work: `schema`, `pr`,
+`sha`, `tier`, `options` and `target`, whichever the request has. It never
+echoes `question`, `context`, `history` or `attachments`. An advise request
+near the 256 KiB limit would otherwise make every reply to it too large
+(spec §6.1).
 
 Statuses shared by all profiles:
 
@@ -62,8 +81,10 @@ Statuses shared by all profiles:
 | `timed_out` | the work hit its wall-clock limit |
 | `error` | the worker's infrastructure failed (fetch, `uv sync`, upload) |
 
-A request that cannot be parsed has no reply topic anyone can trust. It is
-consumed into `<topic>/error` unchanged.
+`rejected` and `abandoned` go to the request's reply topic when it has a
+well-formed one the worker may write to. Otherwise, as with any reply the
+reply topic refuses, the task goes to `<topic>/error`, wrapped with its
+outcome (spec §6.1). Either way, every task ends.
 
 ## 3. Code under test (verify and build)
 
