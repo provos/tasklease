@@ -240,6 +240,15 @@ export class DomainObject extends DurableObject<Env> {
       ) {
         return failure("forbidden");
       }
+      if (
+        request.lease_before !== undefined &&
+        row.lease_until >= request.lease_before
+      ) {
+        return failure(
+          "forbidden",
+          "Task lease is newer than the deletion cutoff",
+        );
+      }
       this.ctx.storage.sql.exec("DELETE FROM tasks WHERE id = ?", row.id);
       this.recordStats(row.topic, now, { deleted: 1 });
       return { ok: true };

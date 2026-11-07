@@ -11,7 +11,7 @@ import * as validators from "./generated/validators.js";
 import type { IdentityListPage } from "./registry_do";
 import { allows } from "./scopes";
 import type { Caller } from "./types";
-import { version } from "../package.json";
+import { version } from "./version";
 
 export { DomainObject } from "./domain_do";
 export { RegistryObject } from "./registry_do";

@@ -1,4 +1,4 @@
-.PHONY: install codegen codegen-check check check-service check-monitor check-python test-service test-python format
+.PHONY: install codegen codegen-check check check-service check-monitor check-python conformance build monitor test-service test-python format
 
 export UV_CACHE_DIR ?= /tmp/tasklease-uv-cache
 
@@ -12,7 +12,7 @@ codegen:
 codegen-check:
 	npm run codegen:check
 
-check: codegen-check check-service check-monitor check-python
+check: codegen-check check-service check-monitor check-python conformance
 
 check-service:
 	npm run format:check
@@ -25,10 +25,19 @@ check-monitor:
 	npm run check:monitor
 
 check-python:
-	cd python && uv run ruff check .
-	cd python && uv run ruff format --check .
-	cd python && uv run mypy src tests
+	cd python && uv run ruff check --config pyproject.toml . ../conformance
+	cd python && uv run ruff format --check --config pyproject.toml . ../conformance
+	cd python && uv run mypy src tests hatch_build.py ../conformance
 	cd python && uv run pytest
+
+conformance:
+	cd python && uv run pytest -c pyproject.toml ../conformance
+
+build:
+	cd python && uv build
+
+monitor:
+	node scripts/build-assets.mjs
 
 test-service:
 	npm run test:service
@@ -38,4 +47,4 @@ test-python:
 
 format:
 	npm run format
-	cd python && uv run ruff format .
+	cd python && uv run ruff format --config pyproject.toml . ../conformance

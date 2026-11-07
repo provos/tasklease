@@ -115,13 +115,82 @@ Status: accepted; simplify and independent Astra high review gates passed.
 
 ## Phase 3 — client, operator CLI, deployment and packaging
 
-Status: implementation starting after phase 2 acceptance.
+Status: accepted locally; simplify and independent Astra high gates passed.
+Live R2 acceptance remains pending on requested signing credentials.
 
 - Scope: typed client/configuration/errors, operator commands, pinned-Wrangler
   deploy/status, bundled Worker and wheel/sdist builds, local conformance.
 - Read-only deployment preparation verified pinned CLI output shapes and
   lifecycle replacement behavior. Existing OAuth can read R2 metadata; S3
   signing credentials remain unavailable.
+- Supervisor found a prune/Renew race: Renew preserves the ID, so an operator
+  Delete by listed ID could remove recently renewed work. Added optional
+  atomic `lease_before` to Delete, schema/type generation, valid/invalid
+  examples and runtime regression coverage. Prune uses it; standard Delete
+  is unchanged. Contract corpus now has 219 examples.
+- Deployment checkpoints nonsecret coordinates after upload so expected
+  setup stops resume the intended target. Unconfirmed admin candidates remain
+  unconfirmed after propagation timeouts; no conclusion about the old token
+  is inferred. Pinned deploy targets accept bare hostnames or HTTPS origins.
+- Agent verification: 102 client/config tests, 26 CLI tests, 47 deployment
+  tests, 4 build/install tests, and 138 local conformance checks (6 monitor
+  examples deferred to phase 6). Supervisor integrated verification pending.
+- Supervisor integrated verification passed: 176 Workers tests, 401 Python
+  tests, 138 conformance checks (6 explicit monitor deferrals), 219 shared
+  examples, generated drift/type checks and strict TS/mypy/lint/format/Svelte
+  checks. Wheel and sdist built successfully, including wheel-from-sdist.
+  Import classification was made explicit so Ruff is consistent across root
+  and Python working directories.
+- Simplify: reuse pass clean. Efficiency reproduced P2 descendant processes
+  surviving a Wrangler timeout; quality reproduced P2 lost credential-update
+  state after the early target checkpoint. Added isolated process-tree cleanup
+  on timeout/interruption and a durable `r2_credentials_pending` flag cleared
+  only after successful secret bulk. Fresh pairs are required while pending.
+  Original failures reproduced, then 90 deploy/config regression tests passed
+  with strict mypy and Ruff. Supervisor follow-up verification pending.
+- First installed-wheel live attempt stopped at read-only whoami preflight
+  because output was not JSON; no resources were created. The subsequent
+  exact whoami command returned valid JSON. Live bootstrap will be retried
+  using the corrected candidate.
+- Supervisor follow-up passed 407 Python tests, strict mypy/Ruff, and rebuilt
+  wheel/sdist; earlier unchanged service/conformance checks remain applicable.
+- Installed-wheel live retry succeeded through bootstrap: created bucket and
+  seven-day lifecycle, uploaded Worker, printed and authenticated a new admin
+  candidate, then exited 4 for missing R2 keys as designed. Test admin token
+  was redacted and not retained; future acceptance will explicitly rotate it.
+  No secrets were written to the selected config.
+  Worker: `https://tasklease-acceptance-90d25ae.provos.workers.dev`.
+  Bucket/name: `tasklease-acceptance-90d25ae`.
+  Temporary config: `/tmp/tasklease-acceptance-90d25ae.tYv2Oi/config.toml`.
+  User was asked for bucket-scoped R2 credentials in an ignored local file;
+  full upload/download and wrong-size checks remain pending.
+- Independent Astra high review (`phase3_astra`, fresh `gpt-6-astra`, high)
+  independently passed 181 client/config/CLI/deploy tests, 138 conformance
+  checks (6 monitor deferrals), and 11 DomainObject tests. It accepted pending
+  credential recovery, POSIX process cleanup and conditional Delete. One P2
+  was found: inherited `CLOUDFLARE_ENV` and `WRANGLER_CI_OVERRIDE_NAME` can change
+  the Worker target before upload. A real pinned local dry-run reproduced
+  both overrides. Both variables are now removed at the subprocess boundary;
+  an actual pinned normalization/dry-run regression proves the intended name
+  is preserved with networking blocked. All 54 deploy tests, strict mypy and
+  Ruff passed. Focused independent Astra re-review is pending.
+- Final focused Astra high re-review: clean. Independently reran all 54
+  deployment tests, including the real pinned target regression. Explicit
+  account selection remains intact; no new material findings. All phase 3
+  findings are resolved. Final wheel/sdist rebuild includes this correction.
+
+## Phase 4 — durable requester
+
+Status: implementation starting after phase 3 acceptance.
+
+- Scope: cross-platform durable no-replace filesystem operations, request and
+  reply stores, request/wait/cancel/inbox/resend/prune and fault/race tests.
+- Read-only filesystem preparation retrieved primary POSIX, Apple and Windows
+  documentation. `exists` must also be a durability barrier; parent entries
+  and Windows/macOS flush differences require explicit treatment.
+- Simplify: pending.
+- Independent Astra high review: pending.
+- Verification: pending; native Windows/macOS execution remains external.
 - Simplify: pending.
 - Independent Astra high review: pending.
 - Verification: pending.

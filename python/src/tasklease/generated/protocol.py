@@ -170,6 +170,7 @@ class DeleteRequest(TypedDict):
     domain: DomainName
     topic: TopicName
     id: TaskId
+    lease_before: NotRequired[Timestamp]
 
 
 class DeleteResponse(TypedDict):

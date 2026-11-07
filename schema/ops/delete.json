@@ -16,6 +16,10 @@
         },
         "id": {
           "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
+        },
+        "lease_before": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp",
+          "description": "Optional strict lease cutoff, checked atomically before deletion."
         }
       },
       "required": ["domain", "topic", "id"],

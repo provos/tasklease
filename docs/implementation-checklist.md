@@ -17,7 +17,7 @@ and verification evidence are recorded in [review-log.md](review-log.md).
   pinned toolchains; strict checks; Workers-runtime and Python test harnesses.
 - [x] **2. Service:** registry/auth/scopes; task operations and SQLite
   migrations; fencing and atomicity; pollers, statistics and alarms; R2 signing.
-- [ ] **3. Client, operator CLI and deployment:** typed client and configuration;
+- [x] **3. Client, operator CLI and deployment:** typed client and configuration;
   operator commands; deploy/status with recovery tests; bundled Worker;
   wheel/sdist; cross-language conformance and isolated real deployment.
 - [ ] **4. Durable requester:** atomic no-replace publication; request/reply
@@ -37,7 +37,7 @@ and verification evidence are recorded in [review-log.md](review-log.md).
 Keep these separate from local implementation completion. A missing credential
 or machine leaves a check unverified, never passed by inference.
 
-- [ ] Isolated Cloudflare deployment with a separate name, bucket and config.
+- [x] Isolated Cloudflare deployment with a separate name, bucket and config.
 - [ ] Actual R2 upload/download, signed Content-Length acceptance/rejection.
 - [ ] Upgrade preserves existing Durable Object state and credentials.
 - [ ] macOS filesystem/store/worker tests and clean package installation.
@@ -64,11 +64,17 @@ or machine leaves a check unverified, never passed by inference.
 - Identity Add rejects combined compact JSON domain and expanded scope lists
   above 7 MiB with `invalid`, before writing. This is an aggregate bound;
   individual globs retain the existing grammar.
+- Delete accepts an optional `lease_before` cutoff, checked atomically with
+  deletion. Prune uses it so Renew keeping the ID cannot race the operator
+  into deleting active work. Ordinary Delete behavior is unchanged.
 
 ## Current state
 
 Phase 1 accepted and checkpointed at `776d43d` after simplify, independent
 Astra high review, both confirmed review fixes, and a clean focused re-review.
 Phase 2 is accepted after simplify, independent Astra high review, resource
-boundary fixes and clean focused re-reviews. Phase 3 is next. No remote
-resources have been changed.
+boundary fixes and clean focused re-reviews. Phase 3 implementation is
+accepted after simplify, recovery fixes and a clean independent Astra
+re-review. Phase 4 is next. The installed wheel bootstrapped the isolated
+`tasklease-acceptance-90d25ae` Worker and bucket. Live R2 checks await the
+requested bucket-scoped signing credentials; other phases can proceed.

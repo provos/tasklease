@@ -2903,7 +2903,12 @@ function validate43(
       errors++;
     }
     for (const key0 in data) {
-      if (!(key0 === "domain" || key0 === "topic" || key0 === "id")) {
+      if (!(
+        key0 === "domain" ||
+        key0 === "topic" ||
+        key0 === "id" ||
+        key0 === "lease_before"
+      )) {
         const err3 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -3230,8 +3235,32 @@ function validate43(
         errors++;
       }
     }
+    if (data.lease_before !== void 0) {
+      let data3 = data.lease_before;
+      if (!(
+        typeof data3 == "number" &&
+        !(data3 % 1) &&
+        !isNaN(data3) &&
+        isFinite(data3)
+      )) {
+        const err21 = {
+          instancePath: instancePath + "/lease_before",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/Timestamp/type",
+          keyword: "type",
+          params: { type: "integer" },
+          message: "must be integer",
+        };
+        if (vErrors === null) {
+          vErrors = [err21];
+        } else {
+          vErrors.push(err21);
+        }
+        errors++;
+      }
+    }
   } else {
-    const err21 = {
+    const err22 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -3239,9 +3268,9 @@ function validate43(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err21];
+      vErrors = [err22];
     } else {
-      vErrors.push(err21);
+      vErrors.push(err22);
     }
     errors++;
   }
@@ -7140,7 +7169,7 @@ validate72.evaluated = {
   dynamicProps: false,
   dynamicItems: false,
 };
-var schema119 = {
+var schema120 = {
   title: "TaskSummary",
   type: "object",
   properties: {
@@ -7845,7 +7874,7 @@ function validate74(
           instancePath: instancePath + "/state",
           schemaPath: "#/properties/state/enum",
           keyword: "enum",
-          params: { allowedValues: schema119.properties.state.enum },
+          params: { allowedValues: schema120.properties.state.enum },
           message: "must be equal to one of the allowed values",
         };
         if (vErrors === null) {
@@ -8495,7 +8524,7 @@ validate71.evaluated = {
   dynamicProps: false,
   dynamicItems: false,
 };
-var schema128 = {
+var schema129 = {
   title: "HourlyStats",
   type: "object",
   properties: {
@@ -8766,7 +8795,7 @@ function validate79(
       errors++;
     }
     for (const key0 in data) {
-      if (!func50.call(schema128.properties, key0)) {
+      if (!func50.call(schema129.properties, key0)) {
         const err14 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -10275,7 +10304,7 @@ validate82.evaluated = {
   dynamicItems: false,
 };
 var validateOwnResponse = validate83;
-var schema136 = {
+var schema137 = {
   title: "Task",
   type: "object",
   properties: {
@@ -10495,7 +10524,7 @@ function validate84(
       errors++;
     }
     for (const key0 in data) {
-      if (!func50.call(schema136.properties, key0)) {
+      if (!func50.call(schema137.properties, key0)) {
         const err10 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -11835,7 +11864,7 @@ function validate91(
       errors++;
     }
     for (const key0 in data) {
-      if (!func50.call(schema136.properties, key0)) {
+      if (!func50.call(schema137.properties, key0)) {
         const err10 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -13250,7 +13279,7 @@ function validate98(
       errors++;
     }
     for (const key0 in data) {
-      if (!func50.call(schema136.properties, key0)) {
+      if (!func50.call(schema137.properties, key0)) {
         const err10 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -14871,7 +14900,7 @@ function validate105(
           instancePath: instancePath + "/state",
           schemaPath: "#/properties/state/enum",
           keyword: "enum",
-          params: { allowedValues: schema119.properties.state.enum },
+          params: { allowedValues: schema120.properties.state.enum },
           message: "must be equal to one of the allowed values",
         };
         if (vErrors === null) {
@@ -17492,7 +17521,7 @@ validate123.evaluated = {
   dynamicItems: false,
 };
 var validateErrorResponse = validate124;
-var schema211 = {
+var schema212 = {
   title: "ErrorCode",
   type: "string",
   enum: [
@@ -17604,7 +17633,7 @@ function validate125(
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/ErrorCode/enum",
           keyword: "enum",
-          params: { allowedValues: schema211.enum },
+          params: { allowedValues: schema212.enum },
           message: "must be equal to one of the allowed values",
         };
         if (vErrors === null) {

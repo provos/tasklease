@@ -1,7 +1,9 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
+import { serviceVersion } from "../scripts/worker-config.mjs";
 
 export default defineConfig({
+  define: { TASKLEASE_VERSION: JSON.stringify(serviceVersion()) },
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },

@@ -191,6 +191,8 @@ storage, with the tables in spec §7.2.
   transaction, so the page shows one consistent moment.
 - **Renew:** `UPDATE … SET lease_until = ? WHERE id = ? AND topic = ?`, after
   the holder check.
+- **Delete:** holder and optional `lease_before` cutoff checks precede deletion
+  in the same transaction, so pruning cannot race a Renew that retains the ID.
 - **Consume:** delete, then insert each new task, in one transaction.
 - **Alarm:** once a day, delete poller rows older than 7 days and statistics
   rows older than 30 days, then set the next alarm. It is set on first use,
@@ -295,7 +297,8 @@ check use it.
 ## 5. Python package
 
 Python 3.12 or newer. Runtime dependencies kept small: `httpx` (HTTP),
-`platformdirs` (per-OS paths). `tomllib` from the standard library for
+`platformdirs` (per-OS paths), `tomli-w` (preserving TOML updates). `tomllib`
+from the standard library for
 configuration. Development: `pytest`, `mypy --strict`, `ruff`,
 `jsonschema` (tests only), `datamodel-code-generator` (codegen only).
 
@@ -496,8 +499,8 @@ and a stale warning when a refresh fails. Sections:
 ### 5.8 Packaging and releases
 
 - **Build backend:** `hatchling`, with a custom build hook
-  (`hatch_build.py`) that runs `npm ci && npm run build` in `../monitor/` and
-  copies the output to `tasklease/monitor/static/`. Both the wheel and the
+  (`hatch_build.py`) that uses the root npm workspace lockfile and builds
+  `monitor/`, copying output to `tasklease/monitor/static/`. Both the wheel and the
   sdist contain the built dashboard, so installing either never needs Node.
 - **The Worker bundle.** The same hook runs `wrangler deploy --dry-run
   --outdir` in `../service/`, which bundles the Worker and its npm
@@ -511,6 +514,9 @@ and a stale warning when a refresh fails. Sections:
   with. All three go to `tasklease/service_bundle/`. So a user who installed
   from PyPI deploys with no checkout and no `npm install` (§8.2), and the
   service they deploy always matches their client.
+- **Worker version:** build and development wrappers derive it from the
+  Python project's version and inject it through a temporary Wrangler config;
+  they do not rewrite source files or maintain an independent service version.
 - **Shipping build output.** Hatchling leaves out of the sdist and wheel
   every path that git ignores, even one the build hook has just created. So
   `pyproject.toml` lists both build outputs under `artifacts` in
@@ -633,6 +639,10 @@ migrations, keeping existing secrets, the `workers.dev` address, and sign-in.
 - **Which wrangler:** always the exact version recorded in the bundle's
   `manifest.json`, run as `npx --yes wrangler@<version>`, so every deploy
   uses the wrangler the release was tested with. No global install.
+- **Target isolation:** discard inherited `CLOUDFLARE_ENV` and
+  `WRANGLER_CI_OVERRIDE_NAME` when launching Wrangler. The selected account,
+  name and top-level config determine the target; another project's shell
+  environment cannot rename this deployment.
 - **What it deploys:** the Worker bundled in the installed package (§5.8),
   from a temporary project folder holding that bundle and a `wrangler.jsonc`
   filled in from the template. `no_bundle: true`, so wrangler uploads the
@@ -691,11 +701,20 @@ deploy.
    **The URL:** `tl` sets `WRANGLER_OUTPUT_FILE_PATH` to a temporary file,
    where wrangler appends one JSON line per event. `tl` reads it line by line
    and selects the `deploy` entry, whose `targets` lists the deployment's
-   URLs (wrangler source, `packages/workers-utils/src/output.ts`). It takes
-   the single target ending in `.workers.dev`. It does not parse other
+   addresses (wrangler source, `packages/workers-utils/src/output.ts`). It takes
+   the single target ending in `.workers.dev`, accepting a bare hostname or
+   an HTTPS origin and normalizing it to HTTPS. It does not parse other
    entries or wrangler's terminal output, whose wording can change. If there
    is no such target, the deploy stops with exit code 4 and asks for the URL
    with `--url`, which is then saved like any other input.
+   After a successful upload and URL resolution, save these nonsecret target
+   coordinates to the selected config, marked unverified in command output.
+   Expected setup stops can then resume the same custom account/name/bucket.
+   Credentials and unrelated client settings are never replaced by this save.
+   When an R2 key pair is being updated, this checkpoint also sets
+   `cloudflare.r2_credentials_pending = true`. Retries require a pair while
+   this flag is set, even when saved target coordinates already match. Clear
+   it only after the secret bulk command succeeds.
 5. **Existing secrets:** `wrangler secret list --name <name>`. The Worker
    exists now, so this succeeds; a failure is a real failure. Which secrets
    are missing is decided from this list.
@@ -712,13 +731,11 @@ deploy.
    *existing* in `secret list` proves nothing about its *value*: after a
    failed rotation, the old token still exists and still works.
    - It works: print "confirmed". The printed token is the admin token.
-   - `unauthenticated`: print that the printed token is **not** in effect
-     and must be discarded. On a rotation, the previous token still holds;
-     run `--rotate-admin-token` again. On a first deploy, the next run finds
-     no `ADMIN_TOKEN` and generates a new one.
-   - The service cannot be reached: print that the token's status is
-     unknown, and stop. The next run with `TL_ADMIN_TOKEN` set to the
-     printed token confirms it (step 9 uses it); if that fails, rotate.
+   - The deadline passes with `unauthenticated` or transport failures: print
+     that the token is **unconfirmed**, and stop. Propagation may still be in
+     progress; do not infer that the candidate was permanently rejected or
+     that the old token still works. Keep the candidate and retry with
+     `TL_ADMIN_TOKEN` set to it, or explicitly rotate again.
 7. **R2 credentials:** if `R2_ACCESS_KEY_ID` or `R2_SECRET_ACCESS_KEY` is
    still missing, stop here with exit code 4 and print the dashboard steps
    for creating them (help text, step 3), naming the bucket. The message
@@ -745,7 +762,8 @@ deploy.
    download. Without an admin token (an upgrade with no `TL_ADMIN_TOKEN`),
    this step is skipped with a warning that the deploy was not verified.
    The probe blob expires with the lifecycle rule.
-10. **Write the config** with the URL and the saved inputs, then print the
+10. **Finish the config checkpoint** with the URL and saved inputs, preserving
+    unrelated settings, and report the verification result. Then print the
     next steps: `tl identity add` for each machine, and `tl topic declare`.
 
 Between steps 4 and 6 of a first deploy, the Worker runs for a few seconds
@@ -833,8 +851,8 @@ On the first deploy, this command prints the ADMIN TOKEN once, just
 before setting it, and then confirms it by using it. Store it in a
 password manager: it is needed for "tl identity add" (as
 TL_ADMIN_TOKEN) and is not saved anywhere. If the command says the
-printed token is not in effect, discard it and run the command again
-(after a rotation, add --rotate-admin-token). If the token is lost, run
+printed token is unconfirmed, keep it: propagation may still be in progress.
+Retry with TL_ADMIN_TOKEN set to it, or explicitly rotate again. If the token is lost, run
 "tl service deploy --rotate-admin-token" to replace it.
 
 At the end, the command checks the whole service: it adds a temporary

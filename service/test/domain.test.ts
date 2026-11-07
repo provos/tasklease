@@ -44,6 +44,70 @@ function error(result: Result<{ ok: true }>, code: string) {
 }
 
 describe("DomainObject task transactions", () => {
+  it("checks a prune cutoff atomically after Renew keeps the task ID", async () => {
+    const { domain, stub } = fixture("conditional-delete");
+    const topic = "work/linux";
+    await stub.create({ domain, topic, data: { work: true } }, creator);
+    const held = success(
+      await stub.own({ domain, topic, hold_seconds: 60 }, worker),
+    ).task;
+    const cutoff = Date.now() - DAY;
+    const setLease = async (value: number) => {
+      await runInDurableObject(stub, (_instance, state) => {
+        state.storage.sql.exec(
+          "UPDATE tasks SET lease_until = ? WHERE id = ?",
+          value,
+          held.id,
+        );
+      });
+    };
+    await setLease(cutoff - 1);
+    const renewed = success(
+      await stub.renew(
+        { domain, topic, id: held.id, hold_seconds: 60 },
+        worker,
+      ),
+    ).task;
+    expect(renewed.id).toBe(held.id);
+    error(
+      await stub.delete(
+        { domain, topic, id: held.id, lease_before: cutoff },
+        operator,
+      ),
+      "forbidden",
+    );
+    expect(
+      success(await stub.read({ domain, topic, id: held.id }, operator)).task
+        .lease_until,
+    ).toBe(renewed.lease_until);
+    await setLease(cutoff);
+    error(
+      await stub.delete(
+        { domain, topic, id: held.id, lease_before: cutoff },
+        operator,
+      ),
+      "forbidden",
+    );
+    await setLease(cutoff - 1);
+    success(
+      await stub.delete(
+        { domain, topic, id: held.id, lease_before: cutoff },
+        operator,
+      ),
+    );
+    error(
+      await stub.read({ domain, topic, id: held.id }, operator),
+      "not_found",
+    );
+    await runInDurableObject(stub, (_instance, state) => {
+      expect(
+        state.storage.sql
+          .exec("SELECT SUM(deleted) AS count FROM stats_hourly")
+          .one(),
+      ).toEqual({ count: 1 });
+    });
+  });
+
   it("claims each available task exactly once under concurrent Owns", async () => {
     const { domain, stub } = fixture("concurrent-own");
     const originals = await Promise.all(

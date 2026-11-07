@@ -12,6 +12,7 @@ __pycache__/
 .dev.vars
 .dev.vars.*
 .wrangler/
+.tasklease-worker-*.json
 dist/
 build/
 *.egg-info/

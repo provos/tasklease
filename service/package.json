@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "build": "wrangler deploy --dry-run --outdir dist",
+    "dev": "node ../scripts/run-worker.mjs dev",
+    "build": "node ../scripts/run-worker.mjs deploy --dry-run --outdir dist",
     "types": "wrangler types worker-configuration.d.ts",
     "check": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
     "test": "vitest run",

@@ -195,7 +195,7 @@ Success is `200 {"ok": true, ...}`. Failure is
 |---|---|---|
 | `invalid` | 400 | malformed request, bad topic name, bad duration, a name or list over its limit |
 | `unauthenticated` | 401 | missing or unknown token |
-| `forbidden` | 403 | scope or holder rule refused it |
+| `forbidden` | 403 | scope, holder rule, or conditional Delete refused it |
 | `not_found` | 404 | no task with this domain, topic and ID |
 | `empty` | 404 | Own found no available task |
 | `exists` | 409 | Identity Add for a name already in use |
@@ -252,10 +252,16 @@ Returns the whole task. It takes no lease and changes nothing. Error:
 
 ### 4.5 Delete
 
-`delete {domain, topic, id}` → `{}`
+`delete {domain, topic, id, lease_before?}` → `{}`
 
 Retires the task with no successor, under the holder rule (§3). Errors:
 `not_found`, `forbidden`.
+
+If `lease_before` is supplied (a timestamp), the stored lease must be strictly
+older than it; otherwise Delete returns `forbidden` without changing anything.
+The holder and cutoff checks share the deletion transaction. `tl prune` uses
+this guard so a concurrent Renew cannot turn an abandoned task into live work
+between listing and deletion and still have it deleted.
 
 ### 4.6 Consume
 

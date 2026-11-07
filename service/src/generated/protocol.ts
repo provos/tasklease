@@ -20,6 +20,10 @@ export type ErrorCode =
   | "empty"
   | "exists"
   | "too_large";
+/**
+ * Milliseconds since the Unix epoch (UTC).
+ */
+export type Timestamp1 = number;
 export interface ProtocolTypes {
   DomainName?: DomainName;
   TopicName?: TopicName;
@@ -492,6 +496,7 @@ export interface DeleteRequest {
   domain: DomainName;
   topic: TopicName;
   id: TaskId;
+  lease_before?: Timestamp1;
 }
 export interface DeleteResponse {
   ok: true;
