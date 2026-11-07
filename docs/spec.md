@@ -718,7 +718,7 @@ tl identity revoke linux-1
 tl identity list
 tl whoami
 tl monitor [--domain D] [--port 0] [--no-browser]
-tl service deploy [--account-id ID] [--hostname HOST] [--dry-run] …
+tl service deploy [--account-id ID] [--name NAME] [--dry-run] …
 tl service status
 tl topic declare D verify/linux
 ```

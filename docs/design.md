@@ -257,8 +257,9 @@ uploads (§8.2), so the two never disagree.
   (`https://<account>.r2.cloudflarestorage.com/<bucket>/<key>`), so `blobs.ts`
   reads it from `R2_BUCKET_NAME` and never hard-codes it. Otherwise a deploy
   with another `--bucket` would check one bucket and sign URLs for another.
-- The API's address: the account's `workers.dev` subdomain, or a custom
-  domain (for example `tasks.<your domain>`).
+- The API's address: the account's `workers.dev` subdomain
+  (`https://<name>.<account subdomain>.workers.dev`). The service is an
+  internal tool, so version 1 has no custom domains.
 - Observability (Workers Logs) on. Log the operation, identity, domain, topic,
   result code and duration. Never log tokens or `data`.
 
@@ -410,7 +411,7 @@ codes as in spec §6.3.
 (`platformdirs.user_config_path("tasklease")`):
 
 ```toml
-url = "https://tasks.example.com"
+url = "https://tasklease.example.workers.dev"
 domain = "github.com/provos/fluxshoteditor"   # default for --domain
 agent_id = "mac-a1b2"                          # or TL_AGENT_ID
 worker_label = "cli"                           # or TL_WORKER
@@ -468,7 +469,7 @@ and a stale warning when a refresh fails. Sections:
   --outdir` in `../service/`, which bundles the Worker and its npm
   dependencies into one JavaScript module without deploying it. Next to it
   goes `wrangler.template.jsonc`: `service/wrangler.jsonc` with the
-  account-specific values (name, bucket, hostname, account ID) left as
+  account-specific values (name, bucket, account ID) left as
   placeholders and `no_bundle: true`. A `manifest.json` records the package
   version and the exact wrangler version the bundle was built and tested
   with. All three go to `tasklease/service_bundle/`. So a user who installed
@@ -587,7 +588,7 @@ with its own `--config` when one is wanted.
 Deploys or upgrades the service in the operator's own Cloudflare account. It
 does not talk to Cloudflare's API itself: it runs **wrangler**, Cloudflare's
 own deployment tool, which already handles the script upload, Durable Object
-migrations, keeping existing secrets, routes and custom domains, and sign-in.
+migrations, keeping existing secrets, the `workers.dev` address, and sign-in.
 
 - **What it needs:** Node.js (a current LTS) on the machine that deploys,
   and only there. Agents and workers on every other machine never need Node.
@@ -613,9 +614,9 @@ command stops the deploy and shows wrangler's own message.
 | Cloudflare account ID | `--account-id` | `CLOUDFLARE_ACCOUNT_ID` | yes |
 | Worker name | `--name` (default `tasklease`) | | yes |
 | R2 bucket name | `--bucket` (default `tasklease-blobs`) | | yes |
-| Custom hostname (optional) | `--hostname` | | yes |
 | R2 Access Key ID | `--r2-access-key-id` | `TL_R2_ACCESS_KEY_ID` | no (Worker secret) |
 | R2 Secret Access Key | prompted | `TL_R2_SECRET_ACCESS_KEY` | no (Worker secret) |
+| Service URL (only if wrangler does not report it, step 5) | `--url` | | yes |
 | Config file | `--config` (default: the user config, §5.6) | `TL_CONFIG` | |
 
 Later runs reuse the saved values, so an upgrade is
@@ -626,9 +627,11 @@ and a second copy use it, so they never overwrite the production config.
 **Steps.**
 
 1. **Check wrangler and sign-in:** Node is on `PATH`, and
-   `wrangler whoami` shows a signed-in account. If several accounts are
-   visible, `--account-id` is required. On failure, print the matching part
-   of the help text.
+   `wrangler whoami` shows a signed-in account. `--account-id` is required
+   when several accounts are visible, and always when signing in with
+   `CLOUDFLARE_API_TOKEN`: the token template cannot list accounts, so
+   wrangler may not find the account on its own. On failure, print the
+   matching part of the help text.
 2. **R2 bucket:** `wrangler r2 bucket list`, then `wrangler r2 bucket create`
    if missing. Set the lifecycle rule `tasklease-expire` (delete objects
    after 7 days) with `wrangler r2 bucket lifecycle add`, replacing an older
@@ -643,11 +646,17 @@ and a second copy use it, so they never overwrite the production config.
    again once they exist. When both secrets already exist, new values are
    used only if given.
 5. **Deploy the Worker:** fill in `wrangler.jsonc` (name, account ID,
-   bucket, the variables `R2_ACCOUNT_ID` and `R2_BUCKET_NAME`, and either the
-   custom domain route or `workers_dev: true`) and run `wrangler deploy`.
-   Wrangler applies pending Durable Object migrations and keeps existing
-   secrets. Its results go to a JSON file (`WRANGLER_OUTPUT_FILE_PATH`), from
-   which the deployed URL is read.
+   bucket, the variables `R2_ACCOUNT_ID` and `R2_BUCKET_NAME`, and
+   `workers_dev: true`) and run `wrangler deploy`. Wrangler applies pending
+   Durable Object migrations and keeps existing secrets.
+   **The URL:** `tl` sets `WRANGLER_OUTPUT_FILE_PATH` to a temporary file,
+   where wrangler appends one JSON line per event. The `deploy` event's
+   `targets` lists the deployment's URLs (wrangler source,
+   `packages/workers-utils/src/output.ts`). `tl` takes the single entry
+   ending in `.workers.dev`. It does not parse the other entries or
+   wrangler's terminal output, whose wording can change. If there is no such
+   entry, the deploy stops with exit code 4 and asks for the URL with
+   `--url`, which is then saved like any other input.
 6. **Set missing secrets:** generate an admin token (32 random bytes, `tla_`
    prefix) if `ADMIN_TOKEN` is missing or `--rotate-admin-token` was given.
    Set every new secret in one `wrangler secret bulk` call, with the values
@@ -688,7 +697,7 @@ needed. This is its text:
 
 ```text
 usage: tl service deploy [--account-id ID] [--name NAME] [--bucket NAME]
-                         [--hostname HOST] [--r2-access-key-id ID]
+                         [--r2-access-key-id ID] [--url URL]
                          [--rotate-admin-token] [--config FILE] [--dry-run]
 
 Deploy or upgrade the tasklease service in your Cloudflare account.
@@ -709,11 +718,15 @@ Before the first deploy:
    sign-in; tl never sees it.
    (For scripts instead: create an API token in the dashboard under
    "My Profile" > "API Tokens" > "Create Token", using the template
-   "Edit Cloudflare Workers", and export it as CLOUDFLARE_API_TOKEN.)
+   "Edit Cloudflare Workers". It grants Workers Scripts, Workers R2
+   Storage, Workers KV Storage and Workers Routes write access and
+   Workers Tail read access, which covers everything this command does.
+   Export it as CLOUDFLARE_API_TOKEN, and also pass --account-id: the
+   template cannot list your accounts.)
 
 2. ACCOUNT ID  (--account-id, or CLOUDFLARE_ACCOUNT_ID)
-   Only needed if your sign-in can see more than one account; tl tells
-   you if so. In the dashboard (https://dash.cloudflare.com), open
+   Needed with an API token, or if your sign-in can see more than one
+   account; tl tells you if so. In the dashboard (https://dash.cloudflare.com), open
    "Workers & Pages". Under "Account Details", select the copy button
    next to "Account ID". (Or press Ctrl+K / Cmd+K on the account home
    page and search for "Copy account ID".)
@@ -731,11 +744,10 @@ Before the first deploy:
    (default "tasklease-blobs"). Create it and copy both the "Access Key
    ID" and the "Secret Access Key": the secret is shown once.
 
-Without --hostname, the service gets an address under your account's
-workers.dev subdomain. If you have never opened "Workers & Pages", open
-it once so Cloudflare creates that subdomain. With --hostname, the
-hostname must be in a zone (domain) on the same Cloudflare account and
-must not already have a DNS record.
+The service gets an address under your account's workers.dev
+subdomain: https://<name>.<subdomain>.workers.dev. If you have never
+opened "Workers & Pages", open it once so Cloudflare creates that
+subdomain.
 
 On the first deploy, this command prints the ADMIN TOKEN once, as soon
 as it is set. Store it in a password manager: it is needed for
@@ -750,12 +762,11 @@ Exit codes: 0 deployed; 4 more input needed (the message says which);
 1 failed (the message says which step, with wrangler's own output).
 ```
 
-The dashboard labels in this text were checked against Cloudflare's
-documentation on 2026-11-07. The first real deploy in M1 confirms the rest:
-that the "Edit Cloudflare Workers" token template covers R2 bucket and
-lifecycle commands (if not, the text lists the extra permission), and the
-wrangler output file and commands as used above. The help text is updated
-if anything differs.
+The dashboard labels and the token template's permissions in this text
+were checked against Cloudflare's documentation on 2026-11-07, and the
+output file's `deploy` entry against wrangler's source. The first real
+deploy in M1 exercises all of it; the help text is updated if anything
+differs.
 
 ### 8.5 Running workers
 
@@ -782,6 +793,11 @@ the user's checkouts, `uv`, `gh` credentials and footage.
 
 ## 10. Open questions
 
+Settled: the service lives at its `workers.dev` address, with no custom
+domain in version 1 (§8.2). The "Edit Cloudflare Workers" token template
+includes Workers R2 Storage write access, and wrangler's output file lists
+the deployed URLs in the `deploy` entry's `targets`.
+
 Settled: the cursor format is spec §4.8's base64url of
 `v1:<created_at>:<id>`, used as an SQLite keyset
 (`WHERE (created_at, id) > (?, ?) ORDER BY created_at, id`), which does not
@@ -789,11 +805,8 @@ need the cursor's own task to still exist.
 
 1. **Content-Length in presigned PUTs** (§4.5): the `allHeaders: true`
    configuration is to be checked in M1.
-2. **Deploy details** (§8.4): whether the "Edit Cloudflare Workers" token
-   template covers the R2 commands, and that wrangler's output file gives the
-   deployed URL, are confirmed by the first real deploy in M1.
-3. **A `tl worker install` command**, or are the templates in `deploy/`
+2. **A `tl worker install` command**, or are the templates in `deploy/`
    enough?
-4. **Cloudflare's own metrics** (requests, errors, Durable Object running
+3. **Cloudflare's own metrics** (requests, errors, Durable Object running
    time, cost) on the dashboard. They need a Cloudflare API token on the
    machine running `tl monitor`; left out of the first version.
