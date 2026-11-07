@@ -153,13 +153,18 @@ Topics `verify/<os>`, reply topics `verified/<agent-id>`.
 - `tier` is one of `quick`, `pr`, `full`, `live`, `windows-foundation`.
 - `options` map one-to-one onto `--packaging`, `--display`, `--all-shots` and
   `--keep-going`. Nothing else reaches the command line.
-- **Once per head.** Each worker machine keeps a local index from
-  `(sha, tier, options)` to the reply it sent. A repeat request that matches
-  gets the stored reply with `"cached": true`, unless `force` is set, as long
-  as its `report_blob` has not expired. This enforces CLAUDE.md's "run
-  `--tier pr` once per head" on each machine. Sharing the index across
-  machines of the same OS is an open question (§8): the service builds blob
-  keys itself (spec §4.10), so a key cannot be looked up by SHA.
+- **Once per head.** Each machine keeps one result cache, shared by all of
+  its verify workers, in a local folder such as
+  `~/.tasklease/verify-cache/`. After sending a reply, the worker saves the
+  reply there as `<sha>-<tier>-<options digest>.json`. The reply holds the PR,
+  the SHA, the result and the report's R2 key, so nothing has to be looked up
+  in R2. The worker writes it with the same atomic, no-overwrite save as the
+  reply store (spec §6.3), so two workers finishing the same run keep the
+  first reply.
+  A new request whose SHA, tier and options match a saved reply gets that
+  reply back with `"cached": true`, unless `force` is set or the report's
+  blob has expired (14 days). This enforces CLAUDE.md's "run `--tier pr` once
+  per head" for each OS, because each OS has one machine.
 
 ### 4.2 Reply: `fse.verify.result/1`
 
@@ -284,8 +289,5 @@ polled within the last 10 minutes.
 4. **Posting to the PR.** Should a verify worker also post its result as a
    PR comment? That would need a GitHub token with write access on every
    worker machine.
-5. **Sharing the verify cache.** Two Linux machines each keep their own
-   once-per-head index (§4.1), so both may run the same SHA and tier. Sharing
-   it would need either a lookup topic (for example `verify/linux/results`,
-   one task per run, read but never owned) or caller-chosen blob names, which
-   the spec does not allow today.
+5. **A second machine for one OS** would keep its own result cache (§4.1),
+   so both machines could run the same SHA and tier once each.
