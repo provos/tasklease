@@ -109,23 +109,46 @@ generated from it and tested against it.
 ```text
 fetch(request)
   → parse POST /v1/<operation>; unknown operation → invalid
-  → admin operations: compare the admin token in constant time
+  → admin operations (identity add/revoke/rotate/list): check the admin token
     other operations: resolve token → identity (auth.ts, cached 60 s)
   → validate the body against the operation's schema → invalid
   → check X-Worker label → invalid
-  → check domain is in identity.domains → forbidden
-  → check topic scopes (scopes.ts), including Consume's target topics → forbidden
-  → dispatch by RPC: DomainObject (getByName(domain)) or RegistryObject
-  → map typed errors to {ok: false, error} and the HTTP status (errors.ts)
+  → dispatch by kind:
+    identity.*  → RegistryObject
+    blob.*      → check domain ∈ identity.domains → forbidden
+                  put_url: non-empty create scope; get_url: non-empty read or
+                  own scope, and the key's first segment is the encoded domain
+                  → blobs.ts (R2 binding and presigning, no Durable Object)
+    all others  → check domain ∈ identity.domains → forbidden
+                  check the topic scope for the request's topic, and for
+                  Consume each target topic → forbidden
+                  → DomainObject (getByName(domain))
+  → map the result to {ok: true, ...} or {ok: false, error} and the HTTP
+    status (errors.ts)
 ```
 
-The Worker does every check that needs only the request and the identity.
-The Durable Object does every check that needs stored state: the holder rule,
-lease state, existence. Both happen before anything is written (spec §4).
+**Admin token.** Workers' `crypto.subtle.timingSafeEqual` throws when its two
+inputs differ in length. So `auth.ts` hashes the presented token and
+`ADMIN_TOKEN` with SHA-256 and compares the two 32-byte digests.
+
+**Who checks what.** The Worker does every check that needs only the request
+and the identity. Every operation that names a task (Read, Delete, Renew,
+Consume) also names its topic, so the Worker checks that topic's scope. The
+Durable Object does every check that needs stored state:
+
+- the stored task's `topic` must equal the request's topic, or the result is
+  `not_found` (spec §4: "no task with this domain, topic and ID");
+- the holder rule, lease state and existence;
+- scope filtering of results whose topics only the object knows:
+  `topics.list` and `monitor.snapshot`.
+
+So the object needs the caller's scopes too. `scopes.ts` has no Worker-only
+dependencies and is used on both sides. All checks run before anything is
+written (spec §4).
 
 Durable Object calls use RPC methods (`stub.own(...)`), not `fetch`. The
-Worker passes the caller as `{identity, worker, operator}`; the object
-trusts it, since only the Worker can reach the object.
+Worker passes the caller as `{identity, worker, operator, scopes}`; the
+object trusts it, since only the Worker can reach the object.
 
 ### 4.2 DomainObject
 
@@ -136,6 +159,16 @@ storage, with the tables in spec §7.2.
   `schema_version` row; migrations are plain SQL steps keyed by version.
 - **Every operation is one `ctx.storage.transactionSync(() => …)`** with no
   `await` inside, so it is atomic and other requests wait for it.
+- **Results, not exceptions.** If the function passed to `transactionSync`
+  throws, the whole transaction is rolled back. So no operation throws to
+  report an outcome: each returns a result union from inside the transaction
+  (`{ok: true, …} | {ok: false, code}`), the transaction commits, and only
+  then does the Worker turn the result into a response. This matters for
+  Own: an `empty` result must still commit its poller row and its
+  `empty_polls` count. A refusal (`forbidden`, `not_found`) commits a
+  transaction that wrote nothing, which has the same effect as a rollback. An
+  exception thrown inside means a bug, and the rollback is then the right
+  outcome.
 - **Time:** `Date.now()` is read once at the start of each operation and used
   throughout it. (In Workers the clock does not advance during synchronous
   execution anyway.)
@@ -156,7 +189,8 @@ storage, with the tables in spec §7.2.
   the holder check.
 - **Consume:** delete, then insert each new task, in one transaction.
 - **Alarm:** once a day, delete poller rows older than 7 days and statistics
-  rows older than 30 days, then set the next alarm. Set on first use, so an idle domain has no alarm.
+  rows older than 30 days, then set the next alarm. It is set on first use,
+  so an idle domain has no alarm.
 - **Sizes:** `data` is stored as JSON text, after the Worker checked its
   serialized size.
 
@@ -185,9 +219,22 @@ Presigned with `aws4fetch` against R2's S3 endpoint, using an R2 API token
 the Worker checks the object exists through the R2 binding (`head`), so a
 missing blob is `not_found`, not a URL that fails later.
 
-To check early (M1, §9): that a presigned PUT can include `Content-Length`
-as a signed header with `aws4fetch`, and that R2 enforces it. If not, the
-size limit is enforced after upload: the reader checks size and SHA-256, and
+**Size of uploads.** The PUT URL should sign `Content-Length`, so R2 rejects
+an upload of any other size (`403 SignatureDoesNotMatch`). With `aws4fetch`,
+query signing (`aws: {signQuery: true}`) is reported to sign only `host`
+unless `allHeaders: true` is also set, so the configuration to try is:
+
+```ts
+await aws.sign(url, {
+  method: "PUT",
+  headers: { "Content-Length": String(size) },
+  aws: { signQuery: true, allHeaders: true },
+});
+```
+
+This is checked early in M1 (§9): an upload of the signed size succeeds and
+one of a different size is refused. If R2 does not refuse it, the size limit
+is enforced after upload instead: the reader checks size and SHA-256, and
 oversize objects are left to the lifecycle rule.
 
 ### 4.6 Configuration
@@ -244,15 +291,18 @@ def publish_new(path: Path, data: bytes) -> Literal["created", "exists"]: ...
 def read_json(path: Path) -> object | None: ...
 ```
 
-- **POSIX (macOS, Linux):** write a temp file in the same directory, `fsync`
-  it, `os.link(tmp, path)` (fails if `path` exists, so exactly one publisher
-  wins), `unlink` the temp file, `fsync` the directory.
-- **Windows:** write a temp file, `os.fsync` it (which flushes on Windows),
-  then `os.rename(tmp, path)`. On Windows `os.rename` refuses to replace an
-  existing file, which is exactly the no-replace rule. A directory cannot be
-  fsynced on Windows, so that step is skipped.
+Both platforms write a temp file in the same directory and `fsync` it, then
+publish it, inside `try/finally` so the temp file is removed whatever
+happens. A `FileExistsError` from the publish step returns `"exists"`.
+
+- **POSIX (macOS, Linux):** publish with `os.link(tmp, path)`, which fails if
+  `path` exists, so exactly one publisher wins. Then `fsync` the directory.
+- **Windows:** publish with `os.rename(tmp, path)`. On Windows `os.rename`
+  refuses to replace an existing file, which is exactly the no-replace rule.
+  `os.fsync` flushes on Windows. A directory cannot be fsynced there, so that
+  step is skipped.
 - Temp files are named `.<name>.<random>.tmp` and ignored by every reader.
-  Leftovers from a crash are removed when older than a day.
+  Only a crash leaves one behind; those are removed when older than a day.
 
 The same tests run on all three OSes (§7.3), including a race test in which
 several processes publish the same path and exactly one sees `created`.
@@ -267,6 +317,25 @@ Every write goes through `publish_new`.
 `drain(client, reply_topic)` runs the own → save → delete loop. `wait(...)`
 checks the store, drains, then sleeps with jitter until a reply arrives or
 the timeout passes.
+
+**Request states** are read from the files, never stored:
+
+| State | Files |
+|---|---|
+| pending | `requests/<agent>/<id>.json` and no `replies/<agent>/<id>.json` |
+| answered | `replies/<agent>/<id>.json` exists |
+| cancelled | the request record was deleted by `tl cancel` |
+
+`tl wait` leaves the request record in place: the reply's existence already
+says "answered". `tl cancel` deletes the record after a successful Delete.
+
+**Pruning.** Request records, replies and unmatched replies older than 7 days
+are removed, the same retention as the blobs replies point to. `tl inbox
+--prune` does it on demand, and `drain` does it at most once a day.
+
+**All agents on the machine.** Several agent sessions on one machine have
+different agent IDs and so different folders. `tl inbox --all` and
+`tl monitor` read every agent folder under `requests/` and `replies/`.
 
 ### 5.4 `worker.py`
 
@@ -288,11 +357,19 @@ max_owned).run()` owns the rest: polling with jitter, the renewer thread,
 the `lost` event, `finish` with the fallback to `<topic>/error`, and the
 `too_large` truncation.
 
-For FluxShot, `Capacity.acquire` is not an in-process lock: the verify lock
-is taken by running each step under `tests.verify_lock run` (profiles §3.2).
-So the FluxShot worker uses the library's single-step entry point,
-`WorkerLoop.step()`, which owns at most one task and returns, and an outer
-loop runs it under the lock. The library supports both shapes.
+`WorkerLoop.step() -> Literal["worked", "empty"]` is the single-step entry
+point: it owns at most one task, finishes it and returns. After `"worked"`
+the caller polls again at once (there may be a backlog); after `"empty"` it
+sleeps for the poll interval with jitter. `run()` is that loop with
+`Capacity` taken around each step.
+
+For FluxShot, the profiles run each step under `tests.verify_lock run`
+(profiles §3.2), so the outer loop lives outside the lock and calls
+`step()` in a short-lived process. At a 30–120 second poll interval, one
+Python start and TLS handshake per poll is cheap. Taking the lock in-process
+instead, as a `Capacity`, would avoid it; whether that fits FluxShot's import
+layers and the lock's held-variable rule for child processes is a question
+for the FluxShot worker design. The library supports both shapes.
 
 **Stopping.** A worker stops the same way on every OS: a stop request finishes
 the current task, then exits. A stop request is `SIGHUP` or `SIGTERM` on
@@ -341,7 +418,8 @@ unless `--port` is given. It serves:
   `importlib.resources`;
 - `/api/snapshot`: `monitor.snapshot` for each of the caller's domains (from
   `identity.whoami`), plus this machine's pending requests and inbox from
-  the local store. The result is kept for 25 seconds.
+  the local store, for every agent folder on the machine (§5.3). The result
+  is kept for 25 seconds.
 
 It refuses any request whose `Host` header is not `127.0.0.1:<port>` or
 `localhost:<port>` (403). That keeps a web page from another site from
@@ -366,10 +444,17 @@ and a stale warning when a refresh fails. Sections:
 ### 5.8 Packaging and releases
 
 - **Build backend:** `hatchling`, with a custom build hook
-  (`hatch_build.py`) that runs `npm ci && npm run build` in `monitor/` and
-  copies the output to `tasklease/monitor/static/` before the wheel and the
-  sdist are built. Both artifacts contain the built dashboard, so installing
-  either never needs Node.
+  (`hatch_build.py`) that runs `npm ci && npm run build` in `../monitor/` and
+  copies the output to `tasklease/monitor/static/`. Both the wheel and the
+  sdist contain the built dashboard, so installing either never needs Node.
+- **Building from an sdist.** `uv build` builds the sdist first, then builds
+  the wheel from the unpacked sdist, where `../monitor/` does not exist. So
+  the hook builds only when `../monitor/` is present. When it is absent and
+  `tasklease/monitor/static/index.html` already exists (it came in the
+  sdist), the hook does nothing. When both are missing, the build fails with
+  a clear message rather than shipping a wheel without the dashboard. The
+  generated Python types (`tasklease/generated/`) are committed (§3), so they
+  need no build step.
 - **Development:** `uv sync` in `python/` gives an editable install. The
   build hook, or `make monitor`, builds the dashboard; until then `tl
   monitor` serves a page saying the dashboard was not built.
@@ -482,11 +567,15 @@ the user's checkouts, `uv`, `gh` credentials and footage.
 
 ## 10. Open questions
 
-1. **Cursor format** (spec §4.8): the proposal is base64url of
-   `v1:<created_at>:<id>`, best effort, to be discussed.
-2. **Content-Length in presigned PUTs** (§4.5): to be checked in M1.
-3. **A `tl worker install` command**, or are the templates in `deploy/`
+Settled: the cursor format is spec §4.8's base64url of
+`v1:<created_at>:<id>`, used as an SQLite keyset
+(`WHERE (created_at, id) > (?, ?) ORDER BY created_at, id`), which does not
+need the cursor's own task to still exist.
+
+1. **Content-Length in presigned PUTs** (§4.5): the `allHeaders: true`
+   configuration is to be checked in M1.
+2. **A `tl worker install` command**, or are the templates in `deploy/`
    enough?
-4. **Cloudflare's own metrics** (requests, errors, Durable Object running
+3. **Cloudflare's own metrics** (requests, errors, Durable Object running
    time, cost) on the dashboard. They need a Cloudflare API token on the
    machine running `tl monitor`; left out of the first version.

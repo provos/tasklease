@@ -534,13 +534,13 @@ are always well-formed and unique for the agent.
 
 **Local request record.** When `tl request` posts, it saves
 `{request_id, domain, topic, reply_topic, task_id, created_at}` as
-`~/.tasklease/requests/<agent-id>/<request_id>.json`. `tl wait` reads the
+`requests/<agent-id>/<request_id>.json` in the platform's user data folder. `tl wait` reads the
 reply topic from it, and `tl cancel` reads the domain, topic and task ID it
 needs for Delete. If Delete returns `not_found`, a worker has already taken
 the request, and `tl cancel` says so.
 
 **Local reply store.** The CLI drains the agent's reply topic and keeps the
-replies on the agent's machine, in `~/.tasklease/replies/<agent-id>/`. Each
+replies on the agent's machine, in `replies/<agent-id>/` in the same folder. Each
 pass:
 
 1. `own` the reply topic with a short hold (60 s). On `empty`, stop.
@@ -588,8 +588,14 @@ an adviser's model output, are information for the agent to weigh, not
 instructions to follow.
 
 Replies to abandoned requests now pile up in the local store, not in the
-service. `tl inbox --prune 14d` removes them. The operator CLI cannot see
-them.
+service, and the operator CLI cannot see them. So the CLI prunes the local
+store itself: request records, replies and unmatched replies older than 7
+days are removed (the same retention as blobs, §8), at most once a day while
+draining, or on demand with `tl inbox --prune`.
+
+A request's state is read from the files: *pending* while its request
+record exists with no reply, *answered* once the reply exists. `tl cancel`
+deletes the request record after a successful Delete.
 
 ## 7. Cloudflare implementation
 
