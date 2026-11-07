@@ -175,7 +175,9 @@ holds no longer exists.
 Transport: `POST https://<host>/v1/<operation>` with a JSON body, an
 `Authorization: Bearer <token>` header and an `X-Worker: <label>` header.
 Identity Add, Revoke, Rotate and List (§4.13) take the admin token in place
-of an identity token, and ignore `X-Worker`. This section is the whole wire protocol.
+of an identity token, and ignore `X-Worker`. One request needs no token:
+`GET /v1/version` returns `{service_version, protocol}`, so a client can
+check that it matches the service before it has credentials. This section is the whole wire protocol.
 
 Success is `200 {"ok": true, ...}`. Failure is
 `{"ok": false, "error": {"code": "...", "message": "..."}}` with this status:
@@ -716,11 +718,20 @@ tl identity revoke linux-1
 tl identity list
 tl whoami
 tl monitor [--domain D] [--port 0] [--no-browser]
+tl service deploy [--account-id ID] [--hostname HOST] [--dry-run] …
+tl service status
 tl topic declare D verify/linux
 ```
 
 - `topics` without `--domain` calls `identity.whoami` and lists each of the
   caller's domains in turn.
+- `service deploy` creates or upgrades the whole service in the operator's
+  Cloudflare account from the installed package: the R2 bucket and its
+  lifecycle rule, the Worker with its Durable Objects, secrets and address.
+  Its help text says how to get each Cloudflare identifier and secret. It
+  prints the admin token once, on the first deploy. `service status` compares
+  the deployed version with the installed one. The implementation design
+  describes both.
 - `monitor` serves a dashboard of the caller's domains on `127.0.0.1` and
   opens it in the browser. The page shows topics, queued and held tasks,
   pollers, the hourly statistics, and this machine's own pending requests

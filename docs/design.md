@@ -53,7 +53,7 @@ tasklease/
 │   └── src/
 ├── python/                    the tasklease package (§5)
 │   ├── pyproject.toml
-│   ├── hatch_build.py         builds monitor/ into the wheel (§5.8)
+│   ├── hatch_build.py         builds monitor/ and the Worker bundle into the wheel (§5.8)
 │   ├── src/tasklease/
 │   │   ├── client.py          one typed method per operation
 │   │   ├── errors.py
@@ -63,10 +63,12 @@ tasklease/
 │   │   ├── config.py          config files, paths, tokens
 │   │   ├── cli/               `tl`: one module per command group
 │   │   ├── monitor/           local dashboard server; static/ is build output, not committed
+│   │   ├── cloudflare/        `tl service deploy` and `status`: Cloudflare API calls (§8)
+│   │   ├── service_bundle/    the built Worker and its manifest; build output, not committed
 │   │   └── generated/         TypedDicts built from schema/
 │   └── tests/
-├── conformance/               Python tests run against a live service (§7.2)
-└── deploy/                    unit files for systemd, launchd, Windows (§8.3)
+├── conformance/               Python tests run against a live service (§7.3)
+└── deploy/                    unit files for systemd, launchd, Windows (§8.5)
 ```
 
 One repository, two toolchains. `npm` (or `pnpm`) under `service/` and
@@ -239,19 +241,27 @@ oversize objects are left to the lifecycle rule.
 
 ### 4.6 Configuration
 
-`wrangler.jsonc`:
+`service/wrangler.jsonc` is the one description of the Worker's
+configuration. Development uses it directly (`wrangler dev`). For
+production, the build turns it into the manifest that `tl service deploy`
+uploads (§8.2), so the two never disagree.
 
 - Durable Object bindings `DOMAINS` (DomainObject) and `REGISTRY`
   (RegistryObject), with a migration listing both under `new_sqlite_classes`.
-- R2 bucket binding `BLOBS` (`tasklease-blobs`).
-- Secrets: `ADMIN_TOKEN`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
-  `R2_ACCOUNT_ID`.
-- A custom domain for the API (for example `tasks.<your domain>`).
+- R2 bucket binding `BLOBS` (`tasklease-blobs` by default).
+- Secrets: `ADMIN_TOKEN`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`; plain
+  variable `R2_ACCOUNT_ID`.
+- The API's address: the account's `workers.dev` subdomain, or a custom
+  domain (for example `tasks.<your domain>`).
 - Observability (Workers Logs) on. Log the operation, identity, domain, topic,
   result code and duration. Never log tokens or `data`.
 
-The R2 lifecycle rule (delete after 7 days) is set once with
-`wrangler r2 bucket lifecycle add` and recorded in `deploy/README.md`.
+The R2 bucket and its lifecycle rule (delete after 7 days) are created by
+`tl service deploy` (§8.2).
+
+The Worker also answers `GET /v1/version` without a token, with
+`{service_version, protocol}`. `tl service status` and the client's version
+check use it.
 
 ## 5. Python package
 
@@ -304,7 +314,7 @@ happens. A `FileExistsError` from the publish step returns `"exists"`.
 - Temp files are named `.<name>.<random>.tmp` and ignored by every reader.
   Only a crash leaves one behind; those are removed when older than a day.
 
-The same tests run on all three OSes (§7.3), including a race test in which
+The same tests run on all three OSes (§7.4), including a race test in which
 several processes publish the same path and exactly one sees `created`.
 
 ### 5.3 `store.py`
@@ -381,7 +391,7 @@ and the task's lease brings it back for another worker.
 
 `argparse`, one module per command group: `request`, `wait`, `cancel`,
 `inbox`, `topics`, `tasks`, `read`, `delete`, `pollers`, `prune`, `move`,
-`identity`, `topic`, `whoami`, `monitor`, and `worker` (runs a generic worker from a
+`identity`, `topic`, `whoami`, `monitor`, `service` (§8), and `worker` (runs a generic worker from a
 config file, for profiles that need no custom code). Output is JSON on
 stdout for anything a program reads, and text on stderr for people. Exit
 codes as in spec §6.3.
@@ -405,7 +415,8 @@ file = "token"                                 # relative to the config folder
 
 The token lives in its own file, created with mode `0600` on POSIX. On
 Windows the user's profile folder is already private to the user. `TL_TOKEN`
-and `TL_ADMIN_TOKEN` override the files. The admin token is never written to
+and `TL_ADMIN_TOKEN` override the files. `tl service deploy` prints the admin
+token once (§8.2). The admin token is never written to
 disk by `tl`.
 
 ### 5.7 Monitor
@@ -447,10 +458,18 @@ and a stale warning when a refresh fails. Sections:
   (`hatch_build.py`) that runs `npm ci && npm run build` in `../monitor/` and
   copies the output to `tasklease/monitor/static/`. Both the wheel and the
   sdist contain the built dashboard, so installing either never needs Node.
+- **The Worker bundle.** The same hook runs `wrangler deploy --dry-run
+  --outdir` in `../service/`, which bundles the Worker into one JavaScript
+  module without deploying it, and writes `manifest.json` next to it: the
+  compatibility date, bindings and Durable Object migrations taken from
+  `wrangler.jsonc`, and the package version. Both go to
+  `tasklease/service_bundle/`. So a user who installed from PyPI can deploy
+  the service with no Node and no checkout (§8.2), and the service they
+  deploy is always the one that matches their client.
 - **Building from an sdist.** `uv build` builds the sdist first, then builds
   the wheel from the unpacked sdist, where `../monitor/` does not exist. So
-  the hook builds only when `../monitor/` is present. When it is absent and
-  `tasklease/monitor/static/index.html` already exists (it came in the
+  the hook builds only when `../monitor/` (and `../service/`) are present.
+  When they are absent and the built files already exist (they came in the
   sdist), the hook does nothing. When both are missing, the build fails with
   a clear message rather than shipping a wheel without the dashboard. The
   generated Python types (`tasklease/generated/`) are committed (§3), so they
@@ -500,7 +519,14 @@ real Durable Objects and SQLite:
   run times use `created_at` and `owned_at`;
 - `monitor.snapshot` filters topics by scope and caps tasks at 100.
 
-### 7.2 Conformance
+### 7.2 Deploy
+
+`tl service deploy` and `status` are tested against a fake Cloudflare API
+(an `httpx` mock transport) for every step's created / updated / unchanged
+path and every stop. A real deploy of a throwaway copy (`--name
+tasklease-test`, its own bucket) runs before each release.
+
+### 7.3 Conformance
 
 `conformance/` is a pytest suite that runs the Python client against a live
 service (`wrangler dev` locally, or a staging deployment): every schema
@@ -509,7 +535,7 @@ the lost-reply cases from spec §5 using an HTTP transport that drops chosen
 responses. This is the test that proves the TypeScript server and the Python
 client agree.
 
-### 7.3 Python
+### 7.4 Python
 
 Unit tests for the store, the worker loop (with a fake client), the CLI and
 the monitor server (the `Host` check, the 25-second reuse, and a missing
@@ -529,20 +555,152 @@ GitHub Actions is too expensive to use here, so the test runs are split:
 
 ### 8.1 Environments
 
-`dev` is `wrangler dev` on a laptop, with local Durable Objects and R2.
-`prod` is the deployed Worker. A `staging` environment is not needed for one
-operator; add it when a second user appears.
+`dev` is `wrangler dev` in a checkout, with local Durable Objects and R2.
+`prod` is the deployed Worker, deployed with `tl service deploy` from any
+machine where tasklease is installed. A `staging` environment is not needed
+for one operator: deploy a second copy under another `--name` when one is
+wanted.
 
-### 8.2 First deployment
+### 8.2 `tl service deploy`
 
-1. Create the R2 bucket and its lifecycle rule; create the R2 API token.
-2. `wrangler secret put` the four secrets.
-3. `wrangler deploy`.
-4. `tl identity add` for each machine and agent host; copy each token to its
-   machine once.
-5. `tl topic declare` the well-known topics.
+Deploys or upgrades the service in the operator's own Cloudflare account,
+using Cloudflare's API directly. It needs no Node, no `wrangler` and no
+checkout: the Worker comes from the installed package (§5.8). Every step
+checks the current state first, so running it again is safe, and each step
+reports `created`, `updated` or `unchanged`.
 
-### 8.3 Running workers
+**Inputs.**
+
+| Input | Flag | Environment | Saved in `config.toml` |
+|---|---|---|---|
+| Cloudflare account ID | `--account-id` | `CLOUDFLARE_ACCOUNT_ID` | yes |
+| Cloudflare API token | prompted | `CLOUDFLARE_API_TOKEN` | **never** |
+| Worker name | `--name` (default `tasklease`) | | yes |
+| R2 bucket name | `--bucket` (default `tasklease-blobs`) | | yes |
+| Custom hostname (optional) | `--hostname` | | yes |
+| R2 Access Key ID | `--r2-access-key-id` | `TL_R2_ACCESS_KEY_ID` | no (Worker secret) |
+| R2 Secret Access Key | prompted | `TL_R2_SECRET_ACCESS_KEY` | no (Worker secret) |
+
+Later runs reuse the saved values, so an upgrade is
+`uv tool upgrade tasklease && tl service deploy` plus the API token.
+
+**Steps.**
+
+1. **Check the API token** (`/user/tokens/verify`) and that it can reach the
+   account. A missing permission is reported by name, with the line from the
+   help text that explains it.
+2. **R2 bucket:** create it if missing. Set the lifecycle rule
+   `tasklease-expire` (delete objects after 7 days), replacing an older rule
+   of that name.
+3. **R2 credentials:** on the first deploy they are required. If they were
+   not given, stop here with exit code 4 and print the dashboard steps for
+   creating them (help text, step 3), naming the bucket just created. Run the
+   command again once they exist. On later deploys they are optional: the
+   Worker keeps its existing ones unless new ones are given.
+4. **Admin token:** on the first deploy, generate one (32 random bytes,
+   `tla_` prefix) and keep it to print at the end. On later deploys keep the
+   existing secret, unless `--rotate-admin-token` asks for a new one. That
+   is also how to recover a lost admin token.
+5. **Upload the Worker** through the Workers script-upload API: the bundled
+   module, the compatibility date, the bindings (`DOMAINS`, `REGISTRY`,
+   `BLOBS`, `R2_ACCOUNT_ID`) and observability settings from the manifest,
+   and new secret values if any. Existing secrets are kept with the
+   upload's `keep_bindings` option. Durable Object migrations are applied
+   from the manifest, starting after the migration tag the deployed script
+   already has.
+6. **Address:** attach `--hostname` as a Workers custom domain, or else turn
+   on the script's `workers.dev` address.
+7. **Check it works:** `GET /v1/version` on the new address must return the
+   package's version.
+8. **Write `config.toml`** with the URL and the saved inputs. Print the admin
+   token if one was generated, once, with a warning that it is not stored
+   anywhere and is needed for `tl identity add`. Then print the next steps:
+   `tl identity add` for each machine, and `tl topic declare`.
+
+`--dry-run` runs step 1, then prints what each later step would do and
+changes nothing.
+
+### 8.3 `tl service status`
+
+Shows, for the configured service: the deployed Worker's version (from
+`/v1/version`) against the installed package's, whether an upgrade is
+needed, and, with an API token, the bucket, its lifecycle rule, the
+Durable Object migration tag and the address. It changes nothing.
+
+There is no `tl service destroy`: deleting the Worker deletes every
+domain's Durable Object data. That is done by hand in the dashboard.
+
+### 8.4 Help text
+
+`tl service deploy --help` explains how to get every input, in the order
+needed. This is its text:
+
+```text
+usage: tl service deploy [--account-id ID] [--name NAME] [--bucket NAME]
+                         [--hostname HOST] [--r2-access-key-id ID]
+                         [--rotate-admin-token] [--dry-run]
+
+Deploy or upgrade the tasklease service in your Cloudflare account.
+Safe to run again: each step checks what already exists.
+
+You need a Cloudflare account with Workers and R2 enabled. R2 asks for a
+payment method before first use, even on the free tier.
+
+Before the first deploy, collect three things from the Cloudflare
+dashboard (https://dash.cloudflare.com):
+
+1. ACCOUNT ID  (--account-id, or CLOUDFLARE_ACCOUNT_ID)
+   Open "Workers & Pages". Under "Account Details", select the copy
+   button next to "Account ID". (Or press Ctrl+K / Cmd+K on the account
+   home page and search for "Copy account ID".)
+
+2. API TOKEN  (asked for at the prompt, or CLOUDFLARE_API_TOKEN)
+   Used only while this command runs; never saved.
+   Open "My Profile" > "API Tokens" > "Create Token". Choose
+   "Create Custom Token" ("Get started"), give it a name such as
+   "tasklease deploy", and add these permissions:
+     Account | Workers Scripts    | Edit
+     Account | Workers R2 Storage | Edit
+   Only if you use --hostname, also add, for the zone that holds the
+   hostname:
+     Zone    | Workers Routes     | Edit
+     Zone    | Zone               | Read
+   Under "Account Resources", include your account. Select "Continue to
+   summary", then "Create Token", and copy the token: it is shown once.
+
+3. R2 ACCESS KEYS  (--r2-access-key-id and a prompt, or
+   TL_R2_ACCESS_KEY_ID and TL_R2_SECRET_ACCESS_KEY)
+   The service uses these to give machines upload and download links.
+   The bucket must exist first, so on the very first deploy run this
+   command without them: it creates the bucket, then stops and repeats
+   these steps. Then:
+   Open "R2 Object Storage" > "Overview". Under "Account Details", select
+   "Manage" next to "API Tokens", then "Create Account API token".
+   Choose the permission "Object Read & Write", and under bucket scope
+   choose "Apply to specific buckets only" with the tasklease bucket
+   (default "tasklease-blobs"). Create it and copy both the "Access Key
+   ID" and the "Secret Access Key": the secret is shown once.
+
+Without --hostname, the service gets an address under your account's
+workers.dev subdomain. If you have never opened "Workers & Pages", open
+it once so Cloudflare creates that subdomain.
+
+After the first deploy, this command prints the ADMIN TOKEN once. Store
+it in a password manager: it is needed for "tl identity add" (as
+TL_ADMIN_TOKEN) and is not saved anywhere. If it is lost, run
+"tl service deploy --rotate-admin-token" to replace it.
+
+Exit codes: 0 deployed; 4 more input needed (the message says which);
+1 failed (the message says which step and why).
+```
+
+The permission names and dashboard labels in this text were checked against
+Cloudflare's documentation on 2026-11-07. Two points are confirmed in M1 by a
+real first deploy: whether the custom-domain permissions above are exactly
+the ones needed, and whether `keep_bindings` keeps secrets across uploads.
+The help text is updated if either differs.
+
+### 8.5 Running workers
 
 `deploy/` holds templates; `tl worker install` fills them in later:
 
@@ -559,7 +717,7 @@ the user's checkouts, `uv`, `gh` credentials and footage.
 
 | | Delivers | Done when |
 |---|---|---|
-| M1 | Service with every operation except `monitor.snapshot`; schema and codegen; `tl` operator commands (`identity`, `topics`, `tasks`, `read`, `delete`, `pollers`, `prune`, `move`, `topic`, `whoami`); packaging and a first PyPI release | service tests and conformance pass; deployed; identities issued for the three machines; `uv tool install tasklease` works on all three |
+| M1 | Service with every operation except `monitor.snapshot`; schema and codegen; `tl` operator commands (`identity`, `topics`, `tasks`, `read`, `delete`, `pollers`, `prune`, `move`, `topic`, `whoami`); `tl service deploy` and `status`; packaging and a first PyPI release | service tests and conformance pass; `uv tool install tasklease` works on all three machines; the production service was deployed from a PyPI install with `tl service deploy`, following only its help text; identities issued for the three machines |
 | M2 | `fsio`, `store`, `tl request`, `wait`, `cancel`, `inbox` | a request posted from one machine is answered by hand (`tl` as a fake worker) from another and delivered; `fsio` passes on all three OSes |
 | M3 | `worker.py`, `tl worker`; statistics, `monitor.snapshot` and `tl monitor` | a generic echo worker on each machine answers requests; the lost-reply cases pass in conformance; the dashboard shows all three machines polling and their tasks moving |
 | M4 | FluxShot verify worker on Linux (in fluxshoteditor, with its own design) | a Claude session on the Mac verifies a PR on Linux and gets the result back |
@@ -574,8 +732,11 @@ need the cursor's own task to still exist.
 
 1. **Content-Length in presigned PUTs** (§4.5): the `allHeaders: true`
    configuration is to be checked in M1.
-2. **A `tl worker install` command**, or are the templates in `deploy/`
+2. **Deploy details** (§8.4): the exact permissions for a custom domain, and
+   whether `keep_bindings` keeps secrets across uploads, are confirmed by the
+   first real deploy in M1.
+3. **A `tl worker install` command**, or are the templates in `deploy/`
    enough?
-3. **Cloudflare's own metrics** (requests, errors, Durable Object running
+4. **Cloudflare's own metrics** (requests, errors, Durable Object running
    time, cost) on the dashboard. They need a Cloudflare API token on the
    machine running `tl monitor`; left out of the first version.
