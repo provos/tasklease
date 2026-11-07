@@ -14,8 +14,8 @@ atomic step.
 - [docs/spec.md](docs/spec.md): the generic service: task model, operations,
   delivery semantics, authorization, Cloudflare implementation, CLI.
 - [docs/design.md](docs/design.md): how to build it: TypeScript service,
-  JSON Schema contract, Python package and `tl` CLI, testing, deployment,
-  milestones.
+  JSON Schema contract, the Python package and `tl` CLI (published on PyPI),
+  the `tl monitor` dashboard, testing, deployment, milestones.
 - [docs/fluxshot-profiles.md](docs/fluxshot-profiles.md): the first user,
   FluxShot Editor: verify, build and advise topics, their request and reply
   schemas, and the worker loops.

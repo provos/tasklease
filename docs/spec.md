@@ -46,7 +46,7 @@ exists while it holds tasks or has recent pollers. Well-known topics declared
 by an operator (§4.12) are always listed, even when empty.
 
 **Task.** A record whose contents never change. `domain`, `topic`, `data`,
-`creator`, `created_at`, `owner` and `owned_count` are fixed for as long as
+`creator`, `created_at`, `owner`, `owned_at` and `owned_count` are fixed for as long as
 an ID lives. A change of owner retires the ID and posts a copy (Own). The
 only field that changes in place is `lease_until`, and only the current owner
 can change it (Renew).
@@ -61,6 +61,7 @@ can change it (Renew).
 | `owned_count` | integer | 0 at Create / Consume; Own adds 1 |
 | `creator` | identity name | server at Create / Consume; copied by Own |
 | `owner` | `{identity, worker}` of the last Own, or null | server: Own |
+| `owned_at` | timestamp of the last Own, or null | server: Own |
 | `data` | JSON object, at most 256 KiB serialized | caller |
 
 **Time.** Every timestamp, on the wire and in storage, is an integer number
@@ -145,6 +146,7 @@ topic is therefore two globs: `verify/linux` and `verify/linux/error`.
 | Topic Declare | operator on the domain |
 | Identity Add / Revoke / Rotate / List | the admin token (§7.1), not an identity |
 | Identity Whoami | any identity token |
+| Monitor Snapshot | `read` or `own` (filtered to the topics they match) |
 
 Blobs are scoped to a domain, not to topics: anyone who can read in a domain can
 read its blobs.
@@ -267,7 +269,7 @@ To cover several domains, a client calls it once per domain from
 
 ### 4.8 Tasks List
 
-`tasks.list {domain, topic, cursor?}` → `{tasks: [{id, state, created_at, lease_until, owned_count, owner, creator}], cursor?}`
+`tasks.list {domain, topic, cursor?}` → `{tasks: [{id, state, created_at, lease_until, owned_count, owner, owned_at, creator}], cursor?}`
 
 Never returns `data`. `state` is `available` or `held`. Pages hold up to 500
 tasks, ordered by `(created_at, id)`.
@@ -370,6 +372,38 @@ own identity record. The CLI uses it to loop over the caller's domains, and
 to report a missing scope before an operation fails with `forbidden`.
 
 Errors: `unauthenticated`.
+
+### 4.15 Monitor Snapshot
+
+`monitor.snapshot {domain, hours?}` → `{domain, generated_at, topics: [...], stats: [...]}`
+
+Everything a dashboard needs about one domain, in one call to one Durable
+Object. Only topics the caller may `read` or `own` are included.
+
+- `topics`: for each topic, what Topics List returns for it, plus its
+  pollers (as Topic Pollers) and the summaries of its first 100 tasks (as
+  Tasks List, no `data`), with `truncated: true` when there are more.
+- `stats`: the hourly statistics (below) for the last `hours` hours
+  (default 24, at most 720), one row per topic and hour that had activity.
+
+Errors: `invalid`, `forbidden`.
+
+**Hourly statistics.** Each domain keeps one row per topic per hour, the
+hour being the timestamp rounded down to a multiple of 3,600,000. The rows
+are updated inside the same transactions as the operations they count, so
+they are exact, and kept for 30 days.
+
+| Field | Counts |
+|---|---|
+| `created` | tasks posted to the topic, by Create or by a Consume |
+| `owned` | successful Owns |
+| `reowned` | Owns of a task that had been owned before (`owned_count` ≥ 1): a lease ran out |
+| `empty_polls` | Owns that returned `empty` |
+| `consumed`, `deleted` | lineages ended in the topic, by Consume or by Delete |
+| `wait_ms_sum`, `wait_ms_max`, `wait_count` | for each first Own: `now − created_at`, how long a task waited for a worker |
+| `run_ms_sum`, `run_ms_max`, `run_count` | for each Consume of an owned task: `now − owned_at`, how long the work took |
+
+Averages are `sum / count`. The service keeps no percentiles.
 
 ## 5. Delivery semantics
 
@@ -591,7 +625,7 @@ CREATE TABLE tasks (
   id TEXT PRIMARY KEY, topic TEXT NOT NULL,
   created_at INTEGER NOT NULL, lease_until INTEGER NOT NULL,
   owned_count INTEGER NOT NULL, creator TEXT NOT NULL,
-  owner_identity TEXT, owner_worker TEXT,
+  owner_identity TEXT, owner_worker TEXT, owned_at INTEGER,
   data TEXT NOT NULL
 );
 CREATE INDEX tasks_pick ON tasks (topic, created_at, id);
@@ -603,15 +637,25 @@ CREATE TABLE pollers (
 CREATE TABLE declared_topics (
   topic TEXT PRIMARY KEY, declared_by TEXT NOT NULL, declared_at INTEGER NOT NULL
 );
+CREATE TABLE stats_hourly (
+  topic TEXT, hour INTEGER,
+  created INTEGER, owned INTEGER, reowned INTEGER, empty_polls INTEGER,
+  consumed INTEGER, deleted INTEGER,
+  wait_ms_sum INTEGER, wait_ms_max INTEGER, wait_count INTEGER,
+  run_ms_sum INTEGER, run_ms_max INTEGER, run_count INTEGER,
+  PRIMARY KEY (topic, hour)
+);
 ```
 
-`topics.list` is one query over these three tables in one database.
+`topics.list` is one query over the first three tables in one database, and
+`monitor.snapshot` reads all four.
 
 Own scans `tasks_pick` for the first row with `lease_until <= now`. Topics
 hold tens of tasks, not millions, so a scan is fine.
 
-A daily alarm drops poller rows older than 7 days. The service never deletes
-tasks by itself; pruning is the operator's job (§9).
+A daily alarm drops poller rows older than 7 days and statistics rows older
+than 30 days. The service never deletes tasks by itself; pruning is the
+operator's job (§9).
 
 ### 7.3 Polling cost
 
@@ -664,11 +708,21 @@ tl identity rotate linux-1
 tl identity revoke linux-1
 tl identity list
 tl whoami
+tl monitor [--domain D] [--port 0] [--no-browser]
 tl topic declare D verify/linux
 ```
 
 - `topics` without `--domain` calls `identity.whoami` and lists each of the
   caller's domains in turn.
+- `monitor` serves a dashboard of the caller's domains on `127.0.0.1` and
+  opens it in the browser. The page shows topics, queued and held tasks,
+  pollers, the hourly statistics, and this machine's own pending requests
+  and inbox, and refreshes every 30 seconds. `tl` calls
+  `monitor.snapshot` on the page's behalf, so the token never reaches the
+  browser. The local server answers only requests whose `Host` is
+  `127.0.0.1` or `localhost` on its port, serves nothing but the dashboard
+  and its read-only snapshot, and reuses a snapshot for up to 25 seconds so
+  several open tabs do not multiply the load.
 
 - `prune` removes tasks whose lease ran out longer ago than the given age and
   which have been owned at least once: abandoned work. With `--all` it also

@@ -14,14 +14,16 @@ disagree, the spec wins and this document is fixed.
 |---|---|---|---|
 | Service: HTTP API, Durable Objects, blob URLs | TypeScript, Cloudflare Workers | Cloudflare | §4, §7, §8 |
 | Protocol contract | JSON Schema (2020-12) | build and test time | §4 |
-| `tasklease` Python package: client, `tl` CLI, worker runtime | Python 3.12+, installed with `uv` | macOS, Linux, Windows | §5, §6, §9 |
-| FluxShot workers (verify, build, advise) | Python, in the fluxshoteditor repo | the three machines | profiles |
+| `tasklease` Python package: client, `tl` CLI, worker runtime, monitor server | Python 3.12+, published on PyPI, installed with `uv` | macOS, Linux, Windows | §5, §6, §9 |
+| Monitor dashboard | Svelte 5 and TypeScript, built to static files shipped inside the Python package | the user's browser | §4.15, §9 |
+| FluxShot workers and integrations (verify, build, advise) | Python, in the fluxshoteditor repo | the three machines | profiles |
 
-The FluxShot workers are **not** in this repo. They depend on FluxShot's
+tasklease is generic: nothing FluxShot-specific is in this repo's code. The
+FluxShot workers and every other FluxShot integration depend on FluxShot's
 lock lanes, `verify.py`, `run_bounded` and its test rules, so they live in
 fluxshoteditor (under `tools/`, the top import layer) and get their own
-design there. They use the worker runtime from §5.4 as a library. This
-settles open question 3 in the profiles.
+design there. They use the worker runtime from §5.4 as a library, installed
+from PyPI. This settles open question 3 in the profiles.
 
 ## 2. Repository layout
 
@@ -45,8 +47,12 @@ tasklease/
 │   │   ├── errors.ts          error codes → HTTP status
 │   │   └── generated/         types and validators built from schema/
 │   └── test/
+├── monitor/                   the Svelte 5 dashboard (§5.7)
+│   ├── package.json, vite.config.ts
+│   └── src/
 ├── python/                    the tasklease package (§5)
 │   ├── pyproject.toml
+│   ├── hatch_build.py         builds monitor/ into the wheel (§5.8)
 │   ├── src/tasklease/
 │   │   ├── client.py          one typed method per operation
 │   │   ├── errors.py
@@ -55,14 +61,16 @@ tasklease/
 │   │   ├── worker.py          the generic worker loop (spec §6.1)
 │   │   ├── config.py          config files, paths, tokens
 │   │   ├── cli/               `tl`: one module per command group
+│   │   ├── monitor/           local dashboard server; static/ is build output, not committed
 │   │   └── generated/         TypedDicts built from schema/
 │   └── tests/
 ├── conformance/               Python tests run against a live service (§7.2)
 └── deploy/                    unit files for systemd, launchd, Windows (§8.3)
 ```
 
-One repository, two toolchains. `npm` (or `pnpm`) under `service/`, `uv`
-under `python/`. A top-level `Makefile` (or `justfile`) runs codegen, both
+One repository, two toolchains. `npm` (or `pnpm`) under `service/` and
+`monitor/`, `uv` under `python/`. Users never need Node: they install the
+wheel from PyPI, which already contains the built dashboard. A top-level `Makefile` (or `justfile`) runs codegen, both
 test suites and the conformance suite.
 
 ## 3. Protocol contract
@@ -81,6 +89,9 @@ generated from it and tested against it.
 - **TypeScript:** types generated with `json-schema-to-typescript`, and
   request validators compiled ahead of time with Ajv's standalone mode
   (Workers do not allow `eval`, which Ajv uses at run time).
+- **Monitor:** the same TypeScript generation produces the types for the
+  `monitor.snapshot` response that the Svelte app reads, so the dashboard
+  cannot drift from the API either.
 - **Python:** `TypedDict`s generated with `datamodel-code-generator`
   (`--output-model-type typing.TypedDict`). Responses are checked against the
   schema in tests, not at run time.
@@ -129,13 +140,22 @@ storage, with the tables in spec §7.2.
   execution anyway.)
 - **Own:** select the first row of `tasks_pick` for the topic with
   `lease_until <= now`, then delete it and insert the copy with a new ID,
-  `owned_count + 1`, the new owner and `lease_until = now + hold`. Upsert the
-  poller row in the same transaction, also on `empty`.
+  `owned_count + 1`, the new owner, `owned_at = now` and
+  `lease_until = now + hold`. Upsert the poller row in the same transaction,
+  also on `empty`.
+- **Statistics:** every operation that counts (spec §4.15) upserts its
+  topic's row in `stats_hourly` inside its own transaction, with
+  `INSERT … ON CONFLICT(topic, hour) DO UPDATE SET created = created + 1, …`.
+  A helper takes the topic, `now` and the increments, so each operation adds
+  one line.
+- **Snapshot:** `monitor.snapshot` reads topics, pollers, the first 100 task
+  summaries per topic and the requested hours of statistics in one
+  transaction, so the page shows one consistent moment.
 - **Renew:** `UPDATE … SET lease_until = ? WHERE id = ? AND topic = ?`, after
   the holder check.
 - **Consume:** delete, then insert each new task, in one transaction.
-- **Alarm:** once a day, delete poller rows older than 7 days, then set the
-  next alarm. Set on first use, so an idle domain has no alarm.
+- **Alarm:** once a day, delete poller rows older than 7 days and statistics
+  rows older than 30 days, then set the next alarm. Set on first use, so an idle domain has no alarm.
 - **Sizes:** `data` is stored as JSON text, after the Worker checked its
   serialized size.
 
@@ -192,14 +212,16 @@ Python 3.12 or newer. Runtime dependencies kept small: `httpx` (HTTP),
 configuration. Development: `pytest`, `mypy --strict`, `ruff`,
 `jsonschema` (tests only), `datamodel-code-generator` (codegen only).
 
-Installed on every machine with:
+Published on PyPI as `tasklease` (the name is free as of 2026-11-07) and
+installed on every machine with:
 
 ```bash
-uv tool install "git+ssh://git@github.com/provos/tasklease#subdirectory=python"
+uv tool install tasklease
 ```
 
-The fluxshoteditor repo depends on the same package by git URL and a pinned
-commit.
+The fluxshoteditor repo depends on it like any other package, with a version
+range in its `pyproject.toml`. A git checkout is only for developing
+tasklease itself (§5.8).
 
 ### 5.1 `client.py`
 
@@ -281,10 +303,12 @@ and the task's lease brings it back for another worker.
 
 `argparse`, one module per command group: `request`, `wait`, `cancel`,
 `inbox`, `topics`, `tasks`, `read`, `delete`, `pollers`, `prune`, `move`,
-`identity`, `topic`, `whoami`, and `worker` (runs a generic worker from a
+`identity`, `topic`, `whoami`, `monitor`, and `worker` (runs a generic worker from a
 config file, for profiles that need no custom code). Output is JSON on
 stdout for anything a program reads, and text on stderr for people. Exit
 codes as in spec §6.3.
+
+`tl monitor` is described in §5.7.
 
 ### 5.6 Configuration and tokens
 
@@ -306,9 +330,63 @@ Windows the user's profile folder is already private to the user. `TL_TOKEN`
 and `TL_ADMIN_TOKEN` override the files. The admin token is never written to
 disk by `tl`.
 
+### 5.7 Monitor
+
+**Server** (`tasklease/monitor/server.py`): the standard library's
+`http.server` (`ThreadingHTTPServer`), bound to `127.0.0.1` on a free port
+unless `--port` is given. It serves:
+
+- `/` and the static files from `tasklease/monitor/static/`, found with
+  `importlib.resources`;
+- `/api/snapshot`: `monitor.snapshot` for each of the caller's domains (from
+  `identity.whoami`), plus this machine's pending requests and inbox from
+  the local store. The result is kept for 25 seconds.
+
+It refuses any request whose `Host` header is not `127.0.0.1:<port>` or
+`localhost:<port>` (403). That keeps a web page from another site from
+reading the snapshot by pointing its own domain at `127.0.0.1` (DNS
+rebinding). Everything is `GET` and read-only. Nothing from the browser
+reaches the service except the choice of `hours`.
+
+**Dashboard** (`monitor/`): Svelte 5 with Vite, built to static files (plain
+Vite, no SvelteKit, since there is one page and no routing). It fetches
+`/api/snapshot` every 30 seconds and shows the time of the last refresh,
+and a stale warning when a refresh fails. Sections:
+
+- **Workers:** pollers per topic with their last poll, so a dead machine is
+  obvious.
+- **Queues:** per topic, available and held tasks, the oldest available
+  task's age, and the tasks themselves (owner, lease, `owned_count`).
+- **Throughput and latency:** per topic and hour, created / consumed,
+  average and maximum wait and run times, re-owns and empty polls. Charts are
+  small inline SVG, with no chart library.
+- **This machine:** pending requests and inbox, including unmatched replies.
+
+### 5.8 Packaging and releases
+
+- **Build backend:** `hatchling`, with a custom build hook
+  (`hatch_build.py`) that runs `npm ci && npm run build` in `monitor/` and
+  copies the output to `tasklease/monitor/static/` before the wheel and the
+  sdist are built. Both artifacts contain the built dashboard, so installing
+  either never needs Node.
+- **Development:** `uv sync` in `python/` gives an editable install. The
+  build hook, or `make monitor`, builds the dashboard; until then `tl
+  monitor` serves a page saying the dashboard was not built.
+- **Versions:** `MAJOR.MINOR.PATCH` in `pyproject.toml`, with the protocol
+  version (`/v1/`) independent of it. A release that needs a service change
+  says so in the changelog, and the service is deployed first.
+- **Releasing:** `make release` runs the checks, `uv build`, and
+  `uv publish` with a project-scoped PyPI API token kept on the release
+  machine. No CI job is needed; trusted publishing can be added if a cheap
+  Linux-only release workflow is ever wanted.
+- **Public code:** a PyPI release makes the package's source public, even
+  while the GitHub repository stays private. Nothing secret belongs in the
+  package; tokens and URLs come from configuration.
+
 ## 6. Code quality
 
-- **TypeScript:** `strict`, ESLint, Prettier. No `any`.
+- **TypeScript:** `strict`, ESLint, Prettier. No `any`. `svelte-check` for
+  the dashboard.
 - **Python:** `mypy --strict`, `ruff check`, `ruff format`. No `Any` outside
   generated code.
 - Both run in `make check`.
@@ -331,7 +409,10 @@ real Durable Objects and SQLite:
 - the token cache: revocation takes effect within 60 seconds (with a
   controlled clock), `last_seen_at` updates on lookup;
 - cursor paging while tasks are being owned and consumed;
-- the poller alarm, with the integration's alarm helper rather than waiting.
+- the poller alarm, with the integration's alarm helper rather than waiting;
+- statistics: each counted operation moves the right counters, and wait and
+  run times use `created_at` and `owned_at`;
+- `monitor.snapshot` filters topics by scope and caps tasks at 100.
 
 ### 7.2 Conformance
 
@@ -344,8 +425,11 @@ client agree.
 
 ### 7.3 Python
 
-Unit tests for the store, the worker loop (with a fake client) and the CLI.
-`fsio` and the store run on all three OSes.
+Unit tests for the store, the worker loop (with a fake client), the CLI and
+the monitor server (the `Host` check, the 25-second reuse, and a missing
+dashboard build). `fsio` and the store run on all three OSes. The dashboard
+gets `svelte-check` and a few component tests (Vitest) that render a
+snapshot fixture taken from `schema/examples/`.
 
 GitHub Actions is too expensive to use here, so the test runs are split:
 
@@ -389,9 +473,9 @@ the user's checkouts, `uv`, `gh` credentials and footage.
 
 | | Delivers | Done when |
 |---|---|---|
-| M1 | Service with every operation; schema and codegen; `tl` operator commands (`identity`, `topics`, `tasks`, `read`, `delete`, `pollers`, `prune`, `move`, `topic`, `whoami`) | service tests and conformance pass; deployed; identities issued for the three machines |
+| M1 | Service with every operation except `monitor.snapshot`; schema and codegen; `tl` operator commands (`identity`, `topics`, `tasks`, `read`, `delete`, `pollers`, `prune`, `move`, `topic`, `whoami`); packaging and a first PyPI release | service tests and conformance pass; deployed; identities issued for the three machines; `uv tool install tasklease` works on all three |
 | M2 | `fsio`, `store`, `tl request`, `wait`, `cancel`, `inbox` | a request posted from one machine is answered by hand (`tl` as a fake worker) from another and delivered; `fsio` passes on all three OSes |
-| M3 | `worker.py`, `tl worker` | a generic echo worker on each machine answers requests; the lost-reply cases pass in conformance |
+| M3 | `worker.py`, `tl worker`; statistics, `monitor.snapshot` and `tl monitor` | a generic echo worker on each machine answers requests; the lost-reply cases pass in conformance; the dashboard shows all three machines polling and their tasks moving |
 | M4 | FluxShot verify worker on Linux (in fluxshoteditor, with its own design) | a Claude session on the Mac verifies a PR on Linux and gets the result back |
 | M5 | Verify on Windows and macOS (needs the Windows lock); build workers; the adviser | packaging and advice work across all three machines |
 
@@ -402,3 +486,6 @@ the user's checkouts, `uv`, `gh` credentials and footage.
 2. **Content-Length in presigned PUTs** (§4.5): to be checked in M1.
 3. **A `tl worker install` command**, or are the templates in `deploy/`
    enough?
+4. **Cloudflare's own metrics** (requests, errors, Durable Object running
+   time, cost) on the dashboard. They need a Cloudflare API token on the
+   machine running `tl monitor`; left out of the first version.
