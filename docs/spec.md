@@ -728,8 +728,10 @@ tl topic declare D verify/linux
 - `service deploy` creates or upgrades the whole service in the operator's
   Cloudflare account from the installed package: the R2 bucket and its
   lifecycle rule, the Worker with its Durable Objects, secrets and address.
-  Its help text says how to get each Cloudflare identifier and secret. It
-  prints the admin token once, on the first deploy. `service status` compares
+  It runs a pinned version of Cloudflare's wrangler, so the deploying
+  machine, and only that one, needs Node.js. Its help text says how to sign
+  in and how to get each Cloudflare identifier and secret. It prints a new
+  admin token once, as soon as it is set. `service status` compares
   the deployed version with the installed one. The implementation design
   describes both.
 - `monitor` serves a dashboard of the caller's domains on `127.0.0.1` and
