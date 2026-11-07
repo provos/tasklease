@@ -31,7 +31,7 @@ being worked on, workflow definitions, scheduling.
 
 **Domain.** Every task belongs to one domain: a separate namespace for
 topics, tasks, pollers and blobs. A domain name is lowercase segments of
-`[a-z0-9._-]+` joined by `/`, at most 128 characters. The service gives the
+`[a-z0-9._-]+` joined by `/`, at most 256 characters. The service gives the
 name no meaning. A project on GitHub can use its repository
 (`github.com/provos/fluxshoteditor`); a team or a home lab can use
 `render-farm.example` or `acme/pipeline`. No operation reads or writes across
@@ -56,12 +56,23 @@ can change it (Renew).
 | `id` | string, unique forever (`t_` + ULID) | server |
 | `domain` | domain name | Create / Consume |
 | `topic` | topic name | Create / Consume |
-| `created_at` | UTC timestamp | server at Create / Consume; copied by Own |
-| `lease_until` | UTC timestamp | server: Create, Own, Renew |
+| `created_at` | timestamp | server at Create / Consume; copied by Own |
+| `lease_until` | timestamp | server: Create, Own, Renew |
 | `owned_count` | integer | 0 at Create / Consume; Own adds 1 |
 | `creator` | identity name | server at Create / Consume; copied by Own |
 | `owner` | `{identity, worker}` of the last Own, or null | server: Own |
 | `data` | JSON object, at most 256 KiB serialized | caller |
+
+**Time.** Every timestamp, on the wire and in storage, is an integer number
+of milliseconds since the Unix epoch (UTC). Durations in requests are whole
+seconds and say so in their names (`hold_seconds`).
+
+**IDs.** An ID is `t_` followed by a ULID: a millisecond time prefix and 80
+random bits. IDs only need to be unique. Nothing depends on their order: the
+time prefix is there to make logs easier to read. Where the service orders
+tasks, it orders by `created_at` and breaks ties by ID, which gives the same
+order every time but no meaningful order among tasks created in the same
+millisecond. That includes the tasks one Consume posts to the same topic.
 
 **Lease.** A task is *available* when `lease_until <= now` and *held*
 otherwise. "Now" is always the server's clock. Create posts a task with
@@ -82,29 +93,44 @@ lineage ends at most once.
 
 **Credentials.** Each machine, or each agent host, gets one bearer token at
 provisioning. Bearer tokens are the only access control in version 1; there
-is no Cloudflare Access or other gateway in front of the API. The service stores only the token's SHA-256, in an identity
-record:
+is no Cloudflare Access or other gateway in front of the API. The service
+stores only the token's SHA-256, in an identity record. An identity has at
+most 256 domains, and each scope list at most 256 globs:
 
 ```json
 {
   "name": "linux-1",
   "domains": ["github.com/provos/fluxshoteditor"],
   "scopes": {
-    "create": ["verified/*", "built/*", "advised/*", "verify/linux/error"],
+    "create": ["verified/*", "built/*", "advised/*",
+               "verify/linux/error", "build/linux/error"],
     "own":    ["verify/linux", "build/linux"],
-    "read":   ["*"]
+    "read":   ["**"]
   },
   "operator": false
 }
 ```
 
 **Worker label.** Several workers can share one machine and one identity.
-Each request carries an `X-Worker` header (for example `verify-a`). The label
-is self-reported and not authenticated. It is recorded as part of `owner` and
+Each request carries an `X-Worker` header (for example `verify-a`): 1 to 256
+characters of `[A-Za-z0-9._-]`. The label is self-reported and not
+authenticated. It is recorded as part of `owner` and
 of the poller list, and is used for diagnosis only.
 
-**Scopes.** A scope is a list of topic globs, where `*` matches within one
-segment and `**` matches across segments.
+**Scopes.** A scope is a list of topic globs. A glob is matched against the
+whole topic name, segment by segment:
+
+- A literal segment matches only itself.
+- `*` inside a segment matches any run of characters within that segment,
+  including none: `mac-*` matches `mac-a1b2` and `mac-`. A segment that is
+  only `*` matches exactly one whole segment.
+- `**` must be a whole segment. It matches one or more whole segments, never
+  zero.
+
+So `verify/*` matches `verify/linux` but not `verify` or
+`verify/linux/error`; `verify/**` matches both `verify/linux` and
+`verify/linux/error` but not `verify`. A glob for a topic and its error
+topic is therefore two globs: `verify/linux` and `verify/linux/error`.
 
 | Operation | Needs |
 |---|---|
@@ -153,7 +179,7 @@ Success is `200 {"ok": true, ...}`. Failure is
 
 | Code | HTTP | Meaning |
 |---|---|---|
-| `invalid` | 400 | malformed request, bad topic name, bad duration |
+| `invalid` | 400 | malformed request, bad topic name, bad duration, a name or list over its limit |
 | `unauthenticated` | 401 | missing or unknown token |
 | `forbidden` | 403 | scope or holder rule refused it |
 | `not_found` | 404 | no task with this domain, topic and ID |
@@ -244,7 +270,20 @@ To cover several domains, a client calls it once per domain from
 `tasks.list {domain, topic, cursor?}` → `{tasks: [{id, state, created_at, lease_until, owned_count, owner, creator}], cursor?}`
 
 Never returns `data`. `state` is `available` or `held`. Pages hold up to 500
-tasks, ordered by `created_at`.
+tasks, ordered by `(created_at, id)`.
+
+**Cursor.** `cursor` is an opaque string. The server builds it from the last
+task on the page, as base64url of `v1:<created_at>:<id>`, and the next page
+returns the tasks that sort after that pair. A response without `cursor` is
+the last page. A malformed cursor is `invalid`.
+
+Paging is a best-effort view of a topic that keeps changing. Because Own
+copies `created_at`, a task that is owned while a client is paging keeps its
+place in the order, even though its ID changes. So a task is never skipped
+or repeated, unless its `created_at` equals the cursor's own `created_at` to
+the millisecond: then its new ID may sort before or after the cursor. A task
+consumed or deleted between pages just disappears. A task created between
+pages shows up on a later page.
 
 ### 4.9 Topic Pollers
 
@@ -478,12 +517,25 @@ pass:
      worker produces. It is saved as `unmatched/<task_id>.json` (the task ID
      is the one name that is always unique and safe), and `tl inbox` shows it
      for a person to look at.
-   - Write a temp file in the same directory and fsync it. Then publish it
-     with a rename that never replaces an existing file (`link()` then
-     `unlink()`, or `renameat2(RENAME_NOREPLACE)`). If the name is already
-     taken, the reply is a duplicate (from a retried Create, §5): it is
-     dropped, and the existing file stays.
+   - Write it with `publish_new` (below). If the name is already taken, the
+     reply is a duplicate (from a retried Create, §5): it is dropped, and the
+     existing file stays.
 3. `delete` the task, using the ID that `own` returned.
+
+**`publish_new(path, bytes) → created | exists`.** Every file the CLI and
+the worker library publish for other processes to find (replies, request
+records, profile caches) goes through this one operation, never through
+direct file calls. Its contract, on every platform:
+
+- **Atomic:** a reader sees either no file or the whole file, never part of
+  it.
+- **Durable:** when it returns `created`, the bytes are on disk.
+- **No replace:** if `path` exists, it returns `exists` and changes nothing.
+  Of two processes publishing the same path at once, exactly one gets
+  `created`.
+
+The implementation differs by platform (POSIX and Windows) and lives in one
+module; nothing else in the code knows the difference.
 
 The agent ID names the store directories, so it must match the same pattern.
 `tl` refuses to start with any other agent ID.

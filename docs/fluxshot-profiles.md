@@ -41,7 +41,8 @@ request is only ever taken by a macOS machine.
 
 ## 2. Common envelope
 
-Every request and reply carries these fields:
+Every request and reply carries these fields. Timestamps are epoch
+milliseconds, as everywhere in tasklease (spec §2):
 
 ```json
 {
@@ -49,7 +50,7 @@ Every request and reply carries these fields:
   "request_id": "mac-a1b2-20261107-0042",
   "reply_topic": "verified/mac-a1b2",
   "requested_by": "mac-a1b2",
-  "requested_at": "2026-11-07T18:20:00Z"
+  "requested_at": 1794075600000
 }
 ```
 
@@ -62,7 +63,7 @@ Every reply also carries:
   "request": { "...": "the request's identifying fields only (see below)" },
   "status": "passed",
   "worker": { "identity": "linux-1", "label": "verify-a", "os": "linux", "arch": "x86_64" },
-  "started_at": "…", "finished_at": "…",
+  "started_at": 1794075660000, "finished_at": 1794077460000,
   "message": "one line a person can read"
 }
 ```
@@ -157,9 +158,8 @@ Topics `verify/<os>`, reply topics `verified/<agent-id>`.
   `~/.tasklease/verify-cache/`. After sending a reply, the worker saves the
   reply there as `<sha>-<tier>-<options digest>.json`. The reply holds the PR,
   the SHA, the result and the report's R2 key, so nothing has to be looked up
-  in R2. The worker writes it with the same atomic, no-overwrite save as the
-  reply store (spec §6.3), so two workers finishing the same run keep the
-  first reply.
+  in R2. The worker writes it with `publish_new` (spec §6.3), so two
+  workers finishing the same run keep the first reply.
   A new request whose SHA, tier and options match a saved reply gets that
   reply back with `"cached": true`, unless `force` is set or the report's
   blob has expired (7 days). This enforces CLAUDE.md's "run `--tier pr` once
@@ -211,7 +211,7 @@ contract, and the worker answers `rejected` until they exist.
   "...": "envelope",
   "status": "built",
   "artifact": { "key": "…/FluxShot-Editor-macos-arm64-0a0fbef7.zip", "size": 318000000,
-                "sha256": "…", "expires_at": "2026-11-14T00:00:00Z" },
+                "sha256": "…", "expires_at": 1794614400000 },
   "log_blob": "…/build-log.txt.zst",
   "log_tail": "last 8 KiB of the build log"
 }
@@ -236,8 +236,8 @@ Topic `advise`, reply topics `advised/<agent-id>`.
   "question": "…",
   "context": { "pr": 1234, "sha": "…", "files": ["src/…"], "notes": "…" },
   "history": [
-    { "from": "agent",   "identity": "mac-a1b2", "at": "…", "text": "…" },
-    { "from": "adviser", "identity": "linux-1/adviser-a", "at": "…", "text": "…" }
+    { "from": "agent",   "identity": "mac-a1b2", "at": 1794075600000, "text": "…" },
+    { "from": "adviser", "identity": "linux-1/adviser-a", "at": 1794075600000, "text": "…" }
   ],
   "attachments": ["<blob key>"]
 }
