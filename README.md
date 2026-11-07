@@ -16,8 +16,10 @@ atomic step.
 - [docs/design.md](docs/design.md): how to build it: TypeScript service,
   JSON Schema contract, the Python package and `tl` CLI (published on PyPI),
   the `tl monitor` dashboard, testing, deployment, milestones.
-- [docs/fluxshot-profiles.md](docs/fluxshot-profiles.md): the first user,
-  FluxShot Editor: verify, build and advise topics, their request and reply
-  schemas, and the worker loops.
+
+The first user is FluxShot Editor. Its conventions (verify, build and advise
+topics, their request and reply schemas, the worker loops) and its workers
+live in the FluxShot repository:
+[tasklease-profiles.md](https://github.com/provos/fluxshoteditor/blob/master/docs/point-designs/tasklease-profiles.md).
 
 Status: draft specification and implementation design, no code yet.

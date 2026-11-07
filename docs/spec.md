@@ -11,8 +11,9 @@ adviser agent a question.
 
 tasklease is a task board for this. It knows nothing about verification,
 builds or advice. Those are *profiles*: conventions for topic names and for
-the JSON a task carries. FluxShot Editor's profiles are in
-[fluxshot-profiles.md](fluxshot-profiles.md).
+the JSON a task carries, defined by each user of the service. FluxShot
+Editor's profiles are in its own repository:
+[tasklease-profiles.md](https://github.com/provos/fluxshoteditor/blob/master/docs/point-designs/tasklease-profiles.md).
 
 Goals:
 

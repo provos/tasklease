@@ -1,7 +1,8 @@
 # tasklease implementation design
 
-Draft 1, 2026-11-07. Implements [spec.md](spec.md); the FluxShot conventions
-are in [fluxshot-profiles.md](fluxshot-profiles.md).
+Draft 1, 2026-11-07. Implements [spec.md](spec.md). The FluxShot
+conventions and workers live in the FluxShot repository
+([tasklease-profiles.md](https://github.com/provos/fluxshoteditor/blob/master/docs/point-designs/tasklease-profiles.md)); "profiles" below refers to that document.
 
 The spec says *what* the service and its clients do. This document says how
 to build them: languages, layout, the shared contract, module boundaries,
@@ -16,20 +17,20 @@ disagree, the spec wins and this document is fixed.
 | Protocol contract | JSON Schema (2020-12) | build and test time | §4 |
 | `tasklease` Python package: client, `tl` CLI, worker runtime, monitor server | Python 3.12+, published on PyPI, installed with `uv` | macOS, Linux, Windows | §5, §6, §9 |
 | Monitor dashboard | Svelte 5 and TypeScript, built to static files shipped inside the Python package | the user's browser | §4.15, §9 |
-| FluxShot workers and integrations (verify, build, advise) | Python, in the fluxshoteditor repo | the three machines | profiles |
+| FluxShot workers, integrations and profiles (verify, build, advise) | Python and docs, in the fluxshoteditor repo | the three machines | profiles |
 
 tasklease is generic: nothing FluxShot-specific is in this repo's code. The
 FluxShot workers and every other FluxShot integration depend on FluxShot's
 lock lanes, `verify.py`, `run_bounded` and its test rules, so they live in
 fluxshoteditor (under `tools/`, the top import layer) and get their own
 design there. They use the worker runtime from §5.4 as a library, installed
-from PyPI. This settles open question 3 in the profiles.
+from PyPI. The profiles document lives there as well.
 
 ## 2. Repository layout
 
 ```text
 tasklease/
-├── docs/                      spec.md, fluxshot-profiles.md, design.md
+├── docs/                      spec.md, design.md
 ├── schema/                    the protocol contract (§3)
 │   ├── common.json            names, IDs, timestamps, task, error
 │   ├── ops/<operation>.json   one file per operation: request and response
