@@ -1,0 +1,21 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "topic": "work/linux",
+    "data": {
+      "request_id": "request-1",
+      "reply_topic": "reply/agent-1",
+      "nested": [
+        null,
+        true,
+        1,
+        "hello",
+        {
+          "a": [2]
+        }
+      ]
+    },
+    "unexpected": true
+  }
+}

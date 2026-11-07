@@ -1,0 +1,577 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/common.json",
+  "title": "Common",
+  "$defs": {
+    "DomainName": {
+      "title": "DomainName",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"
+    },
+    "TopicName": {
+      "title": "TopicName",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 134,
+      "pattern": "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])",
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 128
+        },
+        {
+          "type": "string",
+          "pattern": "^.{1,128}/error(?![\\s\\S])"
+        }
+      ]
+    },
+    "TopicGlob": {
+      "title": "TopicGlob",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"
+    },
+    "TaskId": {
+      "title": "TaskId",
+      "type": "string",
+      "pattern": "^t_[0-7][0-9A-HJKMNP-TV-Z]{25}(?![\\s\\S])"
+    },
+    "Timestamp": {
+      "title": "Timestamp",
+      "type": "integer",
+      "description": "Milliseconds since the Unix epoch (UTC)."
+    },
+    "WorkerLabel": {
+      "title": "WorkerLabel",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9._-]+(?![\\s\\S])"
+    },
+    "IdentityName": {
+      "title": "IdentityName",
+      "type": "string",
+      "pattern": "^[a-z0-9-]{1,64}(?![\\s\\S])"
+    },
+    "Data": {
+      "title": "Data",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "https://tasklease.dev/schema/common.json#/$defs/JsonValue"
+      },
+      "$comment": "Runtime validates UTF-8 byte length of compact JSON serialization <= 256 KiB."
+    },
+    "ErrorCode": {
+      "title": "ErrorCode",
+      "type": "string",
+      "enum": [
+        "invalid",
+        "unauthenticated",
+        "forbidden",
+        "not_found",
+        "empty",
+        "exists",
+        "too_large"
+      ]
+    },
+    "Error": {
+      "title": "Error",
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": ["code", "message"],
+      "additionalProperties": false
+    },
+    "ErrorResponse": {
+      "title": "ErrorResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Error"
+        }
+      },
+      "required": ["ok", "error"],
+      "additionalProperties": false
+    },
+    "Owner": {
+      "title": "Owner",
+      "type": "object",
+      "properties": {
+        "identity": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentityName"
+        },
+        "worker": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/WorkerLabel"
+        }
+      },
+      "required": ["identity", "worker"],
+      "additionalProperties": false
+    },
+    "Scopes": {
+      "title": "Scopes",
+      "type": "object",
+      "properties": {
+        "create": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicGlob"
+          },
+          "maxItems": 256
+        },
+        "own": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicGlob"
+          },
+          "maxItems": 256
+        },
+        "read": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicGlob"
+          },
+          "maxItems": 256
+        }
+      },
+      "required": ["create", "own", "read"],
+      "additionalProperties": false
+    },
+    "Identity": {
+      "title": "Identity",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentityName"
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+          },
+          "maxItems": 256
+        },
+        "scopes": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Scopes"
+        },
+        "operator": {
+          "type": "boolean"
+        }
+      },
+      "required": ["name", "domains", "scopes", "operator"],
+      "additionalProperties": false
+    },
+    "IdentitySummary": {
+      "title": "IdentitySummary",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentityName"
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+          },
+          "maxItems": 256
+        },
+        "scopes": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Scopes"
+        },
+        "operator": {
+          "type": "boolean"
+        },
+        "created_at": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+        },
+        "last_seen_at": {
+          "anyOf": [
+            {
+              "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "domains",
+        "scopes",
+        "operator",
+        "created_at",
+        "last_seen_at"
+      ],
+      "additionalProperties": false
+    },
+    "NewTask": {
+      "title": "NewTask",
+      "type": "object",
+      "properties": {
+        "topic": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicName"
+        },
+        "data": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Data"
+        }
+      },
+      "required": ["topic", "data"],
+      "additionalProperties": false
+    },
+    "Poller": {
+      "title": "Poller",
+      "type": "object",
+      "properties": {
+        "identity": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentityName"
+        },
+        "worker": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/WorkerLabel"
+        },
+        "last_polled_at": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+        },
+        "last_owned_at": {
+          "anyOf": [
+            {
+              "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["identity", "worker", "last_polled_at", "last_owned_at"],
+      "additionalProperties": false
+    },
+    "TopicSummary": {
+      "title": "TopicSummary",
+      "type": "object",
+      "properties": {
+        "topic": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicName"
+        },
+        "available": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "held": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "oldest_available_at": {
+          "anyOf": [
+            {
+              "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "declared": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "topic",
+        "available",
+        "held",
+        "oldest_available_at",
+        "declared"
+      ],
+      "additionalProperties": false
+    },
+    "Task": {
+      "title": "Task",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
+        },
+        "domain": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+        },
+        "topic": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicName"
+        },
+        "created_at": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+        },
+        "lease_until": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+        },
+        "owned_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "creator": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentityName"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "$ref": "https://tasklease.dev/schema/common.json#/$defs/Owner"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owned_at": {
+          "anyOf": [
+            {
+              "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "data": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Data"
+        }
+      },
+      "required": [
+        "id",
+        "domain",
+        "topic",
+        "created_at",
+        "lease_until",
+        "owned_count",
+        "creator",
+        "owner",
+        "owned_at",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "TaskSummary": {
+      "title": "TaskSummary",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
+        },
+        "created_at": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+        },
+        "lease_until": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+        },
+        "owned_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "creator": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentityName"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "$ref": "https://tasklease.dev/schema/common.json#/$defs/Owner"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "owned_at": {
+          "anyOf": [
+            {
+              "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": ["available", "held"]
+        }
+      },
+      "required": [
+        "id",
+        "created_at",
+        "lease_until",
+        "owned_count",
+        "creator",
+        "owner",
+        "owned_at",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "SnapshotTopic": {
+      "title": "SnapshotTopic",
+      "type": "object",
+      "properties": {
+        "topic": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicName"
+        },
+        "available": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "held": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "oldest_available_at": {
+          "anyOf": [
+            {
+              "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "declared": {
+          "type": "boolean"
+        },
+        "pollers": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/Poller"
+          }
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskSummary"
+          },
+          "maxItems": 100
+        },
+        "truncated": {
+          "const": true
+        }
+      },
+      "required": [
+        "topic",
+        "available",
+        "held",
+        "oldest_available_at",
+        "declared",
+        "pollers",
+        "tasks"
+      ],
+      "additionalProperties": false
+    },
+    "HourlyStats": {
+      "title": "HourlyStats",
+      "type": "object",
+      "properties": {
+        "topic": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicName"
+        },
+        "hour": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+        },
+        "created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "owned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reowned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "empty_polls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "consumed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "deleted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wait_ms_sum": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wait_ms_max": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wait_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "run_ms_sum": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "run_ms_max": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "run_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "topic",
+        "hour",
+        "created",
+        "owned",
+        "reowned",
+        "empty_polls",
+        "consumed",
+        "deleted",
+        "wait_ms_sum",
+        "wait_ms_max",
+        "wait_count",
+        "run_ms_sum",
+        "run_ms_max",
+        "run_count"
+      ],
+      "additionalProperties": false
+    },
+    "JsonValue": {
+      "title": "JsonValue",
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/JsonValue"
+          }
+        },
+        {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Data"
+        }
+      ]
+    }
+  }
+}

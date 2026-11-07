@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/identity.list.json",
+  "title": "IdentityList",
+  "description": "POST /v1/identity.list. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "IdentityListRequest",
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "IdentityListResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "identities": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentitySummary"
+          }
+        }
+      },
+      "required": ["ok", "identities"],
+      "additionalProperties": false
+    }
+  }
+}

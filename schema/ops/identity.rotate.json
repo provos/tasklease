@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/identity.rotate.json",
+  "title": "IdentityRotate",
+  "description": "POST /v1/identity.rotate. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "IdentityRotateRequest",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentityName"
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "IdentityRotateResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "token": {
+          "type": "string",
+          "pattern": "^tl_[A-Za-z0-9_-]{43}(?![\\s\\S])"
+        }
+      },
+      "required": ["ok", "token"],
+      "additionalProperties": false
+    }
+  }
+}

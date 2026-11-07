@@ -1,0 +1,9 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "name": "report.json",
+    "size": 0,
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

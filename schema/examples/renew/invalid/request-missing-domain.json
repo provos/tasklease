@@ -1,0 +1,8 @@
+{
+  "kind": "request",
+  "body": {
+    "topic": "work/linux",
+    "id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "hold_seconds": 600
+  }
+}

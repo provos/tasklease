@@ -1,0 +1,7 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "hold_seconds": 600
+  }
+}

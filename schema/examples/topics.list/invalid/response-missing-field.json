@@ -1,0 +1,14 @@
+{
+  "kind": "response",
+  "body": {
+    "topics": [
+      {
+        "topic": "work/linux",
+        "available": 0,
+        "held": 1,
+        "oldest_available_at": null,
+        "declared": true
+      }
+    ]
+  }
+}

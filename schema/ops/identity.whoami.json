@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/identity.whoami.json",
+  "title": "IdentityWhoami",
+  "description": "POST /v1/identity.whoami. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "IdentityWhoamiRequest",
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "IdentityWhoamiResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "name": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentityName"
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+          },
+          "maxItems": 256
+        },
+        "scopes": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Scopes"
+        },
+        "operator": {
+          "type": "boolean"
+        }
+      },
+      "required": ["ok", "name", "domains", "scopes", "operator"],
+      "additionalProperties": false
+    }
+  }
+}

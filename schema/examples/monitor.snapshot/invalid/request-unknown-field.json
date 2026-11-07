@@ -1,0 +1,8 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "hours": 24,
+    "unexpected": true
+  }
+}

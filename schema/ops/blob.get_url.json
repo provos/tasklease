@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/blob.get_url.json",
+  "title": "BlobGetUrl",
+  "description": "POST /v1/blob.get_url. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "BlobGetUrlRequest",
+      "type": "object",
+      "properties": {
+        "domain": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "$comment": "Runtime validates encoded-domain prefix and server-generated key shape."
+        }
+      },
+      "required": ["domain", "key"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "BlobGetUrlResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "url": {
+          "type": "string"
+        },
+        "expires_at": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+        }
+      },
+      "required": ["ok", "url", "expires_at"],
+      "additionalProperties": false
+    }
+  }
+}

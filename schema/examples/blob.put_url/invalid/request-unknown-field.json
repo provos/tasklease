@@ -1,0 +1,10 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "name": "report.json",
+    "size": 42,
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "unexpected": true
+  }
+}

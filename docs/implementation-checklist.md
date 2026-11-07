@@ -1,0 +1,66 @@
+# Implementation checklist
+
+Baseline: `b09f705`, spec Draft 3 and implementation design Draft 1. The spec
+wins when documents disagree. This checklist tracks the generic tasklease
+system; FluxShot profiles and integrations belong in the FluxShot repository.
+
+## Phase gates
+
+Every phase requires implementation and relevant checks, a simplify review
+covering reuse/quality/efficiency, confirmed fixes and retesting, and a fresh
+read-only `gpt-6-astra` review with `high` reasoning and no inherited author
+conversation. Substantive review fixes receive a focused re-review. Findings
+and verification evidence are recorded in [review-log.md](review-log.md).
+
+- [x] **1. Contract and foundations:** complete JSON Schema contract and
+  examples; deterministic TS validators/types and Python TypedDict generation;
+  pinned toolchains; strict checks; Workers-runtime and Python test harnesses.
+- [ ] **2. Service:** registry/auth/scopes; task operations and SQLite
+  migrations; fencing and atomicity; pollers, statistics and alarms; R2 signing.
+- [ ] **3. Client, operator CLI and deployment:** typed client and configuration;
+  operator commands; deploy/status with recovery tests; bundled Worker;
+  wheel/sdist; cross-language conformance and isolated real deployment.
+- [ ] **4. Durable requester:** atomic no-replace publication; request/reply
+  stores; request/wait/cancel/inbox/resend/pruning; crash and duplicate tests.
+- [ ] **5. Worker runtime:** capacity-before-Own; renewal/deadlines; handler
+  interface; retry and lost-lease handling; bounded error routing; graceful
+  stop; generic CLI worker.
+- [ ] **6. Monitor and operations:** scoped snapshots and statistics;
+  read-only local server; Svelte dashboard and packaged assets; platform
+  startup/stop templates.
+- [ ] **7. Complete-system acceptance:** integrated fault conformance; clean
+  wheel/sdist installation; packaged deployment and upgrade; OS validation;
+  documentation and release tooling; independent whole-system review.
+
+## Acceptance requiring external access
+
+Keep these separate from local implementation completion. A missing credential
+or machine leaves a check unverified, never passed by inference.
+
+- [ ] Isolated Cloudflare deployment with a separate name, bucket and config.
+- [ ] Actual R2 upload/download, signed Content-Length acceptance/rejection.
+- [ ] Upgrade preserves existing Durable Object state and credentials.
+- [ ] macOS filesystem/store/worker tests and clean package installation.
+- [ ] Windows filesystem/store/worker tests and clean package installation.
+- [ ] Cross-machine request, work, reply and durable inbox flow.
+- [ ] Public package publication and installation from PyPI, when authorized.
+
+## Contract clarifications
+
+- Successful `topics.list`, `topic.pollers`, and `identity.list` responses are
+  objects containing `ok: true` and, respectively, `topics`, `pollers`, and
+  `identities` arrays. This makes the array shorthand in spec §4 consistent
+  with its required success envelope. The schemas define the exact wire form.
+- `/v1/version` returns `protocol: "v1"` and the package's service version,
+  without the POST operations' `ok` envelope.
+- `last_seen_at` and poller `last_owned_at` are `null` before their first event.
+  Snapshot `truncated` is present as `true` only when its task list was capped.
+- Identity Add deduplicates expanded create grants and rejects a final list
+  longer than 256 before writing anything, preserving every required error
+  grant rather than silently discarding some.
+
+## Current state
+
+Phase 1 accepted after simplify, independent Astra high review, both confirmed
+review fixes, and a clean focused Astra re-review. Phase 2 is next. No remote
+resources have been changed.

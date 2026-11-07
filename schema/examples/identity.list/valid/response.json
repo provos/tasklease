@@ -1,0 +1,20 @@
+{
+  "kind": "response",
+  "body": {
+    "ok": true,
+    "identities": [
+      {
+        "name": "linux-1",
+        "domains": ["acme/pipeline"],
+        "scopes": {
+          "create": ["reply/*", "work/linux/error"],
+          "own": ["work/linux"],
+          "read": ["**"]
+        },
+        "operator": false,
+        "created_at": 1700000000000,
+        "last_seen_at": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "key": "acme%2Fpipeline/2026-11-07/01ARZ3NDEKTSV4RRFFQ69G5FAV/report.json"
+  }
+}

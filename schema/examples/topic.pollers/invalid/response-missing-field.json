@@ -1,0 +1,13 @@
+{
+  "kind": "response",
+  "body": {
+    "pollers": [
+      {
+        "identity": "linux-1",
+        "worker": "worker-1",
+        "last_polled_at": 1700000000000,
+        "last_owned_at": null
+      }
+    ]
+  }
+}

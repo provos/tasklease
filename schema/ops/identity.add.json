@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/identity.add.json",
+  "title": "IdentityAdd",
+  "description": "POST /v1/identity.add. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "IdentityAddRequest",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentityName"
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+          },
+          "maxItems": 256
+        },
+        "scopes": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Scopes"
+        },
+        "operator": {
+          "type": "boolean"
+        }
+      },
+      "required": ["name", "domains", "scopes", "operator"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "IdentityAddResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "name": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentityName"
+        },
+        "token": {
+          "type": "string",
+          "pattern": "^tl_[A-Za-z0-9_-]{43}(?![\\s\\S])"
+        }
+      },
+      "required": ["ok", "name", "token"],
+      "additionalProperties": false
+    }
+  }
+}

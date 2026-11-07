@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/delete.json",
+  "title": "Delete",
+  "description": "POST /v1/delete. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "DeleteRequest",
+      "type": "object",
+      "properties": {
+        "domain": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+        },
+        "topic": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicName"
+        },
+        "id": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
+        }
+      },
+      "required": ["domain", "topic", "id"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "DeleteResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        }
+      },
+      "required": ["ok"],
+      "additionalProperties": false
+    }
+  }
+}

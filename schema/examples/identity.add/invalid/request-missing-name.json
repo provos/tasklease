@@ -1,0 +1,12 @@
+{
+  "kind": "request",
+  "body": {
+    "domains": ["acme/pipeline"],
+    "scopes": {
+      "create": ["reply/*", "work/linux/error"],
+      "own": ["work/linux"],
+      "read": ["**"]
+    },
+    "operator": false
+  }
+}

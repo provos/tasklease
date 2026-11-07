@@ -1,0 +1,8 @@
+{
+  "kind": "response",
+  "body": {
+    "ok": true,
+    "name": "linux-1",
+    "token": "tl_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

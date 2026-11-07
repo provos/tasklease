@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/identity.revoke.json",
+  "title": "IdentityRevoke",
+  "description": "POST /v1/identity.revoke. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "IdentityRevokeRequest",
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdentityName"
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "IdentityRevokeResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        }
+      },
+      "required": ["ok"],
+      "additionalProperties": false
+    }
+  }
+}

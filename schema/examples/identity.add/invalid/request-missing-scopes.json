@@ -1,0 +1,8 @@
+{
+  "kind": "request",
+  "body": {
+    "name": "linux-1",
+    "domains": ["acme/pipeline"],
+    "operator": false
+  }
+}

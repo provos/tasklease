@@ -1,0 +1,58 @@
+{
+  "kind": "response",
+  "body": {
+    "ok": true,
+    "domain": "acme/pipeline",
+    "generated_at": 1700000000000,
+    "topics": [
+      {
+        "topic": "work/linux",
+        "available": 0,
+        "held": 1,
+        "oldest_available_at": null,
+        "declared": true,
+        "pollers": [
+          {
+            "identity": "linux-1",
+            "worker": "worker-1",
+            "last_polled_at": 1700000000000,
+            "last_owned_at": null
+          }
+        ],
+        "tasks": [
+          {
+            "id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "created_at": 1700000000000,
+            "lease_until": 1700000001000,
+            "owned_count": 1,
+            "creator": "agent-1",
+            "owner": {
+              "identity": "linux-1",
+              "worker": "worker-1"
+            },
+            "owned_at": 1700000000000,
+            "state": "held"
+          }
+        ]
+      }
+    ],
+    "stats": [
+      {
+        "topic": "work/linux",
+        "hour": 1699999200000,
+        "created": 0,
+        "owned": 0,
+        "reowned": 0,
+        "empty_polls": 0,
+        "consumed": 0,
+        "deleted": 0,
+        "wait_ms_sum": 0,
+        "wait_ms_max": 0,
+        "wait_count": 0,
+        "run_ms_sum": 0,
+        "run_ms_max": 0,
+        "run_count": 0
+      }
+    ]
+  }
+}

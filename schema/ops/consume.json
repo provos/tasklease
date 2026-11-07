@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/consume.json",
+  "title": "Consume",
+  "description": "POST /v1/consume. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "ConsumeRequest",
+      "type": "object",
+      "properties": {
+        "domain": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+        },
+        "topic": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicName"
+        },
+        "id": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/NewTask"
+          },
+          "maxItems": 16
+        }
+      },
+      "required": ["domain", "topic", "id", "tasks"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "ConsumeResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "ids": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
+          },
+          "maxItems": 16
+        }
+      },
+      "required": ["ok", "ids"],
+      "additionalProperties": false
+    }
+  }
+}

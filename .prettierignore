@@ -1,0 +1,9 @@
+node_modules/
+package-lock.json
+service/worker-configuration.d.ts
+service/src/generated/
+python/
+docs/spec.md
+docs/design.md
+dist/
+.wrangler/
