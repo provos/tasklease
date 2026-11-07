@@ -29,17 +29,21 @@ being worked on, workflow definitions, scheduling.
 
 ## 2. Concepts
 
-**Repo.** Every task belongs to one repo, named by a normalized key such as
-`github.com/provos/fluxshoteditor` (lowercase, no scheme, no `.git`). The repo
-partitions the data and filters what each identity may see. Every operation
-names exactly one repo.
+**Domain.** Every task belongs to one domain: a separate namespace for
+topics, tasks, pollers and blobs. A domain name is lowercase segments of
+`[a-z0-9._-]+` joined by `/`, at most 128 characters. The service gives the
+name no meaning. A project on GitHub can use its repository
+(`github.com/provos/fluxshoteditor`); a team or a home lab can use
+`render-farm.example` or `acme/pipeline`. No operation reads or writes across
+two domains, and every operation names exactly one. Identities are granted
+domains (§3), and each domain has its own Durable Object (§7.1).
 
 **Topic.** A path-like name: segments of `[a-z0-9._-]+` joined by `/`, at
 most 128 characters. Examples: `verify/linux`, `verified/mac-a1b2`. A topic
 exists while it holds tasks or has recent pollers. Well-known topics declared
 at provisioning are always listed, even when empty.
 
-**Task.** A record whose contents never change. `repo`, `topic`, `data`,
+**Task.** A record whose contents never change. `domain`, `topic`, `data`,
 `creator`, `created_at`, `owner` and `owned_count` are fixed for as long as
 an ID lives. A change of owner retires the ID and posts a copy (Own). The
 only field that changes in place is `lease_until`, and only the current owner
@@ -48,7 +52,7 @@ can change it (Renew).
 | Field | Type | Set by |
 |---|---|---|
 | `id` | string, unique forever (`t_` + ULID) | server |
-| `repo` | repo key | Create / Consume |
+| `domain` | domain name | Create / Consume |
 | `topic` | topic name | Create / Consume |
 | `created_at` | UTC timestamp | server at Create / Consume; copied by Own |
 | `lease_until` | UTC timestamp | server: Create, Own, Renew |
@@ -81,7 +85,7 @@ record:
 ```json
 {
   "name": "linux-1",
-  "repos": ["github.com/provos/fluxshoteditor"],
+  "domains": ["github.com/provos/fluxshoteditor"],
   "scopes": {
     "create": ["verified/*", "built/*", "advised/*", "verify/linux/error"],
     "own":    ["verify/linux", "build/linux"],
@@ -107,12 +111,12 @@ segment and `**` matches across segments.
 | Read, Tasks List, Topic Pollers | `read` or `own` on the topic |
 | Topics List | `read` (filtered to the topics that `read` matches) |
 | Delete | see the holder rule |
-| Blob put URL | a non-empty `create` list on the repo |
-| Blob get URL | a non-empty `read` or `own` list on the repo |
-| Topic Declare | operator on the repo |
+| Blob put URL | a non-empty `create` list on the domain |
+| Blob get URL | a non-empty `read` or `own` list on the domain |
+| Topic Declare | operator on the domain |
 | Identity Add / Revoke / Rotate / List | the admin token (§7.1), not an identity |
 
-Blobs are scoped to a repo, not to topics: anyone who can read in a repo can
+Blobs are scoped to a domain, not to topics: anyone who can read in a domain can
 read its blobs.
 
 **Holder rule.**
@@ -120,7 +124,7 @@ read its blobs.
 - Renew and Consume need the caller's identity to equal `owner.identity`.
 - Delete is allowed for the owner, or for the creator when the task has never
   been owned (`owner` is null).
-- An operator identity may do anything in its repos.
+- An operator identity may do anything in its domains.
 
 So a requester can cancel its own request until a worker owns it. After that
 only the owner, or an operator, can end the lineage. "Never owned" is the
@@ -142,7 +146,7 @@ Success is `200 {"ok": true, ...}`. Failure is
 | `invalid` | 400 | malformed request, bad topic name, bad duration |
 | `unauthenticated` | 401 | missing or unknown token |
 | `forbidden` | 403 | scope or holder rule refused it |
-| `not_found` | 404 | no task with this repo, topic and ID |
+| `not_found` | 404 | no task with this domain, topic and ID |
 | `empty` | 404 | Own found no available task |
 | `exists` | 409 | Identity Add for a name already in use |
 | `too_large` | 413 | `data` over 256 KiB, more than 16 new tasks, or a blob over 2 GiB |
@@ -152,14 +156,14 @@ writes anything.
 
 ### 4.1 Create
 
-`create {repo, topic, data}` → `{id}`
+`create {domain, topic, data}` → `{id}`
 
 Posts a task with `lease_until = now − 5 s`, `owned_count = 0`,
 `owner = null` and `creator` = the caller.
 
 ### 4.2 Own
 
-`own {repo, topic, hold_seconds, wait_seconds?}` → `{task}`
+`own {domain, topic, hold_seconds, wait_seconds?}` → `{task}`
 
 Picks the available task in the topic with the oldest `created_at` (ties
 broken by ID). A caller cannot choose which task it gets.
@@ -180,7 +184,7 @@ until a task arrives. The server may ignore it and answer at once (§7.3).
 
 ### 4.3 Renew
 
-`renew {repo, topic, id, hold_seconds}` → `{task}`
+`renew {domain, topic, id, hold_seconds}` → `{task}`
 
 Sets `lease_until = now + hold_seconds` on the live task `id` and returns the
 task. The ID and every other field stay the same, so retrying a Renew whose
@@ -192,24 +196,24 @@ Errors: `not_found` (another caller owned it, or it was consumed or deleted),
 
 ### 4.4 Read
 
-`read {repo, topic, id}` → `{task}`
+`read {domain, topic, id}` → `{task}`
 
 Returns the whole task. It takes no lease and changes nothing. Error:
 `not_found`.
 
 ### 4.5 Delete
 
-`delete {repo, topic, id}` → `{}`
+`delete {domain, topic, id}` → `{}`
 
 Retires the task with no successor, under the holder rule (§3). Errors:
 `not_found`, `forbidden`.
 
 ### 4.6 Consume
 
-`consume {repo, topic, id, tasks: [{topic, data}, ...]}` → `{ids: [...]}`
+`consume {domain, topic, id, tasks: [{topic, data}, ...]}` → `{ids: [...]}`
 
 Atomically, it retires `id` and posts each new task as Create would, in the
-same repo. Up to 16 new tasks. An empty array ends the lineage with no
+same domain. Up to 16 new tasks. An empty array ends the lineage with no
 follow-up, which is a Delete that respects the fence. The returned `ids` are
 in the order of `tasks`.
 
@@ -218,22 +222,22 @@ target topic), `too_large`.
 
 ### 4.7 Topics List
 
-`topics.list {repo?, glob?}` → `[{repo, topic, available, held, oldest_available_at, declared}]`
+`topics.list {domain?, glob?}` → `[{domain, topic, available, held, oldest_available_at, declared}]`
 
 Lists topics that hold tasks, have pollers in the last 7 days, or were
-declared at provisioning. Results are filtered by the caller's repos and
+declared at provisioning. Results are filtered by the caller's domains and
 `read` scope.
 
 ### 4.8 Tasks List
 
-`tasks.list {repo, topic, cursor?}` → `{tasks: [{id, state, created_at, lease_until, owned_count, owner, creator}], cursor?}`
+`tasks.list {domain, topic, cursor?}` → `{tasks: [{id, state, created_at, lease_until, owned_count, owner, creator}], cursor?}`
 
 Never returns `data`. `state` is `available` or `held`. Pages hold up to 500
 tasks, ordered by `created_at`.
 
 ### 4.9 Topic Pollers
 
-`topic.pollers {repo, topic}` → `[{identity, worker, last_polled_at, last_owned_at}]`
+`topic.pollers {domain, topic}` → `[{identity, worker, last_polled_at, last_owned_at}]`
 
 One entry per (identity, worker label) that has called Own on the topic in
 the last 7 days. This answers "is anyone serving `verify/windows`?" without a
@@ -243,10 +247,13 @@ check who sent a reply (§6.3).
 
 ### 4.10 Blob Put URL
 
-`blob.put_url {repo, name, size, sha256}` → `{key, url, expires_at}`
+`blob.put_url {domain, name, size, sha256}` → `{key, url, expires_at}`
 
-The server builds the key as `<repo>/<yyyy-mm-dd>/<ULID>/<name>`. The caller
-never supplies a key, so it cannot write outside its repo. `url` is a
+The server builds the key as `<D>/<yyyy-mm-dd>/<ULID>/<name>`, where `<D>`
+is the domain name with each `/` written as `%2F`, so the domain is always
+exactly one key segment. Without that encoding, domain `acme`'s prefix
+`acme/` would also be the start of every key in domain `acme/pipeline`. The
+caller never supplies a key, so it cannot write outside its domain. `url` is a
 presigned R2 PUT, valid for 1 hour, with `size` signed as its
 `Content-Length`. The uploader puts `sha256` into the task data next to the
 key, and readers check it after download.
@@ -259,11 +266,12 @@ Errors: `invalid`, `forbidden`, `too_large`.
 
 ### 4.11 Blob Get URL
 
-`blob.get_url {repo, key}` → `{url, expires_at}`
+`blob.get_url {domain, key}` → `{url, expires_at}`
 
-The server checks that `key` starts with `<repo>/` and has the shape
-`blob.put_url` builds, before it signs anything. A caller scoped to one repo
-cannot sign a URL for another repo's key. `url` is a presigned R2 GET, valid
+Before it signs anything, the server checks that the key's first segment
+equals the caller's encoded domain `<D>`, and that the rest has the shape
+`blob.put_url` builds. A caller scoped to one domain
+cannot sign a URL for another domain's key. `url` is a presigned R2 GET, valid
 for 1 hour.
 
 Errors: `invalid` (wrong prefix or shape), `forbidden`, `not_found` (no such
@@ -271,7 +279,7 @@ object).
 
 ### 4.12 Topic Declare
 
-`topic.declare {repo, topic, declared: true|false}` → `{}`
+`topic.declare {domain, topic, declared: true|false}` → `{}`
 
 Adds the topic to, or removes it from, the list Topics List always shows.
 Declaring a topic grants nothing; scopes do that.
@@ -282,7 +290,7 @@ Errors: `invalid`, `forbidden`.
 
 These operations need the admin token.
 
-`identity.add {name, repos, scopes: {create, own, read}, operator}` → `{name, token}`
+`identity.add {name, domains, scopes: {create, own, read}, operator}` → `{name, token}`
 
 Creates an identity and returns its token. This is the only time the token
 is shown, and the server keeps only its SHA-256. `name` matches
@@ -295,7 +303,7 @@ owns keep their leases and come back when those expire.
 `identity.rotate {name}` → `{token}`. Issues a new token and revokes the old
 one.
 
-`identity.list {}` → `[{name, repos, scopes, operator, created_at, last_seen_at}]`.
+`identity.list {}` → `[{name, domains, scopes, operator, created_at, last_seen_at}]`.
 Never returns tokens or hashes.
 
 Errors: `invalid`, `unauthenticated`, `exists`, `not_found`.
@@ -342,7 +350,7 @@ than run it again.
 LEASE = 600 s; RENEW_EVERY = 180 s; MAX_OWNED = 3
 while not stopping:
     wait for local capacity                        # before Own, never after
-    task = own(repo, topic, LEASE, wait_seconds=60)
+    task = own(domain, topic, LEASE, wait_seconds=60)
     if empty: release capacity; sleep(poll interval); continue
     start renewer(task.id):
         every RENEW_EVERY: renew(task.id, LEASE)
@@ -409,7 +417,7 @@ blocking command, and the harness runs it in the background and notifies the
 agent when it exits:
 
 ```bash
-tl request --repo github.com/provos/fluxshoteditor --topic verify/linux \
+tl request --domain github.com/provos/fluxshoteditor --topic verify/linux \
   --reply-topic verified/mac-a1b2 --data @request.json --wait --timeout 6h
 ```
 
@@ -470,8 +478,8 @@ them.
 ### 7.1 Layout
 
 - **Worker**: HTTP API, token check, scope check. It forwards each operation
-  to the repo's Durable Object.
-- **Repo Durable Object** (`idFromName(repo key)`), with SQLite storage. Every
+  to the domain's Durable Object.
+- **Domain Durable Object** (`idFromName(domain)`), with SQLite storage. Every
   operation is one `transactionSync`, and the object runs one request at a
   time, so Own, Renew and Consume are atomic with no further locking. Do not
   use KV: it is eventually consistent, so two workers could own the same task.
@@ -517,7 +525,7 @@ Large outputs (packages over 300 MB, verify reports, logs) go to R2. A task
 carries the blob's key, never a URL, because URLs expire before a reader may
 get to them.
 
-- Bucket `tasklease-blobs`, with keys `<repo>/<yyyy-mm-dd>/<ULID>/<name>`,
+- Bucket `tasklease-blobs`, with keys `<D>/<yyyy-mm-dd>/<ULID>/<name>`,
   always built by the server (§4.10). A lifecycle rule deletes objects after
   14 days.
 - Worker request bodies are capped (100 MB on the Free and Pro plans), so
@@ -525,26 +533,27 @@ get to them.
   URLs from `blob.put_url` and `blob.get_url` (§4.10, §4.11). A single
   presigned PUT covers the 2 GiB limit. A failed upload is retried with a new
   `put_url`, and the half-written key is left for the lifecycle rule.
-- Every blob key starts with its repo, and `get_url` checks that prefix, so
-  one repo's tokens never sign URLs for another repo's blobs.
+- Every blob key's first segment is its encoded domain, and `get_url` checks
+  that segment, so one domain's tokens never sign URLs for another domain's
+  blobs.
 - What may be uploaded is a profile decision. FluxShot forbids footage of any
   kind.
 
 ## 9. Operator CLI
 
 ```bash
-tl topics [--repo R] [--glob 'verify/**']
-tl tasks R verify/linux
-tl read R verify/linux t_01J…
-tl delete R verify/linux t_01J…
-tl pollers R verify/linux
-tl prune R --topic 'verify/**' --lease-older-than 3d
-tl move R verify/linux/error t_01J… --to verify/linux
-tl identity add linux-1 --repo R --own 'verify/linux,build/linux' --create 'verified/*,built/*'
+tl topics [--domain D] [--glob 'verify/**']
+tl tasks D verify/linux
+tl read D verify/linux t_01J…
+tl delete D verify/linux t_01J…
+tl pollers D verify/linux
+tl prune D --topic 'verify/**' --lease-older-than 3d
+tl move D verify/linux/error t_01J… --to verify/linux
+tl identity add linux-1 --domain D --own 'verify/linux,build/linux' --create 'verified/*,built/*'
 tl identity rotate linux-1
 tl identity revoke linux-1
 tl identity list
-tl topic declare R verify/linux
+tl topic declare D verify/linux
 ```
 
 - `prune` removes tasks whose lease ran out longer ago than the given age and

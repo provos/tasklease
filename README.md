@@ -2,8 +2,9 @@
 
 A small task board for coordinating agents and workers across machines. Every
 task is held under a lease, and its ID changes each time it is owned. Topics
-are scoped to a GitHub repository. It runs on Cloudflare Workers and Durable
-Objects, with large files in R2.
+live in domains: separate namespaces with any name, for example a GitHub
+repository (`github.com/provos/fluxshoteditor`) or `render-farm.example`. It
+runs on Cloudflare Workers and Durable Objects, with large files in R2.
 
 An agent on one machine posts a task ("verify this PR on Linux"). A worker on
 another machine owns it, does the work and consumes it. Consuming deletes the

@@ -2,7 +2,10 @@
 
 Draft 3, 2026-11-07. These build on [spec.md](spec.md).
 
-Repo key: `github.com/provos/fluxshoteditor`.
+Domain: `github.com/provos/fluxshoteditor`. FluxShot uses its GitHub
+repository as its tasklease domain. That is a naming choice only: the GitHub
+repository the workers check out (§3.1) comes from each worker's own
+configuration, never from the domain or the task.
 
 ## 1. Topics
 
@@ -150,10 +153,13 @@ Topics `verify/<os>`, reply topics `verified/<agent-id>`.
 - `tier` is one of `quick`, `pr`, `full`, `live`, `windows-foundation`.
 - `options` map one-to-one onto `--packaging`, `--display`, `--all-shots` and
   `--keep-going`. Nothing else reaches the command line.
-- **Once per head.** The worker stores each finished report under
-  `verify/<sha>/<os>/<tier>+<options>/` in R2. A repeat request for the same
-  key gets the stored reply with `"cached": true`, unless `force` is set. This
-  enforces CLAUDE.md's "run `--tier pr` once per head" across machines.
+- **Once per head.** Each worker machine keeps a local index from
+  `(sha, tier, options)` to the reply it sent. A repeat request that matches
+  gets the stored reply with `"cached": true`, unless `force` is set, as long
+  as its `report_blob` has not expired. This enforces CLAUDE.md's "run
+  `--tier pr` once per head" on each machine. Sharing the index across
+  machines of the same OS is an open question (§8): the service builds blob
+  keys itself (spec §4.10), so a key cannot be looked up by SHA.
 
 ### 4.2 Reply: `fse.verify.result/1`
 
@@ -165,7 +171,7 @@ Topics `verify/<os>`, reply topics `verified/<agent-id>`.
   "verdict": "…",
   "tiers": [ { "tier": "T1", "status": "failed", "counts": { "passed": 4100, "failed": 2 } } ],
   "summary_md": "the first 16 KiB of .verify/summary.md",
-  "report_blob": "github.com/provos/fluxshoteditor/2026-11-07/01J…/verify-report.tar.zst"
+  "report_blob": "github.com%2Fprovos%2Ffluxshoteditor/2026-11-07/01J…/verify-report.tar.zst"
 }
 ```
 
@@ -278,3 +284,8 @@ polled within the last 10 minutes.
 4. **Posting to the PR.** Should a verify worker also post its result as a
    PR comment? That would need a GitHub token with write access on every
    worker machine.
+5. **Sharing the verify cache.** Two Linux machines each keep their own
+   once-per-head index (§4.1), so both may run the same SHA and tier. Sharing
+   it would need either a lookup topic (for example `verify/linux/results`,
+   one task per run, read but never owned) or caller-chosen blob names, which
+   the spec does not allow today.
