@@ -42,7 +42,8 @@ operations (§4.13, §4.14), which name none. Identities are granted domains
 that domain's state.
 
 **Topic.** A path-like name: segments of `[a-z0-9._-]+` joined by `/`, at
-most 128 characters. Examples: `verify/linux`, `verified/mac-a1b2`. A topic
+most 128 characters, not counting a final `/error` segment. So every valid
+topic has a valid error topic (§6.1). Examples: `verify/linux`, `verified/mac-a1b2`. A topic
 exists while it holds tasks or has recent pollers. Well-known topics declared
 by an operator (§4.12) are always listed, even when empty.
 
@@ -471,8 +472,11 @@ finish(task, outcome):
         r = consume(task.id, [{topic: reply_topic, data: reply(task, outcome)}])
         if r is ok or r is not_found: return
         # forbidden, invalid or too_large: the reply topic cannot take it
-    consume(task.id, [{topic: f"{topic}/error",
-                       data: {original: task.data, outcome: outcome, error: r}}])
+    r2 = consume(task.id, [{topic: f"{topic}/error",
+                            data: {original: task.data, outcome: outcome, error: r}}])
+    if r2 is too_large:
+        consume(task.id, [{topic: f"{topic}/error",
+                           data: bounded(task.data, outcome, r)}])
 ```
 
 Because Renew keeps the ID, the renewer and the main loop share one ID that
@@ -482,9 +486,14 @@ never changes. They need no mutex.
 a reply topic the worker may not write to, a reply that comes out too large),
 `finish` puts it in `<topic>/error`, where the operator sees it. A task that
 keeps failing never sits in the work topic forever. The error topic's data
-wraps the original data, so it can go just over the limit when the original
-is close to it. A worker that gets `too_large` on that Consume sends only the
-first 64 KiB of the original, as a string. `tl identity add` gives every identity `create` on
+wraps the original data and the outcome, so it can go over the limit. A
+worker that gets `too_large` there sends the bounded form instead:
+`{original, outcome, error, truncated: true}`, where `original` and
+`outcome` are the start of each one's JSON text, as strings, cut so that the
+whole payload serializes to at most 128 KiB. The cut is measured on the
+serialized payload, not on the strings, because escaping in JSON can make a
+string several times longer. So the bounded form always fits, whatever the
+task or the outcome held. `tl identity add` gives every identity `create` on
 `<topic>/error` for each topic it can `own` (§4.13), so this last Consume is
 always allowed.
 
@@ -534,26 +543,39 @@ are always well-formed and unique for the agent.
 - `tl cancel --request-id …` deletes a request no worker has taken yet.
 - `tl inbox` lists every reply in the local store, including unmatched ones.
 
-**Local request record.** When `tl request` posts, it saves
-`{request_id, domain, topic, reply_topic, task_id, created_at}` as
-`requests/<agent-id>/<request_id>.json` in the platform's user data folder. `tl wait` reads the
-reply topic from it, and `tl cancel` reads the domain, topic and task ID it
-needs for Delete. If Delete returns `not_found`, a worker has already taken
-the request, and `tl cancel` says so.
+**File names.** The local stores live in the platform's user data folder.
+Request IDs and agent IDs never become file or folder names directly: on
+the default macOS and Windows file systems `Foo` and `foo` are the same
+name, and Windows reserves names such as `CON`. Instead, a file or folder
+is named by `h(x)`: the first 32 characters of the lowercase hex SHA-256 of
+the ID's UTF-8 bytes. The original IDs are kept inside the records.
+
+**Local request record.** `tl request` saves the record **before** it sends
+Create, so a lost reply to Create, or a crash, never leaves a request in the
+service that the CLI knows nothing about:
+
+1. Publish `requests/h(agent)/h(request_id).json` with
+   `{request_id, domain, topic, reply_topic, created_at}`.
+2. Send Create.
+3. Publish `requests/h(agent)/h(request_id).task.json` with `{task_id}`.
+
+`tl wait` reads the reply topic from the record. `tl cancel` reads the
+domain and topic from it and the task ID from the `.task.json` file it needs
+for Delete. If Delete returns `not_found`, a worker has already taken the
+request, and `tl cancel` says so.
 
 **Local reply store.** The CLI drains the agent's reply topic and keeps the
-replies on the agent's machine, in `replies/<agent-id>/` in the same folder. Each
-pass:
+replies on the agent's machine, in `replies/h(agent)/`. Each pass:
 
 1. `own` the reply topic with a short hold (60 s). On `empty`, stop.
 2. Save the record `{task_id, topic, creator, created_at, received_at, data}`.
    `creator` and `topic` come from the server's task fields.
-   - If `data.request_id` matches `[A-Za-z0-9._-]{1,128}` and is not `.` or
-     `..`, the record is saved as `<request_id>.json`.
+   - If `data.request_id` is a string of 1 to 128 characters, the record is
+     saved as `h(request_id).json`.
    - Otherwise the reply cannot be matched to any request, which only a buggy
-     worker produces. It is saved as `unmatched/<task_id>.json` (the task ID
-     is the one name that is always unique and safe), and `tl inbox` shows it
-     for a person to look at.
+     worker produces. It is saved as `unmatched/<task_id>.json` (task IDs are
+     server-made and always safe as names), and `tl inbox` shows it for a
+     person to look at.
    - Write it with `publish_new` (below). If the name is already taken, the
      reply is a duplicate (from a retried Create, §5): it is dropped, and the
      existing file stays.
@@ -574,15 +596,16 @@ direct file calls. Its contract, on every platform:
 The implementation differs by platform (POSIX and Windows) and lives in one
 module; nothing else in the code knows the difference.
 
-The agent ID names the store directories, so it must match the same pattern.
-`tl` refuses to start with any other agent ID.
+The agent ID is also part of the agent's reply topic (`verified/<agent-id>`),
+so it must be a valid topic segment (§2). `tl` refuses to start with any
+other agent ID.
 
 The reply is safe on disk before the server copy goes away. If the CLI dies
 between steps 2 and 3, the task's lease runs out, the next pass owns it
 again, and step 2 finds the name taken. One file per reply, published
 atomically, lets several CLI processes for the same agent drain and read at
-once with no lock. `wait` checks the store for its `request_id` first, then
-drains, then sleeps and repeats.
+once with no lock. `wait` checks the store for `h(request_id).json` first,
+then drains, then sleeps and repeats.
 
 The CLI does not second-guess who sent a reply. Any identity with `create` on
 the reply topic is trusted to answer (§3). Workers' answers, and especially
@@ -595,9 +618,20 @@ store itself: request records, replies and unmatched replies older than 7
 days are removed (the same retention as blobs, §8), at most once a day while
 draining, or on demand with `tl inbox --prune`.
 
-A request's state is read from the files: *pending* while its request
-record exists with no reply, *answered* once the reply exists. `tl cancel`
-deletes the request record after a successful Delete.
+A request's state is read from the files:
+
+- *submission unknown*: the record exists without its `.task.json` and
+  without a reply. Create was sent, but whether it arrived is not known (or
+  the CLI stopped before sending it). `tl wait` can still wait: if the
+  request arrived, its reply comes to the reply topic like any other.
+  `tl cancel` cannot cancel it, since it has no task ID, and says so.
+  `tl request --resend <request_id>` posts it again with the same
+  `request_id`; if both arrive, the second reply is dropped as a duplicate.
+- *pending*: the record and its `.task.json` exist, with no reply.
+- *answered*: the reply exists.
+
+`tl cancel` deletes the record and its `.task.json` after a successful
+Delete.
 
 ## 7. Cloudflare implementation
 

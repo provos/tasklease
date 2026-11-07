@@ -328,8 +328,10 @@ several processes publish the same path and exactly one sees `created`.
 
 The local request records and reply store from spec §6.3, under the
 platform's user data folder (`platformdirs.user_data_path("tasklease")`):
-`requests/<agent-id>/`, `replies/<agent-id>/`, `replies/<agent-id>/unmatched/`.
-Every write goes through `publish_new`.
+`requests/h(agent)/`, `replies/h(agent)/`, `replies/h(agent)/unmatched/`,
+where `h` is the hash from spec §6.3. Every write goes through
+`publish_new`. Each folder also holds an `agent.json` with the original
+agent ID, so `tl inbox --all` and `tl monitor` can show it.
 
 `drain(client, reply_topic)` runs the own → save → delete loop. `wait(...)`
 checks the store, drains, then sleeps with jitter until a reply arrives or
@@ -337,10 +339,13 @@ the timeout passes.
 
 **Request states** are read from the files, never stored:
 
+Names are hashed (spec §6.3): `A = h(agent_id)`, `R = h(request_id)`.
+
 | State | Files |
 |---|---|
-| pending | `requests/<agent>/<id>.json` and no `replies/<agent>/<id>.json` |
-| answered | `replies/<agent>/<id>.json` exists |
+| submission unknown | `requests/A/R.json`, no `requests/A/R.task.json`, no `replies/A/R.json` |
+| pending | `requests/A/R.json` and `R.task.json`, no `replies/A/R.json` |
+| answered | `replies/A/R.json` exists |
 | cancelled | the request record was deleted by `tl cancel` |
 
 `tl wait` leaves the request record in place: the reply's existence already
@@ -470,7 +475,9 @@ and a stale warning when a refresh fails. Sections:
   dependencies into one JavaScript module without deploying it. Next to it
   goes `wrangler.template.jsonc`: `service/wrangler.jsonc` with the
   account-specific values (name, bucket, account ID) left as
-  placeholders and `no_bundle: true`. A `manifest.json` records the package
+  placeholders, `main` rewritten to the bundled module's file name, and
+  `no_bundle: true`. Copying the checkout's configuration as is would point
+  `main` at the TypeScript source, which is not in the package. A `manifest.json` records the package
   version and the exact wrangler version the bundle was built and tested
   with. All three go to `tasklease/service_bundle/`. So a user who installed
   from PyPI deploys with no checkout and no `npm install` (§8.2), and the
@@ -561,7 +568,9 @@ client agree.
 
 Unit tests for the store, the worker loop (with a fake client), the CLI and
 the monitor server (the `Host` check, the 25-second reuse, and a missing
-dashboard build). `fsio` and the store run on all three OSes. The dashboard
+dashboard build). `fsio` and the store run on all three OSes, including
+request IDs that differ only in case (`Foo`, `foo`) and Windows reserved
+names (`CON`), which must land in separate files. The dashboard
 gets `svelte-check` and a few component tests (Vitest) that render a
 snapshot fixture taken from `schema/examples/`.
 
@@ -615,7 +624,8 @@ command stops the deploy and shows wrangler's own message.
 | Worker name | `--name` (default `tasklease`) | | yes |
 | R2 bucket name | `--bucket` (default `tasklease-blobs`) | | yes |
 | R2 Access Key ID | `--r2-access-key-id` | `TL_R2_ACCESS_KEY_ID` | no (Worker secret) |
-| R2 Secret Access Key | prompted | `TL_R2_SECRET_ACCESS_KEY` | no (Worker secret) |
+| R2 Secret Access Key (always together with the ID) | prompted | `TL_R2_SECRET_ACCESS_KEY` | no (Worker secret) |
+| Admin token, for the end-to-end check on upgrades | | `TL_ADMIN_TOKEN` | no |
 | Service URL (only if wrangler does not report it, step 5) | `--url` | | yes |
 | Config file | `--config` (default: the user config, §5.6) | `TL_CONFIG` | |
 
@@ -624,7 +634,11 @@ Later runs reuse the saved values, so an upgrade is
 command, reads and writes, at another file: the throwaway test deploy (§7.2)
 and a second copy use it, so they never overwrite the production config.
 
-**Steps.**
+**Steps.** The Worker is deployed before its secrets are read, because
+`wrangler secret list` fails on a Worker that does not exist yet. That
+keeps `tl` from having to tell "no such Worker" apart from other wrangler
+failures by parsing error text: every failed wrangler command stops the
+deploy.
 
 1. **Check wrangler and sign-in:** Node is on `PATH`, and
    `wrangler whoami` shows a signed-in account. `--account-id` is required
@@ -632,52 +646,75 @@ and a second copy use it, so they never overwrite the production config.
    `CLOUDFLARE_API_TOKEN`: the token template cannot list accounts, so
    wrangler may not find the account on its own. On failure, print the
    matching part of the help text.
-2. **R2 bucket:** `wrangler r2 bucket list`, then `wrangler r2 bucket create`
+2. **Check the R2 key inputs:** the two R2 keys are given together or not
+   at all; one without the other stops with exit code 4. If `--bucket`
+   differs from the bucket in the saved config, new keys are required,
+   since keys scoped to the old bucket would not work on the new one.
+3. **R2 bucket:** `wrangler r2 bucket list`, then `wrangler r2 bucket create`
    if missing. Set the lifecycle rule `tasklease-expire` (delete objects
    after 7 days) with `wrangler r2 bucket lifecycle add`, replacing an older
    rule of that name.
-3. **Existing secrets:** `wrangler secret list --name <name>` (empty if the
-   Worker does not exist yet). Which secrets are missing is decided from this
-   list, never from whether the Worker exists.
-4. **R2 credentials:** required when `R2_ACCESS_KEY_ID` or
-   `R2_SECRET_ACCESS_KEY` is missing from the list. If they were not given,
-   stop here with exit code 4 and print the dashboard steps for creating
-   them (help text, step 3), naming the bucket just created. Run the command
-   again once they exist. When both secrets already exist, new values are
-   used only if given.
-5. **Deploy the Worker:** fill in `wrangler.jsonc` (name, account ID,
-   bucket, the variables `R2_ACCOUNT_ID` and `R2_BUCKET_NAME`, and
-   `workers_dev: true`) and run `wrangler deploy`. Wrangler applies pending
-   Durable Object migrations and keeps existing secrets.
+4. **Deploy the Worker:** fill in `wrangler.jsonc` (name, account ID,
+   bucket, `main` pointing at the bundled module, the variables
+   `R2_ACCOUNT_ID` and `R2_BUCKET_NAME`, and `workers_dev: true`) and run
+   `wrangler deploy`. Wrangler applies pending Durable Object migrations and
+   keeps existing secrets.
    **The URL:** `tl` sets `WRANGLER_OUTPUT_FILE_PATH` to a temporary file,
-   where wrangler appends one JSON line per event. The `deploy` event's
-   `targets` lists the deployment's URLs (wrangler source,
-   `packages/workers-utils/src/output.ts`). `tl` takes the single entry
-   ending in `.workers.dev`. It does not parse the other entries or
-   wrangler's terminal output, whose wording can change. If there is no such
-   entry, the deploy stops with exit code 4 and asks for the URL with
-   `--url`, which is then saved like any other input.
-6. **Set missing secrets:** generate an admin token (32 random bytes, `tla_`
-   prefix) if `ADMIN_TOKEN` is missing or `--rotate-admin-token` was given.
-   Set every new secret in one `wrangler secret bulk` call, with the values
-   on standard input, never on the command line.
-7. **Print a new admin token at once,** as soon as step 6 succeeds and before
-   anything that can still fail, with a warning that it is not stored
-   anywhere. A failed address or version check below must never cost the
-   user the only copy.
-8. **Check it works:** `GET /v1/version` on the deployed URL must return the
-   package's version. A new address takes a little while to come up, so this
-   retries with backoff for about 15 seconds before it fails.
-9. **Write the config** with the URL and the saved inputs, then print the
-   next steps: `tl identity add` for each machine, and `tl topic declare`.
+   where wrangler appends one JSON line per event. `tl` reads it line by line
+   and selects the `deploy` entry, whose `targets` lists the deployment's
+   URLs (wrangler source, `packages/workers-utils/src/output.ts`). It takes
+   the single target ending in `.workers.dev`. It does not parse other
+   entries or wrangler's terminal output, whose wording can change. If there
+   is no such target, the deploy stops with exit code 4 and asks for the URL
+   with `--url`, which is then saved like any other input.
+5. **Existing secrets:** `wrangler secret list --name <name>`. The Worker
+   exists now, so this succeeds; a failure is a real failure. Which secrets
+   are missing is decided from this list.
+6. **Admin token:** if `ADMIN_TOKEN` is missing, or `--rotate-admin-token`
+   was given, generate one (32 random bytes, `tla_` prefix). **Print it
+   before setting it**, marked "not yet confirmed", with a warning that it
+   is stored nowhere. Then set it, together with any new R2 keys, in one
+   `wrangler secret bulk` call, with the values on standard input, never on
+   the command line. Print whether that call succeeded:
+   - on success, the printed token is the admin token;
+   - on failure, the token may or may not have been set (Cloudflare can
+     accept it while the reply is lost). The next run settles it: if
+     `secret list` shows `ADMIN_TOKEN`, the printed token is the one; if
+     not, a new token is generated and printed.
+7. **R2 credentials:** if `R2_ACCESS_KEY_ID` or `R2_SECRET_ACCESS_KEY` is
+   still missing, stop here with exit code 4 and print the dashboard steps
+   for creating them (help text, step 3), naming the bucket. Run the command
+   again once they exist. The Worker and its admin token are in place by
+   then, so nothing is lost.
+8. **Check the version:** `GET /v1/version` on the deployed URL must return
+   the package's version. A new address takes a little while to come up, so
+   this retries with backoff for about 15 seconds before it fails.
+9. **Check everything end to end:** with the admin token (from step 6, or
+   `TL_ADMIN_TOKEN` on later deploys), using only ordinary operations:
+   1. `identity.add` a temporary identity `deploy-check-<random>`, scoped to
+      the reserved domain `tasklease.deploy-check` with `create`, `own` and
+      `read` on `check`;
+   2. Create, Own and Consume a probe task in topic `check`, which proves the
+      Durable Objects and SQLite work;
+   3. `blob.put_url`, upload 16 random bytes to the URL, `blob.get_url`,
+      download them and compare, which proves the R2 keys, the bucket and
+      `R2_BUCKET_NAME` all agree;
+   4. `identity.revoke` the temporary identity, also when a step failed.
 
-Between steps 5 and 6 of a first deploy, the Worker runs for a few seconds
+   A failure names the part that failed: Durable Objects, upload, or
+   download. Without an admin token (an upgrade with no `TL_ADMIN_TOKEN`),
+   this step is skipped with a warning that the deploy was not verified.
+   The probe blob expires with the lifecycle rule.
+10. **Write the config** with the URL and the saved inputs, then print the
+    next steps: `tl identity add` for each machine, and `tl topic declare`.
+
+Between steps 4 and 6 of a first deploy, the Worker runs for a few seconds
 without its secrets. Requests then fail as `unauthenticated`, which is
 harmless: nothing can have an identity yet.
 
-`--dry-run` runs steps 1 and 3 and the read-only parts of step 2, prints
-the filled-in `wrangler.jsonc` and what each later step would do, and
-changes nothing.
+`--dry-run` runs steps 1 and 2 and the read-only parts of step 3, and, if
+the Worker exists, step 5. It prints the filled-in `wrangler.jsonc` and what
+each later step would do, and changes nothing.
 
 ### 8.3 `tl service status`
 
@@ -734,9 +771,10 @@ Before the first deploy:
 3. R2 ACCESS KEYS  (--r2-access-key-id and a prompt, or
    TL_R2_ACCESS_KEY_ID and TL_R2_SECRET_ACCESS_KEY)
    The service uses these to give machines upload and download links.
-   The bucket must exist first, so on the very first deploy run this
-   command without them: it creates the bucket, then stops and repeats
-   these steps. Then:
+   Give both or neither. The bucket must exist first, so on the very
+   first deploy run this command without them: it creates the bucket
+   and the service, prints the admin token, then stops and repeats these
+   steps. Then:
    Open "R2 Object Storage" > "Overview". Under "Account Details", select
    "Manage" next to "API Tokens", then "Create Account API token".
    Choose the permission "Object Read & Write", and under bucket scope
@@ -749,10 +787,20 @@ subdomain: https://<name>.<subdomain>.workers.dev. If you have never
 opened "Workers & Pages", open it once so Cloudflare creates that
 subdomain.
 
-On the first deploy, this command prints the ADMIN TOKEN once, as soon
-as it is set. Store it in a password manager: it is needed for
-"tl identity add" (as TL_ADMIN_TOKEN) and is not saved anywhere. If it
-is lost, run "tl service deploy --rotate-admin-token" to replace it.
+On the first deploy, this command prints the ADMIN TOKEN once, just
+before setting it, and then says whether setting it succeeded. Store it
+in a password manager: it is needed for "tl identity add" (as
+TL_ADMIN_TOKEN) and is not saved anywhere. If setting it failed, run the
+command again: it tells you whether the printed token is in effect, or
+prints a new one. If the token is lost, run
+"tl service deploy --rotate-admin-token" to replace it.
+
+At the end, the command checks the whole service: it adds a temporary
+identity, runs a task through it, uploads and downloads a small file,
+and removes the identity again. On upgrades this needs TL_ADMIN_TOKEN
+in the environment; without it the check is skipped with a warning.
+
+If you change --bucket, give new R2 access keys for the new bucket too.
 
 To deploy a separate test copy without touching this machine's settings:
   tl service deploy --config /tmp/tl-test.toml --name tasklease-test \
