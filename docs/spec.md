@@ -81,7 +81,8 @@ lineage ends at most once.
 ## 3. Identity and authorization
 
 **Credentials.** Each machine, or each agent host, gets one bearer token at
-provisioning. The service stores only the token's SHA-256, in an identity
+provisioning. Bearer tokens are the only access control in version 1; there
+is no Cloudflare Access or other gateway in front of the API. The service stores only the token's SHA-256, in an identity
 record:
 
 ```json
@@ -172,7 +173,7 @@ Posts a task with `lease_until = now − 5 s`, `owned_count = 0`,
 
 ### 4.2 Own
 
-`own {domain, topic, hold_seconds, wait_seconds?}` → `{task}`
+`own {domain, topic, hold_seconds}` → `{task}`
 
 Picks the available task in the topic with the oldest `created_at` (ties
 broken by ID). A caller cannot choose which task it gets.
@@ -188,8 +189,7 @@ included.
 Every Own, including one that returns `empty`, updates the caller's entry in
 the topic's poller list (§4.9).
 
-`wait_seconds` (0–60, default 0) asks the server to hold the request open
-until a task arrives. The server may ignore it and answer at once (§7.3).
+Own always answers at once. Workers poll (§7.3).
 
 ### 4.3 Renew
 
@@ -374,7 +374,7 @@ than run it again.
 LEASE = 600 s; RENEW_EVERY = 180 s; MAX_OWNED = 3
 while not stopping:
     wait for local capacity                        # before Own, never after
-    task = own(domain, topic, LEASE, wait_seconds=60)
+    task = own(domain, topic, LEASE)
     if empty: release capacity; sleep(poll interval); continue
     start renewer(task.id):
         every RENEW_EVERY: renew(task.id, LEASE)
@@ -563,10 +563,14 @@ tasks by itself; pruning is the operator's job (§9).
 
 ### 7.3 Polling cost
 
-A request held open keeps the Durable Object awake, and it is billed for that
-time. With about ten workers polling, it may never sleep. Version 1 answers
-`wait_seconds` immediately, and workers poll every 30–120 s. Measure the cost
-before turning on held requests.
+Version 1 has no held requests: Own answers at once, and an idle worker polls
+every 30–120 seconds. Each poll is one short request, so the Durable Object
+can sleep between them.
+
+Holding an Own open until a task arrives would cut the delay before a worker
+picks up a task. It is a possible future change, not part of version 1. The
+cost to weigh: a request held open keeps the Durable Object awake and billed
+for that time, and with about ten workers waiting it may never sleep.
 
 ## 8. Blobs (R2)
 
@@ -576,7 +580,9 @@ get to them.
 
 - Bucket `tasklease-blobs`, with keys `<D>/<yyyy-mm-dd>/<ULID>/<name>`,
   always built by the server (§4.10). A lifecycle rule deletes objects after
-  14 days.
+  7 days. A blob is a hand-off between machines, not an archive: anything
+  worth keeping longer (a release build, say) is copied elsewhere by whoever
+  receives it.
 - Worker request bodies are capped (100 MB on the Free and Pro plans), so
   bytes never pass through the API. Uploads and downloads use the presigned
   URLs from `blob.put_url` and `blob.get_url` (§4.10, §4.11). A single
@@ -598,7 +604,10 @@ tl delete D verify/linux t_01J…
 tl pollers D verify/linux
 tl prune D --topic 'verify/**' --lease-older-than 3d
 tl move D verify/linux/error t_01J… --to verify/linux
-tl identity add linux-1 --domain D --own 'verify/linux,build/linux' --create 'verified/*,built/*'
+tl identity add linux-1 --domain D --own 'verify/linux,build/linux' \
+  --create 'verified/*,built/*' --read 'verify/**,build/**'
+tl identity add mac-agents --domain D --own 'verified/mac-*,built/mac-*,advised/mac-*' \
+  --create 'verify/*,build/*,advise' --read 'verify/*,build/*,advise'
 tl identity rotate linux-1
 tl identity revoke linux-1
 tl identity list
@@ -614,6 +623,17 @@ tl topic declare D verify/linux
   removes never-owned tasks.
 - `move` re-posts a task elsewhere: a Consume by the operator, who may
   consume any live task (§3), into the target topic with the same data.
+- `identity add` takes one flag per scope (§3), each a comma-separated list
+  of topic globs:
+  - `--own`: topics the identity may take tasks from (Own, then Renew and
+    Consume). A worker gets its work topics; an agent host gets its reply
+    topics, so its CLI can drain them. Each `own` glob also adds `create` on
+    `<glob>/error`.
+  - `--create`: topics it may post to (Create, and the new tasks of a
+    Consume). A worker gets the reply topics; an agent host gets the request
+    topics.
+  - `--read`: topics it may list and read without taking anything.
+  - `--operator`: may do anything in its domains.
 - `identity` commands read the admin token from `TL_ADMIN_TOKEN`. Every
   other command uses the operator's identity token. `identity add` prints
   the new token once, and also lists the `<topic>/error` globs it added to
@@ -621,6 +641,9 @@ tl topic declare D verify/linux
 
 ## 10. Open questions
 
-1. **Held requests** (§7.3): turn them on only after measuring the cost.
-2. **Blob retention**: 14 days, or longer for release builds?
-3. **Access**: bearer tokens only, or Cloudflare Access in front as well?
+None at the moment. Decided:
+
+- **Held requests**: not in version 1; workers poll. A possible future change
+  (§7.3).
+- **Blob retention**: 7 days (§8).
+- **Access**: bearer tokens only (§3).

@@ -162,7 +162,7 @@ Topics `verify/<os>`, reply topics `verified/<agent-id>`.
   first reply.
   A new request whose SHA, tier and options match a saved reply gets that
   reply back with `"cached": true`, unless `force` is set or the report's
-  blob has expired (14 days). This enforces CLAUDE.md's "run `--tier pr` once
+  blob has expired (7 days). This enforces CLAUDE.md's "run `--tier pr` once
   per head" for each OS, because each OS has one machine.
 
 ### 4.2 Reply: `fse.verify.result/1`
@@ -211,7 +211,7 @@ contract, and the worker answers `rejected` until they exist.
   "...": "envelope",
   "status": "built",
   "artifact": { "key": "…/FluxShot-Editor-macos-arm64-0a0fbef7.zip", "size": 318000000,
-                "sha256": "…", "expires_at": "2026-11-21T00:00:00Z" },
+                "sha256": "…", "expires_at": "2026-11-14T00:00:00Z" },
   "log_blob": "…/build-log.txt.zst",
   "log_tail": "last 8 KiB of the build log"
 }
