@@ -42,8 +42,10 @@ operations (§4.13, §4.14), which name none. Identities are granted domains
 that domain's state.
 
 **Topic.** A path-like name: segments of `[a-z0-9._-]+` joined by `/`, at
-most 128 characters, not counting a final `/error` segment. So every valid
-topic has a valid error topic (§6.1). Examples: `verify/linux`, `verified/mac-a1b2`. A topic
+most 128 characters, not counting a final `/error` segment. The error topic
+of `t` is `t/error`, except that a topic already ending in `/error` is its
+own error topic. So every valid topic has a valid error topic (§6.1), and
+error topics never nest. Examples: `verify/linux`, `verified/mac-a1b2`. A topic
 exists while it holds tasks or has recent pollers. Well-known topics declared
 by an operator (§4.12) are always listed, even when empty.
 
@@ -472,10 +474,10 @@ finish(task, outcome):
         r = consume(task.id, [{topic: reply_topic, data: reply(task, outcome)}])
         if r is ok or r is not_found: return
         # forbidden, invalid or too_large: the reply topic cannot take it
-    r2 = consume(task.id, [{topic: f"{topic}/error",
+    r2 = consume(task.id, [{topic: error_topic(topic),
                             data: {original: task.data, outcome: outcome, error: r}}])
     if r2 is too_large:
-        consume(task.id, [{topic: f"{topic}/error",
+        consume(task.id, [{topic: error_topic(topic),
                            data: bounded(task.data, outcome, r)}])
 ```
 
@@ -484,7 +486,8 @@ never changes. They need no mutex.
 
 **Every task ends.** Whatever is wrong with a task (data that does not parse,
 a reply topic the worker may not write to, a reply that comes out too large),
-`finish` puts it in `<topic>/error`, where the operator sees it. A task that
+`finish` puts it in the topic's error topic (`<topic>/error`, §2), where
+the operator sees it. A task that
 keeps failing never sits in the work topic forever. The error topic's data
 wraps the original data and the outcome, so it can go over the limit. A
 worker that gets `too_large` there sends the bounded form instead:
@@ -555,7 +558,8 @@ Create, so a lost reply to Create, or a crash, never leaves a request in the
 service that the CLI knows nothing about:
 
 1. Publish `requests/h(agent)/h(request_id).json` with
-   `{request_id, domain, topic, reply_topic, created_at}`.
+   `{request_id, domain, topic, reply_topic, created_at, data}`, where
+   `data` is the complete body Create will carry.
 2. Send Create.
 3. Publish `requests/h(agent)/h(request_id).task.json` with `{task_id}`.
 
@@ -625,8 +629,9 @@ A request's state is read from the files:
   the CLI stopped before sending it). `tl wait` can still wait: if the
   request arrived, its reply comes to the reply topic like any other.
   `tl cancel` cannot cancel it, since it has no task ID, and says so.
-  `tl request --resend <request_id>` posts it again with the same
-  `request_id`; if both arrive, the second reply is dropped as a duplicate.
+  `tl request --resend <request_id>` posts the saved `data` again with the
+  same `request_id`; if both arrive, the second reply is dropped as a
+  duplicate.
 - *pending*: the record and its `.task.json` exist, with no reply.
 - *answered*: the reply exists.
 

@@ -401,6 +401,10 @@ and the task's lease brings it back for another worker.
 
 ### 5.5 `tl`
 
+`tl worker` refuses to run on a topic ending in `/error`: error topics are
+for people, and a worker there would only move tasks back into the same
+topic (spec §2).
+
 `argparse`, one module per command group: `request`, `wait`, `cancel`,
 `inbox`, `topics`, `tasks`, `read`, `delete`, `pollers`, `prune`, `move`,
 `identity`, `topic`, `whoami`, `monitor`, `service` (§8), and `worker` (runs a generic worker from a
@@ -675,17 +679,28 @@ deploy.
    before setting it**, marked "not yet confirmed", with a warning that it
    is stored nowhere. Then set it, together with any new R2 keys, in one
    `wrangler secret bulk` call, with the values on standard input, never on
-   the command line. Print whether that call succeeded:
-   - on success, the printed token is the admin token;
-   - on failure, the token may or may not have been set (Cloudflare can
-     accept it while the reply is lost). The next run settles it: if
-     `secret list` shows `ADMIN_TOKEN`, the printed token is the one; if
-     not, a new token is generated and printed.
+   the command line.
+   **Confirm it by using it,** whether or not `secret bulk` reported
+   success: call `identity.list` (read-only, admin only) with the printed
+   token, retrying for about 15 seconds while the new secret takes effect.
+   The admin token is never cached (§4.4), so the answer is exact. A secret
+   *existing* in `secret list` proves nothing about its *value*: after a
+   failed rotation, the old token still exists and still works.
+   - It works: print "confirmed". The printed token is the admin token.
+   - `unauthenticated`: print that the printed token is **not** in effect
+     and must be discarded. On a rotation, the previous token still holds;
+     run `--rotate-admin-token` again. On a first deploy, the next run finds
+     no `ADMIN_TOKEN` and generates a new one.
+   - The service cannot be reached: print that the token's status is
+     unknown, and stop. The next run with `TL_ADMIN_TOKEN` set to the
+     printed token confirms it (step 9 uses it); if that fails, rotate.
 7. **R2 credentials:** if `R2_ACCESS_KEY_ID` or `R2_SECRET_ACCESS_KEY` is
    still missing, stop here with exit code 4 and print the dashboard steps
-   for creating them (help text, step 3), naming the bucket. Run the command
-   again once they exist. The Worker and its admin token are in place by
-   then, so nothing is lost.
+   for creating them (help text, step 3), naming the bucket. The message
+   also says to `export TL_ADMIN_TOKEN=<the token printed above>` before
+   running the command again, so that run can do the end-to-end check
+   (step 9). The Worker and its admin token are in place by then, so nothing
+   is lost.
 8. **Check the version:** `GET /v1/version` on the deployed URL must return
    the package's version. A new address takes a little while to come up, so
    this retries with backoff for about 15 seconds before it fails.
@@ -774,7 +789,9 @@ Before the first deploy:
    Give both or neither. The bucket must exist first, so on the very
    first deploy run this command without them: it creates the bucket
    and the service, prints the admin token, then stops and repeats these
-   steps. Then:
+   steps. Before running it again, store the admin token and set
+   TL_ADMIN_TOKEN to it, so the second run can check the whole service.
+   Then:
    Open "R2 Object Storage" > "Overview". Under "Account Details", select
    "Manage" next to "API Tokens", then "Create Account API token".
    Choose the permission "Object Read & Write", and under bucket scope
@@ -788,11 +805,11 @@ opened "Workers & Pages", open it once so Cloudflare creates that
 subdomain.
 
 On the first deploy, this command prints the ADMIN TOKEN once, just
-before setting it, and then says whether setting it succeeded. Store it
-in a password manager: it is needed for "tl identity add" (as
-TL_ADMIN_TOKEN) and is not saved anywhere. If setting it failed, run the
-command again: it tells you whether the printed token is in effect, or
-prints a new one. If the token is lost, run
+before setting it, and then confirms it by using it. Store it in a
+password manager: it is needed for "tl identity add" (as
+TL_ADMIN_TOKEN) and is not saved anywhere. If the command says the
+printed token is not in effect, discard it and run the command again
+(after a rotation, add --rotate-admin-token). If the token is lost, run
 "tl service deploy --rotate-admin-token" to replace it.
 
 At the end, the command checks the whole service: it adds a temporary
