@@ -35,13 +35,15 @@ topics, tasks, pollers and blobs. A domain name is lowercase segments of
 name no meaning. A project on GitHub can use its repository
 (`github.com/provos/fluxshoteditor`); a team or a home lab can use
 `render-farm.example` or `acme/pipeline`. No operation reads or writes across
-two domains, and every operation names exactly one. Identities are granted
-domains (§3), and each domain has its own Durable Object (§7.1).
+two domains. Every operation names exactly one domain, except the identity
+operations (§4.13, §4.14), which name none. Identities are granted domains
+(§3), and each domain has its own Durable Object (§7.1), which holds all of
+that domain's state.
 
 **Topic.** A path-like name: segments of `[a-z0-9._-]+` joined by `/`, at
 most 128 characters. Examples: `verify/linux`, `verified/mac-a1b2`. A topic
 exists while it holds tasks or has recent pollers. Well-known topics declared
-at provisioning are always listed, even when empty.
+by an operator (§4.12) are always listed, even when empty.
 
 **Task.** A record whose contents never change. `domain`, `topic`, `data`,
 `creator`, `created_at`, `owner` and `owned_count` are fixed for as long as
@@ -115,6 +117,7 @@ segment and `**` matches across segments.
 | Blob get URL | a non-empty `read` or `own` list on the domain |
 | Topic Declare | operator on the domain |
 | Identity Add / Revoke / Rotate / List | the admin token (§7.1), not an identity |
+| Identity Whoami | any identity token |
 
 Blobs are scoped to a domain, not to topics: anyone who can read in a domain can
 read its blobs.
@@ -135,8 +138,8 @@ holds no longer exists.
 
 Transport: `POST https://<host>/v1/<operation>` with a JSON body, an
 `Authorization: Bearer <token>` header and an `X-Worker: <label>` header.
-Identity operations (§4.13) take the admin token in place of an identity
-token, and ignore `X-Worker`. This section is the whole wire protocol.
+Identity Add, Revoke, Rotate and List (§4.13) take the admin token in place
+of an identity token, and ignore `X-Worker`. This section is the whole wire protocol.
 
 Success is `200 {"ok": true, ...}`. Failure is
 `{"ok": false, "error": {"code": "...", "message": "..."}}` with this status:
@@ -222,11 +225,13 @@ target topic), `too_large`.
 
 ### 4.7 Topics List
 
-`topics.list {domain?, glob?}` → `[{domain, topic, available, held, oldest_available_at, declared}]`
+`topics.list {domain, glob?}` → `[{topic, available, held, oldest_available_at, declared}]`
 
-Lists topics that hold tasks, have pollers in the last 7 days, or were
-declared at provisioning. Results are filtered by the caller's domains and
-`read` scope.
+Lists the topics in one domain that hold tasks, have pollers in the last 7
+days, or are declared (§4.12). Results are filtered by the caller's `read`
+scope. `domain` is required, so the call goes to exactly one Durable Object.
+To cover several domains, a client calls it once per domain from
+`identity.whoami` (§4.14).
 
 ### 4.8 Tasks List
 
@@ -282,7 +287,8 @@ object).
 `topic.declare {domain, topic, declared: true|false}` → `{}`
 
 Adds the topic to, or removes it from, the list Topics List always shows.
-Declaring a topic grants nothing; scopes do that.
+Declaring a topic grants nothing; scopes do that. Declarations are stored in
+the domain's own Durable Object, next to its tasks and pollers (§7.2).
 
 Errors: `invalid`, `forbidden`.
 
@@ -297,16 +303,27 @@ is shown, and the server keeps only its SHA-256. `name` matches
 `[a-z0-9-]{1,64}`. For every glob in `own`, the server adds `<glob>/error` to
 `create`, so a worker can always move a broken task out of the way (§6.1).
 
-`identity.revoke {name}` → `{}`. The token stops working at once. Tasks it
-owns keep their leases and come back when those expire.
+`identity.revoke {name}` → `{}`. The token stops working within 60 seconds:
+the Worker keeps token lookups in memory for up to that long (§7.1). Tasks
+the identity owns keep their leases and come back when those expire.
 
 `identity.rotate {name}` → `{token}`. Issues a new token and revokes the old
-one.
+one, on the same 60-second terms.
 
 `identity.list {}` → `[{name, domains, scopes, operator, created_at, last_seen_at}]`.
 Never returns tokens or hashes.
 
 Errors: `invalid`, `unauthenticated`, `exists`, `not_found`.
+
+### 4.14 Identity Whoami
+
+`identity.whoami {}` → `{name, domains, scopes, operator}`
+
+Called with an identity token (not the admin token), it returns the caller's
+own identity record. The CLI uses it to loop over the caller's domains, and
+to report a missing scope before an operation fails with `forbidden`.
+
+Errors: `unauthenticated`.
 
 ## 5. Delivery semantics
 
@@ -479,14 +496,23 @@ them.
 
 - **Worker**: HTTP API, token check, scope check. It forwards each operation
   to the domain's Durable Object.
-- **Domain Durable Object** (`idFromName(domain)`), with SQLite storage. Every
+- **Domain Durable Object** (`idFromName(domain)`), with SQLite storage. It
+  holds all of one domain's state: tasks, pollers and declared topics. Every
   operation is one `transactionSync`, and the object runs one request at a
   time, so Own, Renew and Consume are atomic with no further locking. Do not
   use KV: it is eventually consistent, so two workers could own the same task.
-- **Registry Durable Object**: identities (token hashes, scopes), declared
-  topics. Identity operations (§4.13) write it. They need the admin token,
-  which is stored as a Worker secret and held only by the operator. The admin
-  token is not an identity and cannot own, create or read tasks.
+- **Registry Durable Object**: identities only (token hashes, domains,
+  scopes), the one kind of state that spans domains. Identity operations
+  (§4.13) write it. They need the admin token, which is stored as a Worker
+  secret and held only by the operator. The admin token is compared directly
+  and never cached. It is not an identity and cannot own, create or read
+  tasks.
+- **Token cache.** Every request needs its token resolved to an identity, and
+  one Durable Object serves one request at a time, so the registry must not
+  be asked on every call. Each Worker isolate keeps `sha256(token) → identity`
+  in memory for up to 60 seconds. A revoked or rotated token therefore keeps
+  working for up to 60 seconds (§4.13). An unknown token is not cached, so a
+  newly added identity works at once.
 
 ### 7.2 Storage
 
@@ -504,7 +530,12 @@ CREATE TABLE pollers (
   last_polled_at INTEGER, last_owned_at INTEGER,
   PRIMARY KEY (topic, identity, worker)
 );
+CREATE TABLE declared_topics (
+  topic TEXT PRIMARY KEY, declared_by TEXT NOT NULL, declared_at INTEGER NOT NULL
+);
 ```
+
+`topics.list` is one query over these three tables in one database.
 
 Own scans `tasks_pick` for the first row with `lease_until <= now`. Topics
 hold tens of tasks, not millions, so a scan is fine.
@@ -553,8 +584,12 @@ tl identity add linux-1 --domain D --own 'verify/linux,build/linux' --create 've
 tl identity rotate linux-1
 tl identity revoke linux-1
 tl identity list
+tl whoami
 tl topic declare D verify/linux
 ```
+
+- `topics` without `--domain` calls `identity.whoami` and lists each of the
+  caller's domains in turn.
 
 - `prune` removes tasks whose lease ran out longer ago than the given age and
   which have been owned at least once: abandoned work. With `--all` it also
