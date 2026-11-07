@@ -33,12 +33,11 @@ workers, several build workers, or both. They share the machine's lock lanes
 `<topic>/error` grants are added automatically. An agent host's identity
 gets `create` on `verify/*`, `build/*` and `advise`, `own` on its own reply
 topics, and `read` on `verify/*`, `build/*` and `advise`. It needs that read
-access to check who sent a reply (spec §6.3).
+access so `tl request` can warn when no worker serves a topic (§7).
 
-**Who may answer.** Since a reply must come from an identity in the request
-topic's poller list, a `verify/macos` result is accepted only from a machine
-that serves `verify/macos`. Keep each OS's `own` grants on that OS's
-machines.
+Every worker machine is trusted to answer any agent (spec §3, trust model).
+Keep each OS's `own` grants on that OS's machines, so a `verify/macos`
+request is only ever taken by a macOS machine.
 
 ## 2. Common envelope
 

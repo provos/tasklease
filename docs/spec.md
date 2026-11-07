@@ -122,6 +122,12 @@ segment and `**` matches across segments.
 Blobs are scoped to a domain, not to topics: anyone who can read in a domain can
 read its blobs.
 
+**Trust model.** The service authenticates every caller, and the scopes are
+the trust boundary. An identity with `create` on a topic is trusted to post
+anything to that topic, and an identity with `own` on a topic is trusted to
+answer what it takes from there. Clients do not check further who sent a
+task. Anyone who needs tighter trust grants narrower scopes.
+
 **Holder rule.**
 
 - Renew and Consume need the caller's identity to equal `owner.identity`.
@@ -247,8 +253,8 @@ tasks, ordered by `created_at`.
 One entry per (identity, worker label) that has called Own on the topic in
 the last 7 days. This answers "is anyone serving `verify/windows`?" without a
 registration step. A worker that waits for local capacity before polling
-(§6.1) only shows up while it is able to take work. Requesters also use it to
-check who sent a reply (§6.3).
+(§6.1) only shows up while it is able to take work. `tl request` uses it to
+warn when no worker is serving the topic.
 
 ### 4.10 Blob Put URL
 
@@ -311,7 +317,8 @@ the identity owns keep their leases and come back when those expire.
 one, on the same 60-second terms.
 
 `identity.list {}` → `[{name, domains, scopes, operator, created_at, last_seen_at}]`.
-Never returns tokens or hashes.
+Never returns tokens or hashes. `last_seen_at` is accurate to about 60
+seconds (§7.1).
 
 Errors: `invalid`, `unauthenticated`, `exists`, `not_found`.
 
@@ -423,8 +430,9 @@ for a slot holds the task back from other machines.
    requests from that store (§6.3). The service never needs to know which
    reply belongs to which request.
 4. To cancel before a worker has taken it: `delete` the request's task ID
-   (allowed while it has never been owned). Once it has been owned,
-   cancelling is the worker's decision. A profile may give workers a way to
+   (allowed while it has never been owned). `tl cancel` looks that ID up in
+   the local request record (§6.3). Once it has been owned, cancelling is the
+   worker's decision. A profile may give workers a way to
    see that a request is stale (FluxShot: a PR head that has moved on).
 
 ### 6.3 Agent CLI
@@ -438,32 +446,46 @@ tl request --domain github.com/provos/fluxshoteditor --topic verify/linux \
   --reply-topic verified/mac-a1b2 --data @request.json --wait --timeout 6h
 ```
 
-It prints the reply's `data` as JSON on stdout. Exit codes: 0 reply
-delivered, 3 timed out (the request was left in place, and its ID is printed),
+It prints the reply's `data` as JSON on stdout, together with the reply's
+`creator` (for example "answered by linux-1"). Exit codes: 0 reply delivered,
+3 timed out (the request was left in place, and its `request_id` is printed),
 1 service error.
 
-`tl wait --reply-topic … --request-id …` picks up an earlier request.
-`tl inbox --reply-topic …` lists every reply in the local store.
+`tl request` generates the `request_id` unless one is given, so request IDs
+are always well-formed and unique for the agent.
+
+- `tl wait --request-id …` picks up an earlier request.
+- `tl cancel --request-id …` deletes a request no worker has taken yet.
+- `tl inbox` lists every reply in the local store, including unmatched ones.
+
+**Local request record.** When `tl request` posts, it saves
+`{request_id, domain, topic, reply_topic, task_id, created_at}` as
+`~/.tasklease/requests/<agent-id>/<request_id>.json`. `tl wait` reads the
+reply topic from it, and `tl cancel` reads the domain, topic and task ID it
+needs for Delete. If Delete returns `not_found`, a worker has already taken
+the request, and `tl cancel` says so.
 
 **Local reply store.** The CLI drains the agent's reply topic and keeps the
-replies on the agent's machine, for example in
-`~/.tasklease/replies/<agent-id>/`. Each pass:
+replies on the agent's machine, in `~/.tasklease/replies/<agent-id>/`. Each
+pass:
 
 1. `own` the reply topic with a short hold (60 s). On `empty`, stop.
-2. Write a record to `<name>.json`:
-   `{task_id, topic, creator, created_at, received_at, data}`. `creator` and
-   `topic` come from the server's task fields, not from `data`.
-   - `<name>` is `data.request_id` if it matches `[A-Za-z0-9._-]{1,128}` and
-     is not `.` or `..`. Otherwise it is the task ID, and the record can
-     never match a `wait`; `tl inbox` shows it as unmatched.
+2. Save the record `{task_id, topic, creator, created_at, received_at, data}`.
+   `creator` and `topic` come from the server's task fields.
+   - If `data.request_id` matches `[A-Za-z0-9._-]{1,128}` and is not `.` or
+     `..`, the record is saved as `<request_id>.json`.
+   - Otherwise the reply cannot be matched to any request, which only a buggy
+     worker produces. It is saved as `unmatched/<task_id>.json` (the task ID
+     is the one name that is always unique and safe), and `tl inbox` shows it
+     for a person to look at.
    - Write a temp file in the same directory and fsync it. Then publish it
      with a rename that never replaces an existing file (`link()` then
-     `unlink()`, or `renameat2(RENAME_NOREPLACE)`). If the name is taken,
-     this is a duplicate or a forgery: the first file stays, and the second
-     goes to `<name>.<task_id>.dup.json`.
+     `unlink()`, or `renameat2(RENAME_NOREPLACE)`). If the name is already
+     taken, the reply is a duplicate (from a retried Create, §5): it is
+     dropped, and the existing file stays.
 3. `delete` the task, using the ID that `own` returned.
 
-The agent ID names the store directory, so it must match the same pattern.
+The agent ID names the store directories, so it must match the same pattern.
 `tl` refuses to start with any other agent ID.
 
 The reply is safe on disk before the server copy goes away. If the CLI dies
@@ -473,18 +495,10 @@ atomically, lets several CLI processes for the same agent drain and read at
 once with no lock. `wait` checks the store for its `request_id` first, then
 drains, then sleeps and repeats.
 
-**Checking who sent a reply.** Any identity with `create` on the reply topic
-can post a task carrying someone else's `request_id`. So before `wait`
-returns a reply, it checks that the reply's `creator` appears in
-`topic.pollers` for the topic the request was posted to. Only identities with
-`own` on that topic can appear there. A `verify/macos` request then accepts
-a reply only from a machine that serves `verify/macos`. A reply that fails
-the check is kept as unmatched, and `wait` exits non-zero with the reason.
-The requester needs `read` on its request topics for this check.
-
-The reply's `data` is untrusted input to the agent, especially an adviser's
-answer, which is model output. Agents treat it as information, not as
-instructions.
+The CLI does not second-guess who sent a reply. Any identity with `create` on
+the reply topic is trusted to answer (§3). Workers' answers, and especially
+an adviser's model output, are information for the agent to weigh, not
+instructions to follow.
 
 Replies to abandoned requests now pile up in the local store, not in the
 service. `tl inbox --prune 14d` removes them. The operator CLI cannot see
@@ -513,6 +527,10 @@ them.
   in memory for up to 60 seconds. A revoked or rotated token therefore keeps
   working for up to 60 seconds (§4.13). An unknown token is not cached, so a
   newly added identity works at once.
+- **`last_seen_at`.** A cache miss already calls the registry, so that same
+  lookup sets the identity's `last_seen_at`. No other request touches the
+  registry. For an identity in active use, `last_seen_at` is accurate to
+  about 60 seconds.
 
 ### 7.2 Storage
 
