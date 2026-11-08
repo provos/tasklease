@@ -63,9 +63,9 @@ or machine leaves a check unverified, never passed by inference.
 - Per user direction, the complete domain names `.` and `..` are prohibited.
   Other dotted names and dot segments within longer domains remain valid.
   Literal `%2F` in blob keys is encoded again to `%252F` in S3 URLs.
-- Identity Add rejects combined compact JSON domain and expanded scope lists
-  above 7 MiB with `invalid`, before writing. This is an aggregate bound;
-  individual globs retain the existing grammar.
+- Globs are at most 256 characters (spec §3). Identity Add rejects an own
+  glob whose `/error` grant would exceed that with `invalid`, before writing,
+  so a legal identity serializes to at most about 265 KB.
 - Delete accepts an optional `lease_before` cutoff, checked atomically with
   deletion. Prune uses it so Renew keeping the ID cannot race the operator
   into deleting active work. Ordinary Delete behavior is unchanged.

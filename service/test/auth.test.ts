@@ -30,6 +30,12 @@ function identityWithScope(length: number): Identity {
   };
 }
 
+/** A legal glob or domain of exactly 256 characters, distinct per index. */
+function full(prefix: string, index: number): string {
+  const head = `${prefix}${String(index).padStart(3, "0")}/`;
+  return head + "a".repeat(256 - head.length);
+}
+
 async function post(
   operation: string,
   body: unknown,
@@ -251,13 +257,23 @@ describe("authentication primitives", () => {
 });
 
 describe("registry HTTP and persistence", () => {
-  it("continues to accept and authenticate legal million-character scope globs", async () => {
-    const scope = "a".repeat(1_000_000);
+  it("accepts 256-character globs and rejects longer ones before writing", async () => {
+    const scope = full("r", 0);
     const added = await add({ scopes: { ...emptyScopes, read: [scope] } });
     const response = await post("identity.whoami", {}, added.token, "worker");
     expect(response.status).toBe(200);
     const result = await response.json<Identity>();
     expect(result.scopes.read).toEqual([scope]);
+
+    const name = `long-glob-${crypto.randomUUID()}`;
+    const rejected = await post("identity.add", {
+      name,
+      domains: ["acme"],
+      scopes: { ...emptyScopes, read: [`${scope}a`] },
+      operator: false,
+    });
+    expect(rejected.status).toBe(400);
+    expect((await post("identity.rotate", { name })).status).toBe(404);
   });
 
   it("creates one-time tokens, hashes storage, expands and deduplicates grants", async () => {
@@ -332,77 +348,21 @@ describe("registry HTTP and persistence", () => {
     expect(result.scopes.create).toContain("work/error");
   });
 
-  it("accepts exactly 7 MiB of expanded lists and rejects one byte above without writing", async () => {
-    const limit = 7 * 1024 * 1024;
-    const domains = ["acme"];
-    let read = ["r"];
-    const overhead = (): number =>
-      JSON.stringify(domains).length +
-      JSON.stringify({ create: ["/error"], own: [""], read }).length;
-    if ((limit - overhead()) % 2) read = ["rr"];
-    const own = "a".repeat((limit - overhead()) / 2);
-    const expanded = { create: [`${own}/error`], own: [own], read };
-    expect(
-      new TextEncoder().encode(JSON.stringify(domains)).byteLength +
-        new TextEncoder().encode(JSON.stringify(expanded)).byteLength,
-    ).toBe(limit);
+  it("rejects an own glob whose error grant exceeds 256 characters, without writing", async () => {
+    const own = "a".repeat(250);
+    const added = await add({ scopes: { ...emptyScopes, own: [own] } });
+    const result = await (
+      await post("identity.whoami", {}, added.token, "worker")
+    ).json<Identity>();
+    expect(result.scopes.create).toEqual([`${own}/error`]);
 
-    const request: IdentityAddRequest = {
-      name: `list-boundary-${crypto.randomUUID()}`,
-      domains,
-      scopes: { create: [], own: [own], read },
-      operator: false,
-    };
-    expect(
-      new TextEncoder().encode(JSON.stringify(request)).byteLength,
-    ).toBeLessThan(16 * 256 * 1024 + 64 * 1024);
-    const accepted = await post("identity.add", request);
-    expect(accepted.status).toBe(200);
-    await runInDurableObject(
-      env.REGISTRY.getByName("registry"),
-      (_instance, state) => {
-        expect(
-          state.storage.sql
-            .exec<{ bytes: number }>(
-              "SELECT length(domains) + length(scopes) AS bytes FROM identities WHERE name = ?",
-              request.name,
-            )
-            .one().bytes,
-        ).toBe(limit);
-      },
-    );
-    expect((await post("identity.revoke", { name: request.name })).status).toBe(
-      200,
-    );
-
-    const rejected = {
-      ...request,
-      name: `above-boundary-${crypto.randomUUID()}`,
-      scopes: { ...request.scopes, read: [`${read[0]}r`] },
-    };
-    const response = await post("identity.add", rejected);
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({
-      ok: false,
-      error: { code: "invalid" },
-    });
-    expect(
-      (await post("identity.rotate", { name: rejected.name })).status,
-    ).toBe(404);
-  });
-
-  it("rejects a valid 4 MiB own glob whose expansion exceeds storage capacity", async () => {
-    const name = `expanded-bytes-${crypto.randomUUID()}`;
-    const request = {
+    const name = `long-grant-${crypto.randomUUID()}`;
+    const response = await post("identity.add", {
       name,
       domains: ["acme"],
-      scopes: { create: [], own: ["a".repeat(4 * 1024 * 1024)], read: [] },
+      scopes: { ...emptyScopes, own: [`${own}a`] },
       operator: false,
-    };
-    expect(
-      new TextEncoder().encode(JSON.stringify(request)).byteLength,
-    ).toBeLessThan(16 * 256 * 1024 + 64 * 1024);
-    const response = await post("identity.add", request);
+    });
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({
       ok: false,
@@ -523,7 +483,7 @@ describe("registry HTTP and persistence", () => {
     expect(await registry.listPage()).toEqual({ identities: [] });
     await runInDurableObject(registry, (_instance, state) => {
       state.storage.transactionSync(() => {
-        for (let index = 0; index < 101; index++) {
+        for (let index = 0; index < 65; index++) {
           state.storage.sql.exec(
             `INSERT INTO identities (name, token_hash, domains, scopes, operator, created_at, last_seen_at)
              VALUES (?, ?, ?, ?, 0, ?, NULL)`,
@@ -537,10 +497,10 @@ describe("registry HTTP and persistence", () => {
       });
     });
     const first = await registry.listPage();
-    expect(first.identities).toHaveLength(100);
-    expect(first.afterName).toBe("entry-099");
+    expect(first.identities).toHaveLength(64);
+    expect(first.afterName).toBe("entry-063");
     const second = await registry.listPage(first.afterName);
-    expect(second.identities.map((item) => item.name)).toEqual(["entry-100"]);
+    expect(second.identities.map((item) => item.name)).toEqual(["entry-064"]);
     expect(second.afterName).toBeUndefined();
     expect(
       validateIdentityListResponse({ ok: true, identities: first.identities }),
@@ -554,12 +514,15 @@ describe("registry HTTP and persistence", () => {
   it("streams an actual HTTP identity list larger than the 32 MiB RPC limit", async () => {
     const added: IdentityAddResponse[] = [];
     try {
-      for (let index = 0; index < 5; index++) {
-        added.push(
-          await add({
-            scopes: { create: [], own: ["a".repeat(3_500_000)], read: [] },
-          }),
-        );
+      // Maximal legal identities serialize to about 265 KB each, so 130 of
+      // them exceed one RPC message and need several internal pages.
+      const indexes = Array.from({ length: 256 }, (_, i) => i);
+      const domains = indexes.map((i) => full("d", i));
+      // Each own glob expands into a 256-character create grant.
+      const own = indexes.map((i) => full("o", i).slice(0, 250));
+      const read = indexes.map((i) => full("r", i));
+      for (let index = 0; index < 130; index++) {
+        added.push(await add({ domains, scopes: { create: [], own, read } }));
       }
       const response = await post("identity.list", {});
       expect(response.status).toBe(200);
@@ -597,5 +560,5 @@ describe("registry HTTP and persistence", () => {
         ).toBe(200);
       }
     }
-  });
+  }, 60_000);
 });

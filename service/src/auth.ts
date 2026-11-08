@@ -97,8 +97,8 @@ export class IdentityCache {
     this.purgeExpired(completedAt);
     if (identity && completedAt < expires) {
       const bytes = entryBytes(hash, identity);
-      // Legal scope globs have no length limit. A large identity still
-      // authenticates successfully; it simply requires a lookup next time.
+      // A legal identity charges under 1 MB. This guard keeps eviction finite
+      // if one ever exceeds the whole budget: it authenticates uncached.
       if (bytes > CACHE_MAX_BYTES) return identity;
       // Concurrent misses can populate the same hash while lookup is pending.
       this.remove(hash);

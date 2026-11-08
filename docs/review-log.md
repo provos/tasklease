@@ -561,3 +561,19 @@ Status: accepted after corrections, independent reviews and native qualification
   and initial failed-candidate evidence were left untouched.
 - Phase 7 is closed. All seven implementation phases and their review gates
   are accepted; public package publication remains unperformed.
+
+## Post-acceptance simplification: glob length cap
+
+- Topic globs are capped at 256 characters in the schema and spec §3. Identity
+  Add rejects an own glob whose `/error` grant would exceed the cap. This
+  replaces the 7 MiB aggregate identity check, and Identity List pages are now
+  64 records with no byte budget: a maximal legal identity serializes to about
+  265 KB, so a page is about 17 MB.
+- The token cache keeps its byte budget: 4096 maximal identities would still
+  exceed an isolate's memory. Its oversized-entry guard stays only to keep
+  eviction finite. Identity List keeps streaming, since the identity count is
+  unbounded.
+- Tests: new valid/invalid schema examples at the 256/257 boundary; Workers
+  tests cover the expanded-grant boundary (250 accepted, 251 rejected, nothing
+  written) and stream 130 maximal legal identities (over 32 MiB) through
+  several internal pages.

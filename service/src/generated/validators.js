@@ -3485,14 +3485,14 @@ function validate47(
         for (let i0 = 0; i0 < len0; i0++) {
           let data1 = data0[i0];
           if (typeof data1 === "string") {
-            if (func1(data1) < 1) {
+            if (func1(data1) > 256) {
               const err5 = {
                 instancePath: instancePath + "/create/" + i0,
                 schemaPath:
-                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
-                keyword: "minLength",
-                params: { limit: 1 },
-                message: "must NOT have fewer than 1 characters",
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/maxLength",
+                keyword: "maxLength",
+                params: { limit: 256 },
+                message: "must NOT have more than 256 characters",
               };
               if (vErrors === null) {
                 vErrors = [err5];
@@ -3501,8 +3501,24 @@ function validate47(
               }
               errors++;
             }
-            if (!pattern25.test(data1)) {
+            if (func1(data1) < 1) {
               const err6 = {
+                instancePath: instancePath + "/create/" + i0,
+                schemaPath:
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
+                keyword: "minLength",
+                params: { limit: 1 },
+                message: "must NOT have fewer than 1 characters",
+              };
+              if (vErrors === null) {
+                vErrors = [err6];
+              } else {
+                vErrors.push(err6);
+              }
+              errors++;
+            }
+            if (!pattern25.test(data1)) {
+              const err7 = {
                 instancePath: instancePath + "/create/" + i0,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
@@ -3515,14 +3531,14 @@ function validate47(
                   'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
               };
               if (vErrors === null) {
-                vErrors = [err6];
+                vErrors = [err7];
               } else {
-                vErrors.push(err6);
+                vErrors.push(err7);
               }
               errors++;
             }
           } else {
-            const err7 = {
+            const err8 = {
               instancePath: instancePath + "/create/" + i0,
               schemaPath:
                 "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/type",
@@ -3531,15 +3547,15 @@ function validate47(
               message: "must be string",
             };
             if (vErrors === null) {
-              vErrors = [err7];
+              vErrors = [err8];
             } else {
-              vErrors.push(err7);
+              vErrors.push(err8);
             }
             errors++;
           }
         }
       } else {
-        const err8 = {
+        const err9 = {
           instancePath: instancePath + "/create",
           schemaPath: "#/properties/create/type",
           keyword: "type",
@@ -3547,9 +3563,9 @@ function validate47(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err8];
+          vErrors = [err9];
         } else {
-          vErrors.push(err8);
+          vErrors.push(err9);
         }
         errors++;
       }
@@ -3558,7 +3574,7 @@ function validate47(
       let data2 = data.own;
       if (Array.isArray(data2)) {
         if (data2.length > 256) {
-          const err9 = {
+          const err10 = {
             instancePath: instancePath + "/own",
             schemaPath: "#/properties/own/maxItems",
             keyword: "maxItems",
@@ -3566,9 +3582,9 @@ function validate47(
             message: "must NOT have more than 256 items",
           };
           if (vErrors === null) {
-            vErrors = [err9];
+            vErrors = [err10];
           } else {
-            vErrors.push(err9);
+            vErrors.push(err10);
           }
           errors++;
         }
@@ -3576,34 +3592,14 @@ function validate47(
         for (let i1 = 0; i1 < len1; i1++) {
           let data3 = data2[i1];
           if (typeof data3 === "string") {
-            if (func1(data3) < 1) {
-              const err10 = {
-                instancePath: instancePath + "/own/" + i1,
-                schemaPath:
-                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
-                keyword: "minLength",
-                params: { limit: 1 },
-                message: "must NOT have fewer than 1 characters",
-              };
-              if (vErrors === null) {
-                vErrors = [err10];
-              } else {
-                vErrors.push(err10);
-              }
-              errors++;
-            }
-            if (!pattern25.test(data3)) {
+            if (func1(data3) > 256) {
               const err11 = {
                 instancePath: instancePath + "/own/" + i1,
                 schemaPath:
-                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
-                keyword: "pattern",
-                params: {
-                  pattern:
-                    "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])",
-                },
-                message:
-                  'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/maxLength",
+                keyword: "maxLength",
+                params: { limit: 256 },
+                message: "must NOT have more than 256 characters",
               };
               if (vErrors === null) {
                 vErrors = [err11];
@@ -3612,8 +3608,44 @@ function validate47(
               }
               errors++;
             }
+            if (func1(data3) < 1) {
+              const err12 = {
+                instancePath: instancePath + "/own/" + i1,
+                schemaPath:
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
+                keyword: "minLength",
+                params: { limit: 1 },
+                message: "must NOT have fewer than 1 characters",
+              };
+              if (vErrors === null) {
+                vErrors = [err12];
+              } else {
+                vErrors.push(err12);
+              }
+              errors++;
+            }
+            if (!pattern25.test(data3)) {
+              const err13 = {
+                instancePath: instancePath + "/own/" + i1,
+                schemaPath:
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
+                keyword: "pattern",
+                params: {
+                  pattern:
+                    "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])",
+                },
+                message:
+                  'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
+              };
+              if (vErrors === null) {
+                vErrors = [err13];
+              } else {
+                vErrors.push(err13);
+              }
+              errors++;
+            }
           } else {
-            const err12 = {
+            const err14 = {
               instancePath: instancePath + "/own/" + i1,
               schemaPath:
                 "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/type",
@@ -3622,15 +3654,15 @@ function validate47(
               message: "must be string",
             };
             if (vErrors === null) {
-              vErrors = [err12];
+              vErrors = [err14];
             } else {
-              vErrors.push(err12);
+              vErrors.push(err14);
             }
             errors++;
           }
         }
       } else {
-        const err13 = {
+        const err15 = {
           instancePath: instancePath + "/own",
           schemaPath: "#/properties/own/type",
           keyword: "type",
@@ -3638,9 +3670,9 @@ function validate47(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err13];
+          vErrors = [err15];
         } else {
-          vErrors.push(err13);
+          vErrors.push(err15);
         }
         errors++;
       }
@@ -3649,7 +3681,7 @@ function validate47(
       let data4 = data.read;
       if (Array.isArray(data4)) {
         if (data4.length > 256) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/read",
             schemaPath: "#/properties/read/maxItems",
             keyword: "maxItems",
@@ -3657,9 +3689,9 @@ function validate47(
             message: "must NOT have more than 256 items",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
@@ -3667,8 +3699,24 @@ function validate47(
         for (let i2 = 0; i2 < len2; i2++) {
           let data5 = data4[i2];
           if (typeof data5 === "string") {
+            if (func1(data5) > 256) {
+              const err17 = {
+                instancePath: instancePath + "/read/" + i2,
+                schemaPath:
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/maxLength",
+                keyword: "maxLength",
+                params: { limit: 256 },
+                message: "must NOT have more than 256 characters",
+              };
+              if (vErrors === null) {
+                vErrors = [err17];
+              } else {
+                vErrors.push(err17);
+              }
+              errors++;
+            }
             if (func1(data5) < 1) {
-              const err15 = {
+              const err18 = {
                 instancePath: instancePath + "/read/" + i2,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
@@ -3677,14 +3725,14 @@ function validate47(
                 message: "must NOT have fewer than 1 characters",
               };
               if (vErrors === null) {
-                vErrors = [err15];
+                vErrors = [err18];
               } else {
-                vErrors.push(err15);
+                vErrors.push(err18);
               }
               errors++;
             }
             if (!pattern25.test(data5)) {
-              const err16 = {
+              const err19 = {
                 instancePath: instancePath + "/read/" + i2,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
@@ -3697,14 +3745,14 @@ function validate47(
                   'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
               };
               if (vErrors === null) {
-                vErrors = [err16];
+                vErrors = [err19];
               } else {
-                vErrors.push(err16);
+                vErrors.push(err19);
               }
               errors++;
             }
           } else {
-            const err17 = {
+            const err20 = {
               instancePath: instancePath + "/read/" + i2,
               schemaPath:
                 "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/type",
@@ -3713,15 +3761,15 @@ function validate47(
               message: "must be string",
             };
             if (vErrors === null) {
-              vErrors = [err17];
+              vErrors = [err20];
             } else {
-              vErrors.push(err17);
+              vErrors.push(err20);
             }
             errors++;
           }
         }
       } else {
-        const err18 = {
+        const err21 = {
           instancePath: instancePath + "/read",
           schemaPath: "#/properties/read/type",
           keyword: "type",
@@ -3729,15 +3777,15 @@ function validate47(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err18];
+          vErrors = [err21];
         } else {
-          vErrors.push(err18);
+          vErrors.push(err21);
         }
         errors++;
       }
     }
   } else {
-    const err19 = {
+    const err22 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -3745,9 +3793,9 @@ function validate47(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err19];
+      vErrors = [err22];
     } else {
-      vErrors.push(err19);
+      vErrors.push(err22);
     }
     errors++;
   }
@@ -4455,14 +4503,14 @@ function validate54(
         for (let i0 = 0; i0 < len0; i0++) {
           let data1 = data0[i0];
           if (typeof data1 === "string") {
-            if (func1(data1) < 1) {
+            if (func1(data1) > 256) {
               const err5 = {
                 instancePath: instancePath + "/create/" + i0,
                 schemaPath:
-                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
-                keyword: "minLength",
-                params: { limit: 1 },
-                message: "must NOT have fewer than 1 characters",
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/maxLength",
+                keyword: "maxLength",
+                params: { limit: 256 },
+                message: "must NOT have more than 256 characters",
               };
               if (vErrors === null) {
                 vErrors = [err5];
@@ -4471,8 +4519,24 @@ function validate54(
               }
               errors++;
             }
-            if (!pattern25.test(data1)) {
+            if (func1(data1) < 1) {
               const err6 = {
+                instancePath: instancePath + "/create/" + i0,
+                schemaPath:
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
+                keyword: "minLength",
+                params: { limit: 1 },
+                message: "must NOT have fewer than 1 characters",
+              };
+              if (vErrors === null) {
+                vErrors = [err6];
+              } else {
+                vErrors.push(err6);
+              }
+              errors++;
+            }
+            if (!pattern25.test(data1)) {
+              const err7 = {
                 instancePath: instancePath + "/create/" + i0,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
@@ -4485,14 +4549,14 @@ function validate54(
                   'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
               };
               if (vErrors === null) {
-                vErrors = [err6];
+                vErrors = [err7];
               } else {
-                vErrors.push(err6);
+                vErrors.push(err7);
               }
               errors++;
             }
           } else {
-            const err7 = {
+            const err8 = {
               instancePath: instancePath + "/create/" + i0,
               schemaPath:
                 "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/type",
@@ -4501,15 +4565,15 @@ function validate54(
               message: "must be string",
             };
             if (vErrors === null) {
-              vErrors = [err7];
+              vErrors = [err8];
             } else {
-              vErrors.push(err7);
+              vErrors.push(err8);
             }
             errors++;
           }
         }
       } else {
-        const err8 = {
+        const err9 = {
           instancePath: instancePath + "/create",
           schemaPath: "#/properties/create/type",
           keyword: "type",
@@ -4517,9 +4581,9 @@ function validate54(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err8];
+          vErrors = [err9];
         } else {
-          vErrors.push(err8);
+          vErrors.push(err9);
         }
         errors++;
       }
@@ -4528,7 +4592,7 @@ function validate54(
       let data2 = data.own;
       if (Array.isArray(data2)) {
         if (data2.length > 256) {
-          const err9 = {
+          const err10 = {
             instancePath: instancePath + "/own",
             schemaPath: "#/properties/own/maxItems",
             keyword: "maxItems",
@@ -4536,9 +4600,9 @@ function validate54(
             message: "must NOT have more than 256 items",
           };
           if (vErrors === null) {
-            vErrors = [err9];
+            vErrors = [err10];
           } else {
-            vErrors.push(err9);
+            vErrors.push(err10);
           }
           errors++;
         }
@@ -4546,34 +4610,14 @@ function validate54(
         for (let i1 = 0; i1 < len1; i1++) {
           let data3 = data2[i1];
           if (typeof data3 === "string") {
-            if (func1(data3) < 1) {
-              const err10 = {
-                instancePath: instancePath + "/own/" + i1,
-                schemaPath:
-                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
-                keyword: "minLength",
-                params: { limit: 1 },
-                message: "must NOT have fewer than 1 characters",
-              };
-              if (vErrors === null) {
-                vErrors = [err10];
-              } else {
-                vErrors.push(err10);
-              }
-              errors++;
-            }
-            if (!pattern25.test(data3)) {
+            if (func1(data3) > 256) {
               const err11 = {
                 instancePath: instancePath + "/own/" + i1,
                 schemaPath:
-                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
-                keyword: "pattern",
-                params: {
-                  pattern:
-                    "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])",
-                },
-                message:
-                  'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/maxLength",
+                keyword: "maxLength",
+                params: { limit: 256 },
+                message: "must NOT have more than 256 characters",
               };
               if (vErrors === null) {
                 vErrors = [err11];
@@ -4582,8 +4626,44 @@ function validate54(
               }
               errors++;
             }
+            if (func1(data3) < 1) {
+              const err12 = {
+                instancePath: instancePath + "/own/" + i1,
+                schemaPath:
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
+                keyword: "minLength",
+                params: { limit: 1 },
+                message: "must NOT have fewer than 1 characters",
+              };
+              if (vErrors === null) {
+                vErrors = [err12];
+              } else {
+                vErrors.push(err12);
+              }
+              errors++;
+            }
+            if (!pattern25.test(data3)) {
+              const err13 = {
+                instancePath: instancePath + "/own/" + i1,
+                schemaPath:
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
+                keyword: "pattern",
+                params: {
+                  pattern:
+                    "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])",
+                },
+                message:
+                  'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
+              };
+              if (vErrors === null) {
+                vErrors = [err13];
+              } else {
+                vErrors.push(err13);
+              }
+              errors++;
+            }
           } else {
-            const err12 = {
+            const err14 = {
               instancePath: instancePath + "/own/" + i1,
               schemaPath:
                 "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/type",
@@ -4592,15 +4672,15 @@ function validate54(
               message: "must be string",
             };
             if (vErrors === null) {
-              vErrors = [err12];
+              vErrors = [err14];
             } else {
-              vErrors.push(err12);
+              vErrors.push(err14);
             }
             errors++;
           }
         }
       } else {
-        const err13 = {
+        const err15 = {
           instancePath: instancePath + "/own",
           schemaPath: "#/properties/own/type",
           keyword: "type",
@@ -4608,9 +4688,9 @@ function validate54(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err13];
+          vErrors = [err15];
         } else {
-          vErrors.push(err13);
+          vErrors.push(err15);
         }
         errors++;
       }
@@ -4619,7 +4699,7 @@ function validate54(
       let data4 = data.read;
       if (Array.isArray(data4)) {
         if (data4.length > 256) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/read",
             schemaPath: "#/properties/read/maxItems",
             keyword: "maxItems",
@@ -4627,9 +4707,9 @@ function validate54(
             message: "must NOT have more than 256 items",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
@@ -4637,8 +4717,24 @@ function validate54(
         for (let i2 = 0; i2 < len2; i2++) {
           let data5 = data4[i2];
           if (typeof data5 === "string") {
+            if (func1(data5) > 256) {
+              const err17 = {
+                instancePath: instancePath + "/read/" + i2,
+                schemaPath:
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/maxLength",
+                keyword: "maxLength",
+                params: { limit: 256 },
+                message: "must NOT have more than 256 characters",
+              };
+              if (vErrors === null) {
+                vErrors = [err17];
+              } else {
+                vErrors.push(err17);
+              }
+              errors++;
+            }
             if (func1(data5) < 1) {
-              const err15 = {
+              const err18 = {
                 instancePath: instancePath + "/read/" + i2,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
@@ -4647,14 +4743,14 @@ function validate54(
                 message: "must NOT have fewer than 1 characters",
               };
               if (vErrors === null) {
-                vErrors = [err15];
+                vErrors = [err18];
               } else {
-                vErrors.push(err15);
+                vErrors.push(err18);
               }
               errors++;
             }
             if (!pattern25.test(data5)) {
-              const err16 = {
+              const err19 = {
                 instancePath: instancePath + "/read/" + i2,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
@@ -4667,14 +4763,14 @@ function validate54(
                   'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
               };
               if (vErrors === null) {
-                vErrors = [err16];
+                vErrors = [err19];
               } else {
-                vErrors.push(err16);
+                vErrors.push(err19);
               }
               errors++;
             }
           } else {
-            const err17 = {
+            const err20 = {
               instancePath: instancePath + "/read/" + i2,
               schemaPath:
                 "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/type",
@@ -4683,15 +4779,15 @@ function validate54(
               message: "must be string",
             };
             if (vErrors === null) {
-              vErrors = [err17];
+              vErrors = [err20];
             } else {
-              vErrors.push(err17);
+              vErrors.push(err20);
             }
             errors++;
           }
         }
       } else {
-        const err18 = {
+        const err21 = {
           instancePath: instancePath + "/read",
           schemaPath: "#/properties/read/type",
           keyword: "type",
@@ -4699,15 +4795,15 @@ function validate54(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err18];
+          vErrors = [err21];
         } else {
-          vErrors.push(err18);
+          vErrors.push(err21);
         }
         errors++;
       }
     }
   } else {
-    const err19 = {
+    const err22 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -4715,9 +4811,9 @@ function validate54(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err19];
+      vErrors = [err22];
     } else {
-      vErrors.push(err19);
+      vErrors.push(err22);
     }
     errors++;
   }
@@ -5961,14 +6057,14 @@ function validate66(
         for (let i0 = 0; i0 < len0; i0++) {
           let data1 = data0[i0];
           if (typeof data1 === "string") {
-            if (func1(data1) < 1) {
+            if (func1(data1) > 256) {
               const err5 = {
                 instancePath: instancePath + "/create/" + i0,
                 schemaPath:
-                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
-                keyword: "minLength",
-                params: { limit: 1 },
-                message: "must NOT have fewer than 1 characters",
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/maxLength",
+                keyword: "maxLength",
+                params: { limit: 256 },
+                message: "must NOT have more than 256 characters",
               };
               if (vErrors === null) {
                 vErrors = [err5];
@@ -5977,8 +6073,24 @@ function validate66(
               }
               errors++;
             }
-            if (!pattern25.test(data1)) {
+            if (func1(data1) < 1) {
               const err6 = {
+                instancePath: instancePath + "/create/" + i0,
+                schemaPath:
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
+                keyword: "minLength",
+                params: { limit: 1 },
+                message: "must NOT have fewer than 1 characters",
+              };
+              if (vErrors === null) {
+                vErrors = [err6];
+              } else {
+                vErrors.push(err6);
+              }
+              errors++;
+            }
+            if (!pattern25.test(data1)) {
+              const err7 = {
                 instancePath: instancePath + "/create/" + i0,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
@@ -5991,14 +6103,14 @@ function validate66(
                   'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
               };
               if (vErrors === null) {
-                vErrors = [err6];
+                vErrors = [err7];
               } else {
-                vErrors.push(err6);
+                vErrors.push(err7);
               }
               errors++;
             }
           } else {
-            const err7 = {
+            const err8 = {
               instancePath: instancePath + "/create/" + i0,
               schemaPath:
                 "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/type",
@@ -6007,15 +6119,15 @@ function validate66(
               message: "must be string",
             };
             if (vErrors === null) {
-              vErrors = [err7];
+              vErrors = [err8];
             } else {
-              vErrors.push(err7);
+              vErrors.push(err8);
             }
             errors++;
           }
         }
       } else {
-        const err8 = {
+        const err9 = {
           instancePath: instancePath + "/create",
           schemaPath: "#/properties/create/type",
           keyword: "type",
@@ -6023,9 +6135,9 @@ function validate66(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err8];
+          vErrors = [err9];
         } else {
-          vErrors.push(err8);
+          vErrors.push(err9);
         }
         errors++;
       }
@@ -6034,7 +6146,7 @@ function validate66(
       let data2 = data.own;
       if (Array.isArray(data2)) {
         if (data2.length > 256) {
-          const err9 = {
+          const err10 = {
             instancePath: instancePath + "/own",
             schemaPath: "#/properties/own/maxItems",
             keyword: "maxItems",
@@ -6042,9 +6154,9 @@ function validate66(
             message: "must NOT have more than 256 items",
           };
           if (vErrors === null) {
-            vErrors = [err9];
+            vErrors = [err10];
           } else {
-            vErrors.push(err9);
+            vErrors.push(err10);
           }
           errors++;
         }
@@ -6052,34 +6164,14 @@ function validate66(
         for (let i1 = 0; i1 < len1; i1++) {
           let data3 = data2[i1];
           if (typeof data3 === "string") {
-            if (func1(data3) < 1) {
-              const err10 = {
-                instancePath: instancePath + "/own/" + i1,
-                schemaPath:
-                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
-                keyword: "minLength",
-                params: { limit: 1 },
-                message: "must NOT have fewer than 1 characters",
-              };
-              if (vErrors === null) {
-                vErrors = [err10];
-              } else {
-                vErrors.push(err10);
-              }
-              errors++;
-            }
-            if (!pattern25.test(data3)) {
+            if (func1(data3) > 256) {
               const err11 = {
                 instancePath: instancePath + "/own/" + i1,
                 schemaPath:
-                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
-                keyword: "pattern",
-                params: {
-                  pattern:
-                    "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])",
-                },
-                message:
-                  'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/maxLength",
+                keyword: "maxLength",
+                params: { limit: 256 },
+                message: "must NOT have more than 256 characters",
               };
               if (vErrors === null) {
                 vErrors = [err11];
@@ -6088,8 +6180,44 @@ function validate66(
               }
               errors++;
             }
+            if (func1(data3) < 1) {
+              const err12 = {
+                instancePath: instancePath + "/own/" + i1,
+                schemaPath:
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
+                keyword: "minLength",
+                params: { limit: 1 },
+                message: "must NOT have fewer than 1 characters",
+              };
+              if (vErrors === null) {
+                vErrors = [err12];
+              } else {
+                vErrors.push(err12);
+              }
+              errors++;
+            }
+            if (!pattern25.test(data3)) {
+              const err13 = {
+                instancePath: instancePath + "/own/" + i1,
+                schemaPath:
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
+                keyword: "pattern",
+                params: {
+                  pattern:
+                    "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])",
+                },
+                message:
+                  'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
+              };
+              if (vErrors === null) {
+                vErrors = [err13];
+              } else {
+                vErrors.push(err13);
+              }
+              errors++;
+            }
           } else {
-            const err12 = {
+            const err14 = {
               instancePath: instancePath + "/own/" + i1,
               schemaPath:
                 "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/type",
@@ -6098,15 +6226,15 @@ function validate66(
               message: "must be string",
             };
             if (vErrors === null) {
-              vErrors = [err12];
+              vErrors = [err14];
             } else {
-              vErrors.push(err12);
+              vErrors.push(err14);
             }
             errors++;
           }
         }
       } else {
-        const err13 = {
+        const err15 = {
           instancePath: instancePath + "/own",
           schemaPath: "#/properties/own/type",
           keyword: "type",
@@ -6114,9 +6242,9 @@ function validate66(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err13];
+          vErrors = [err15];
         } else {
-          vErrors.push(err13);
+          vErrors.push(err15);
         }
         errors++;
       }
@@ -6125,7 +6253,7 @@ function validate66(
       let data4 = data.read;
       if (Array.isArray(data4)) {
         if (data4.length > 256) {
-          const err14 = {
+          const err16 = {
             instancePath: instancePath + "/read",
             schemaPath: "#/properties/read/maxItems",
             keyword: "maxItems",
@@ -6133,9 +6261,9 @@ function validate66(
             message: "must NOT have more than 256 items",
           };
           if (vErrors === null) {
-            vErrors = [err14];
+            vErrors = [err16];
           } else {
-            vErrors.push(err14);
+            vErrors.push(err16);
           }
           errors++;
         }
@@ -6143,8 +6271,24 @@ function validate66(
         for (let i2 = 0; i2 < len2; i2++) {
           let data5 = data4[i2];
           if (typeof data5 === "string") {
+            if (func1(data5) > 256) {
+              const err17 = {
+                instancePath: instancePath + "/read/" + i2,
+                schemaPath:
+                  "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/maxLength",
+                keyword: "maxLength",
+                params: { limit: 256 },
+                message: "must NOT have more than 256 characters",
+              };
+              if (vErrors === null) {
+                vErrors = [err17];
+              } else {
+                vErrors.push(err17);
+              }
+              errors++;
+            }
             if (func1(data5) < 1) {
-              const err15 = {
+              const err18 = {
                 instancePath: instancePath + "/read/" + i2,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
@@ -6153,14 +6297,14 @@ function validate66(
                 message: "must NOT have fewer than 1 characters",
               };
               if (vErrors === null) {
-                vErrors = [err15];
+                vErrors = [err18];
               } else {
-                vErrors.push(err15);
+                vErrors.push(err18);
               }
               errors++;
             }
             if (!pattern25.test(data5)) {
-              const err16 = {
+              const err19 = {
                 instancePath: instancePath + "/read/" + i2,
                 schemaPath:
                   "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
@@ -6173,14 +6317,14 @@ function validate66(
                   'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
               };
               if (vErrors === null) {
-                vErrors = [err16];
+                vErrors = [err19];
               } else {
-                vErrors.push(err16);
+                vErrors.push(err19);
               }
               errors++;
             }
           } else {
-            const err17 = {
+            const err20 = {
               instancePath: instancePath + "/read/" + i2,
               schemaPath:
                 "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/type",
@@ -6189,15 +6333,15 @@ function validate66(
               message: "must be string",
             };
             if (vErrors === null) {
-              vErrors = [err17];
+              vErrors = [err20];
             } else {
-              vErrors.push(err17);
+              vErrors.push(err20);
             }
             errors++;
           }
         }
       } else {
-        const err18 = {
+        const err21 = {
           instancePath: instancePath + "/read",
           schemaPath: "#/properties/read/type",
           keyword: "type",
@@ -6205,15 +6349,15 @@ function validate66(
           message: "must be array",
         };
         if (vErrors === null) {
-          vErrors = [err18];
+          vErrors = [err21];
         } else {
-          vErrors.push(err18);
+          vErrors.push(err21);
         }
         errors++;
       }
     }
   } else {
-    const err19 = {
+    const err22 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -6221,9 +6365,9 @@ function validate66(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err19];
+      vErrors = [err22];
     } else {
-      vErrors.push(err19);
+      vErrors.push(err22);
     }
     errors++;
   }
@@ -8563,7 +8707,7 @@ var schema129 = {
   ],
   additionalProperties: false,
 };
-var func50 = Object.prototype.hasOwnProperty;
+var func59 = Object.prototype.hasOwnProperty;
 function validate79(
   data,
   {
@@ -8795,7 +8939,7 @@ function validate79(
       errors++;
     }
     for (const key0 in data) {
-      if (!func50.call(schema129.properties, key0)) {
+      if (!func59.call(schema129.properties, key0)) {
         const err14 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -10524,7 +10668,7 @@ function validate84(
       errors++;
     }
     for (const key0 in data) {
-      if (!func50.call(schema137.properties, key0)) {
+      if (!func59.call(schema137.properties, key0)) {
         const err10 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -11864,7 +12008,7 @@ function validate91(
       errors++;
     }
     for (const key0 in data) {
-      if (!func50.call(schema137.properties, key0)) {
+      if (!func59.call(schema137.properties, key0)) {
         const err10 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -13279,7 +13423,7 @@ function validate98(
       errors++;
     }
     for (const key0 in data) {
-      if (!func50.call(schema137.properties, key0)) {
+      if (!func59.call(schema137.properties, key0)) {
         const err10 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -16613,14 +16757,14 @@ function validate117(
     if (data.glob !== void 0) {
       let data1 = data.glob;
       if (typeof data1 === "string") {
-        if (func1(data1) < 1) {
+        if (func1(data1) > 256) {
           const err8 = {
             instancePath: instancePath + "/glob",
             schemaPath:
-              "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
-            keyword: "minLength",
-            params: { limit: 1 },
-            message: "must NOT have fewer than 1 characters",
+              "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/maxLength",
+            keyword: "maxLength",
+            params: { limit: 256 },
+            message: "must NOT have more than 256 characters",
           };
           if (vErrors === null) {
             vErrors = [err8];
@@ -16629,8 +16773,24 @@ function validate117(
           }
           errors++;
         }
-        if (!pattern25.test(data1)) {
+        if (func1(data1) < 1) {
           const err9 = {
+            instancePath: instancePath + "/glob",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/minLength",
+            keyword: "minLength",
+            params: { limit: 1 },
+            message: "must NOT have fewer than 1 characters",
+          };
+          if (vErrors === null) {
+            vErrors = [err9];
+          } else {
+            vErrors.push(err9);
+          }
+          errors++;
+        }
+        if (!pattern25.test(data1)) {
+          const err10 = {
             instancePath: instancePath + "/glob",
             schemaPath:
               "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/pattern",
@@ -16643,14 +16803,14 @@ function validate117(
               'must match pattern "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])"',
           };
           if (vErrors === null) {
-            vErrors = [err9];
+            vErrors = [err10];
           } else {
-            vErrors.push(err9);
+            vErrors.push(err10);
           }
           errors++;
         }
       } else {
-        const err10 = {
+        const err11 = {
           instancePath: instancePath + "/glob",
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/TopicGlob/type",
@@ -16659,15 +16819,15 @@ function validate117(
           message: "must be string",
         };
         if (vErrors === null) {
-          vErrors = [err10];
+          vErrors = [err11];
         } else {
-          vErrors.push(err10);
+          vErrors.push(err11);
         }
         errors++;
       }
     }
   } else {
-    const err11 = {
+    const err12 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -16675,9 +16835,9 @@ function validate117(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err11];
+      vErrors = [err12];
     } else {
-      vErrors.push(err11);
+      vErrors.push(err12);
     }
     errors++;
   }

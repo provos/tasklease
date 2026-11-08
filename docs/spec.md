@@ -117,10 +117,9 @@ most 256 domains, and each scope list at most 256 globs:
 }
 ```
 
-The combined compact JSON serialization of the domain list and the expanded
-scope lists is limited to 7 MiB of UTF-8 bytes. Identity Add returns `invalid`
-if automatic error grants would exceed either this bound or a scope list's
-256-entry limit, before storing an identity.
+Identity Add returns `invalid`, before storing an identity, if an automatic
+error grant (§4.13) would exceed the 256-character glob limit or a scope
+list's 256-entry limit.
 
 **Worker label.** Several workers can share one machine and one identity.
 Each request carries an `X-Worker` header (for example `verify-a`): 1 to 256
@@ -142,6 +141,10 @@ So `verify/*` matches `verify/linux` but not `verify` or
 `verify/linux/error`; `verify/**` matches both `verify/linux` and
 `verify/linux/error` but not `verify`. A glob for a topic and its error
 topic is therefore two globs: `verify/linux` and `verify/linux/error`.
+
+A glob is 1 to 256 characters: segments of `[a-z0-9._-]` and `*`, separated
+by `/`, with `**` only as a whole segment. A topic is at most 134 characters,
+so the limit leaves room for any useful glob.
 
 | Operation | Needs |
 |---|---|

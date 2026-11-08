@@ -1,0 +1,15 @@
+{
+  "kind": "request",
+  "body": {
+    "name": "linux-1",
+    "domains": ["acme/pipeline"],
+    "scopes": {
+      "create": [],
+      "own": [],
+      "read": [
+        "work/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ]
+    },
+    "operator": false
+  }
+}

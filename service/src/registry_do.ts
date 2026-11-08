@@ -15,10 +15,11 @@ import type {
 } from "./generated/protocol";
 import type { Result } from "./types";
 
-const MAX_IDENTITY_LIST_BYTES = 7 * 1024 * 1024;
-const MAX_LIST_PAGE_BYTES = 8 * 1024 * 1024;
-const MAX_LIST_PAGE_IDENTITIES = 100;
-const encoder = new TextEncoder();
+const MAX_GLOB_LENGTH = 256;
+// A legal identity serializes to at most about 265 KB (256 domains and three
+// lists of 256 globs, each at most 256 characters), so a page stays near
+// 17 MB, well below the 32 MiB RPC message limit.
+const LIST_PAGE_IDENTITIES = 64;
 
 type IdentityRow = {
   name: string;
@@ -107,16 +108,10 @@ export class RegistryObject extends DurableObject<Env> {
     ];
     if (create.length > 256)
       return failure("invalid", "Expanded create scope exceeds 256 grants");
+    if (create.some((glob) => glob.length > MAX_GLOB_LENGTH))
+      return failure("invalid", "An error grant exceeds 256 characters");
     const domains = JSON.stringify(request.domains);
     const scopes = JSON.stringify({ ...request.scopes, create });
-    // Expansion can nearly double the request. Leave room for the remaining
-    // columns and SQLite record overhead below the platform's 8 MiB row limit.
-    if (
-      encoder.encode(domains).byteLength + encoder.encode(scopes).byteLength >
-      MAX_IDENTITY_LIST_BYTES
-    ) {
-      return failure("invalid", "Expanded identity lists exceed 7 MiB");
-    }
     const token = newToken();
     const hash = await hashToken(token);
     return this.ctx.storage.transactionSync(() => {
@@ -172,53 +167,17 @@ export class RegistryObject extends DurableObject<Env> {
   }
 
   listPage(afterName = ""): IdentityListPage {
-    return this.ctx.storage.transactionSync(() => {
-      let bytes = 256;
-      let lastName = afterName;
-      let count = 0;
-      let more = false;
-      // Read only small metadata for the overflow row. Payloads stay in SQLite
-      // until they fit the page, well below the 32 MiB RPC result limit.
-      const rows = this.ctx.storage.sql.exec<{
-        name: string;
-        list_bytes: number;
-      }>(
-        `SELECT name, length(CAST(domains AS BLOB)) + length(CAST(scopes AS BLOB)) AS list_bytes
-         FROM identities WHERE name > ? ORDER BY name LIMIT ?`,
+    const rows = this.ctx.storage.sql
+      .exec<IdentityRow>(
+        `SELECT name, domains, scopes, operator, created_at, last_seen_at FROM identities
+         WHERE name > ? ORDER BY name LIMIT ?`,
         afterName,
-        MAX_LIST_PAGE_IDENTITIES + 1,
-      );
-      for (const row of rows) {
-        // Public metadata, array/record overhead and punctuation fit in 512 bytes
-        // per record; domains and scopes were already serialized when added.
-        const rowBytes = row.list_bytes + 512;
-        if (
-          count >= MAX_LIST_PAGE_IDENTITIES ||
-          bytes + rowBytes > MAX_LIST_PAGE_BYTES
-        ) {
-          if (count === 0)
-            throw new Error("Identity exceeds registry page limit");
-          more = true;
-          break;
-        }
-        count++;
-        bytes += rowBytes;
-        lastName = row.name;
-      }
-      const identities =
-        count === 0
-          ? []
-          : this.ctx.storage.sql
-              .exec<IdentityRow>(
-                `SELECT name, domains, scopes, operator, created_at, last_seen_at FROM identities
-         WHERE name > ? AND name <= ? ORDER BY name LIMIT ?`,
-                afterName,
-                lastName,
-                MAX_LIST_PAGE_IDENTITIES,
-              )
-              .toArray()
-              .map(publicIdentity);
-      return more ? { identities, afterName: lastName } : { identities };
-    });
+        LIST_PAGE_IDENTITIES + 1,
+      )
+      .toArray();
+    const identities = rows.slice(0, LIST_PAGE_IDENTITIES).map(publicIdentity);
+    return rows.length > LIST_PAGE_IDENTITIES
+      ? { identities, afterName: identities.at(-1)!.name }
+      : { identities };
   }
 }

@@ -216,12 +216,11 @@ hash, domains, scopes as JSON, operator flag, created_at, last_seen_at).
 - `add`, `revoke`, `rotate`, `list`, `whoami` as in spec §4.13–4.14. `add`
   generates the token (32 random bytes, base64url, prefixed `tl_`) and expands
   each `own` glob into a `create` grant on `<glob>/error`.
-- `add` serializes the domain and expanded scope lists once, rejects a
-  combined size above 7 MiB before insertion (spec §3), and reuses those
-  serialized values. This leaves room for other fields below SQLite's row
-  limit.
-- Identity List uses bounded internal RPC pages (at most 100 records and an
-  8 MiB conservative serialized-size budget per page). The Worker streams
+- `add` rejects an expanded `<glob>/error` grant longer than 256 characters
+  before insertion (spec §3). With every glob capped, a legal identity
+  serializes to at most about 265 KB, far below SQLite's row limit.
+- Identity List uses internal RPC pages of 64 records, at most about 17 MB,
+  below RPC's 32 MiB message limit. The Worker streams
   the same public `{ok: true, identities: [...]}` JSON response with
   backpressure and cancellation. Neither side assembles the complete list,
   so individually valid identities cannot overflow RPC's message limit when
@@ -237,10 +236,10 @@ has its own cache; that is why revocation is "within 60 seconds" rather than
 exact.
 
 The cache also has an 8 MiB conservative retained-byte budget and a 4096-entry
-cap. Charges include UTF-16 string lengths and container overhead. Oversized
-entries still authenticate but are not cached; expired and evicted entries
-release their charges. Large legal scope lists cannot exhaust the isolate
-through cache retention.
+cap. Charges include UTF-16 string lengths and container overhead; a legal
+identity charges under 1 MB. An entry over the whole budget would still
+authenticate without being cached; expired and evicted entries release their
+charges, so cached identities cannot exhaust the isolate.
 
 ### 4.5 Blob URLs
 
