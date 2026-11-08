@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
 import time
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
@@ -27,8 +26,8 @@ from tasklease.errors import (
     TransportError,
 )
 from tasklease.generated import protocol as p
+from tasklease.names import error_topic, is_domain, is_topic
 
-_NAME = re.compile(r"[a-z0-9._-]+(?:/[a-z0-9._-]+)*\Z")
 _ERROR_LIMIT = 128 * 1024
 
 
@@ -59,11 +58,7 @@ class Handler[Request, Outcome](Protocol):
 
 
 def _topic(topic: object) -> str:
-    if (
-        not isinstance(topic, str)
-        or _NAME.fullmatch(topic) is None
-        or (len(topic) > 128 and (not topic.endswith("/error") or len(topic) > 134))
-    ):
+    if not is_topic(topic):
         raise Invalid("Invalid topic name")
     return topic
 
@@ -273,12 +268,7 @@ class WorkerLoop[Request, Outcome]:
         poll_interval: float = 30,
         stop: Event | None = None,
     ) -> None:
-        if (
-            not isinstance(domain, str)
-            or domain in {".", ".."}
-            or len(domain) > 256
-            or _NAME.fullmatch(domain) is None
-        ):
+        if not is_domain(domain):
             raise Invalid("Invalid domain name")
         validate_work_topic(topic)
         if type(lease) is not int or not 1 <= lease <= 86400:
@@ -331,7 +321,7 @@ class WorkerLoop[Request, Outcome]:
     def _fallback(
         self, task: p.Task, outcome: object, error: str, lease: _Lease
     ) -> None:
-        target = self.topic + "/error"
+        target = error_topic(self.topic)
         for bounded in (False, True):
             data = (
                 bounded_error(task["data"], outcome, error)

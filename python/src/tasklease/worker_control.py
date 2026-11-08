@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import signal
 import sys
 import threading
@@ -13,12 +12,13 @@ from typing import Self
 
 from tasklease.errors import ConfigError
 from tasklease.fsio import ensure_directory
+from tasklease.names import is_worker_label
 from tasklease.store import default_root, hash_id
 
 
 def stop_path(worker_label: str, root: Path | None = None) -> Path:
     """Use portable filenames while preserving the label's case-sensitive identity."""
-    if re.fullmatch(r"[A-Za-z0-9._-]{1,256}", worker_label) is None:
+    if not is_worker_label(worker_label):
         raise ConfigError(
             "worker label must contain 1 to 256 letters, digits, ., _ or -"
         )

@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { hashToken } from "./auth";
 import { failure } from "./errors";
+import { base64url } from "./ids";
 import type {
   Identity,
   IdentityAddRequest,
@@ -46,10 +47,7 @@ function publicIdentity(row: IdentityRow): IdentitySummary {
 
 function newToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return `tl_${btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "")}`;
+  return `tl_${base64url(String.fromCharCode(...bytes))}`;
 }
 
 export class RegistryObject extends DurableObject<Env> {

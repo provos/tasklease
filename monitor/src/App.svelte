@@ -190,9 +190,14 @@
   onMount(() => {
     alive = true;
     void refresh(24);
+    // Hidden tabs do not poll; a tab that becomes visible refreshes at once.
     const polling = window.setInterval(() => {
-      if (!loading) void refresh(desiredHours);
+      if (!loading && !document.hidden) void refresh(desiredHours);
     }, 30_000);
+    const onVisible = () => {
+      if (!loading && !document.hidden) void refresh(desiredHours);
+    };
+    document.addEventListener("visibilitychange", onVisible);
     const clock = window.setInterval(() => {
       now = Date.now();
     }, 10_000);
@@ -201,6 +206,7 @@
       controller?.abort();
       window.clearInterval(polling);
       window.clearInterval(clock);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   });
 </script>

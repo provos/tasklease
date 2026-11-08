@@ -23,9 +23,12 @@ from tasklease.errors import (
     TaskleaseError,
     TransportError,
 )
+from tasklease.names import is_domain
 from tasklease.store import Store
 
 _CACHE_SECONDS = 25.0
+# The caller's domains change only with its identity; re-read them rarely.
+_WHOAMI_SECONDS = 300.0
 _MISSING_DASHBOARD = b"""<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8">
@@ -53,12 +56,7 @@ def validate_domain_selection(domain: object) -> str | None:
     """Validate an optional server-side selection independently of config defaults."""
     if domain is None:
         return None
-    if (
-        not isinstance(domain, str)
-        or domain in {".", ".."}
-        or len(domain) > 256
-        or re.fullmatch(r"[a-z0-9._-]+(?:/[a-z0-9._-]+)*", domain) is None
-    ):
+    if not is_domain(domain):
         raise ConfigError(
             "domain must be a valid domain name of at most 256 characters"
         )
@@ -86,12 +84,21 @@ class SnapshotCache:
         self._hours: int | None = None
         self._expires = 0.0
         self._content: bytes | None = None
+        self._domains: list[str] | None = None
+        self._domains_expires = 0.0
+
+    def _allowed_domains(self) -> list[str]:
+        now = time.monotonic()
+        if self._domains is None or now >= self._domains_expires:
+            identity = self.client.identity_whoami({})
+            self._domains = list(dict.fromkeys(identity["domains"]))
+            self._domains_expires = now + _WHOAMI_SECONDS
+        return self._domains
 
     def _build(self, hours: int) -> dict[str, object]:
         domains = []
         errors: list[str] = []
-        identity = self.client.identity_whoami({})
-        allowed_domains = list(dict.fromkeys(identity["domains"]))
+        allowed_domains = self._allowed_domains()
         if self._domain is not None:
             if self._domain not in allowed_domains:
                 raise Forbidden("The selected domain is not allowed")

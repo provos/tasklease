@@ -21,7 +21,7 @@ type BlobEnv = Pick<
   R2_BUCKET_NAME: string;
 };
 
-const MAX_BLOB_SIZE = 2 * 1024 ** 3;
+export const MAX_BLOB_SIZE = 2 * 1024 ** 3;
 const URL_LIFETIME_SECONDS = 3600;
 const KEY_SUFFIX =
   /^(\d{4}-\d{2}-\d{2})\/[0-7][0-9A-HJKMNP-TV-Z]{25}\/([A-Za-z0-9._-]{1,128})(?![\s\S])/;

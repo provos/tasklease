@@ -440,7 +440,7 @@ def test_wait_timeout_preserves_intent_and_bounds_network_timeout(
     monkeypatch.setattr(time, "monotonic", clock.monotonic)
     monkeypatch.setattr(time, "sleep", clock.sleep)
     monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
-    assert store.wait(client, "request-1", 2.5, 1) is None
+    assert store.wait(client, "request-1", 2.5, 1, max_poll_interval=1) is None
     assert clock.sleeps == [1, 1, 0.5]
     assert len(backend.owns) == 3
     assert backend.timeouts[1:] == [
@@ -449,6 +449,20 @@ def test_wait_timeout_preserves_intent_and_bounds_network_timeout(
     ]
     assert store.request("request-1") is not None
     assert len(backend.creates) == 1
+
+
+def test_wait_backs_off_to_the_maximum_poll_interval(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+    assert store.wait(client, "request-1", 60, 1, max_poll_interval=4) is None
+    assert clock.sleeps[:6] == [1, 1.5, 2.25, 3.375, 4, 4]
+    # A one-minute wait makes 17 requests instead of about 60.
+    assert len(backend.owns) == len(clock.sleeps) == 17
 
 
 def test_wait_checks_deadline_even_with_endless_incoming_replies(

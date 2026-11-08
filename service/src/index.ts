@@ -1,6 +1,6 @@
 import type { ValidateFunction } from "ajv";
 import { authenticate, bearerToken, isAdmin } from "./auth";
-import { blobGetUrl, blobPutUrl } from "./blobs";
+import { MAX_BLOB_SIZE, blobGetUrl, blobPutUrl } from "./blobs";
 import { failure, respond } from "./errors";
 import type {
   ErrorResponse,
@@ -94,7 +94,7 @@ function preflight(operation: Operation, body: unknown): ErrorResponse | null {
   if (
     operation === "blob.put_url" &&
     typeof body.size === "number" &&
-    body.size > 2 ** 31
+    body.size > MAX_BLOB_SIZE
   ) {
     return failure("too_large", "Blob exceeds 2 GiB");
   }

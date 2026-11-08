@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import NoReturn, cast
+from typing import cast
 from uuid import uuid4
 
 from tasklease.cli.common import (
@@ -20,7 +20,7 @@ from tasklease.cli.common import (
     output,
     text,
 )
-from tasklease.client import Client
+from tasklease.client import Client, reject_nonfinite
 from tasklease.errors import ConfigError, TaskleaseError
 from tasklease.store import RequestRecord, Store
 
@@ -33,10 +33,6 @@ def agent_store(args: argparse.Namespace) -> Store:
     return Store(agent_id)
 
 
-def _invalid_constant(value: str) -> NoReturn:
-    raise ValueError("Nonfinite JSON number")
-
-
 def _data(value: str) -> dict[str, object]:
     if value.startswith("@"):
         if len(value) == 1:
@@ -46,7 +42,7 @@ def _data(value: str) -> dict[str, object]:
         except (OSError, UnicodeError):
             raise ConfigError("Cannot read --data file") from None
     try:
-        decoded: object = json.loads(value, parse_constant=_invalid_constant)
+        decoded: object = json.loads(value, parse_constant=reject_nonfinite)
     except (ValueError, UnicodeError, RecursionError):
         raise ConfigError("--data must contain a valid JSON object") from None
     if not isinstance(decoded, dict):

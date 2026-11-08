@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -16,10 +15,7 @@ from platformdirs import user_config_path
 
 from tasklease.errors import ConfigError
 from tasklease.fsio import atomic_replace
-
-_DOMAIN = re.compile(r"[a-z0-9._-]+(?:/[a-z0-9._-]+)*\Z")
-_SEGMENT = re.compile(r"[a-z0-9._-]{1,128}\Z")
-_WORKER = re.compile(r"[A-Za-z0-9._-]{1,256}\Z")
+from tasklease.names import is_bearer_token, is_domain, is_segment, is_worker_label
 
 
 def validate_url(value: str) -> str:
@@ -63,7 +59,7 @@ def _read_values(path: Path) -> dict[str, object]:
 
 
 def _token(value: str, source: str) -> str:
-    if not value or not value.isascii() or any(not 33 <= ord(c) <= 126 for c in value):
+    if not is_bearer_token(value):
         raise ConfigError(f"{source} must contain a nonempty bearer token")
     return value
 
@@ -97,9 +93,7 @@ class Config:
     @property
     def domain(self) -> str | None:
         value = self._setting("domain", "TL_DOMAIN")
-        if value is not None and (
-            len(value) > 256 or value in {".", ".."} or _DOMAIN.fullmatch(value) is None
-        ):
+        if value is not None and not is_domain(value):
             raise ConfigError(
                 "domain must be a valid domain name of at most 256 characters"
             )
@@ -108,7 +102,7 @@ class Config:
     @property
     def agent_id(self) -> str | None:
         value = self._setting("agent_id", "TL_AGENT_ID")
-        if value is not None and _SEGMENT.fullmatch(value) is None:
+        if value is not None and not is_segment(value):
             raise ConfigError(
                 "agent_id must be a topic segment of at most 128 characters"
             )
@@ -117,7 +111,7 @@ class Config:
     @property
     def worker_label(self) -> str:
         value = self._setting("worker_label", "TL_WORKER") or "cli"
-        if _WORKER.fullmatch(value) is None:
+        if not is_worker_label(value):
             raise ConfigError(
                 "worker_label must contain 1 to 256 letters, digits, ., _ or -"
             )

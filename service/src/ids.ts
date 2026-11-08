@@ -33,7 +33,7 @@ export function newTaskId(now: number = Date.now()): string {
   return `t_${newUlid(now)}`;
 }
 
-function base64url(value: string): string {
+export function base64url(value: string): string {
   return btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
@@ -55,14 +55,16 @@ export function decodeCursor(
   try {
     const value = atob(cursor.replace(/-/g, "+").replace(/_/g, "/"));
     if (base64url(value) !== cursor) return null;
-    const match =
-      /^v1:(0|[1-9][0-9]*):(t_[0-7][0-9A-HJKMNP-TV-Z]{25})(?![\s\S])/.exec(
-        value,
-      );
+    const match = /^v1:(0|[1-9][0-9]*):([^:]+)(?![\s\S])/.exec(value);
     if (!match) return null;
     const createdAt = Number(match[1]);
     const id = match[2];
-    if (!Number.isSafeInteger(createdAt) || id === undefined) return null;
+    if (
+      !Number.isSafeInteger(createdAt) ||
+      id === undefined ||
+      !TASK_ID.test(id)
+    )
+      return null;
     return { created_at: createdAt, id };
   } catch {
     return null;

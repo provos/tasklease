@@ -34,6 +34,8 @@ from tasklease.errors import TaskleaseError
 
 type Reporter = Callable[[str], None]
 
+_ACCOUNT_ID = re.compile(r"[a-fA-F0-9]{32}")
+
 R2_HELP = (
     "Open Cloudflare dashboard > R2 Object Storage > Overview > Account Details "
     "> Manage API Tokens > Create Account API token. Choose Object Read & Write "
@@ -76,7 +78,7 @@ def _optional_string(value: object, name: str) -> str | None:
 
 def _account(wrangler: Wrangler, requested: str | None) -> str:
     if requested:
-        if re.fullmatch(r"[a-fA-F0-9]{32}", requested) is None:
+        if _ACCOUNT_ID.fullmatch(requested) is None:
             raise DeployError("Cloudflare account ID must be 32 hex digits.", 4)
         wrangler.environ["CLOUDFLARE_ACCOUNT_ID"] = requested
     try:
@@ -100,7 +102,7 @@ def _account(wrangler: Wrangler, requested: str | None) -> str:
         requested = _optional_string(
             object_value(accounts[0], "Cloudflare account").get("id"), "account ID"
         )
-    if requested is None or re.fullmatch(r"[a-fA-F0-9]{32}", requested) is None:
+    if requested is None or _ACCOUNT_ID.fullmatch(requested) is None:
         raise DeployError(
             "Cloudflare account ID must contain 32 hexadecimal digits.", 4
         )

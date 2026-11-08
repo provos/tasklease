@@ -79,6 +79,9 @@ type TopicRow = {
 
 type Snapshot = { id: string; expiresAt: number; chunks: number };
 
+const pollerQuery = `SELECT identity, worker, last_polled_at, last_owned_at FROM pollers
+  WHERE topic = ? AND last_polled_at >= ? ORDER BY identity, worker`;
+
 const topicQuery = `WITH topics AS (
   SELECT topic FROM tasks UNION SELECT topic FROM pollers WHERE last_polled_at >= ?
   UNION SELECT topic FROM declared_topics
@@ -437,12 +440,7 @@ export class DomainObject extends DurableObject<Env> {
     return this.operation((now) => ({
       ok: true,
       pollers: this.ctx.storage.sql
-        .exec<PollerRow>(
-          `SELECT identity, worker, last_polled_at, last_owned_at FROM pollers
-           WHERE topic = ? AND last_polled_at >= ? ORDER BY identity, worker`,
-          request.topic,
-          now - 7 * DAY,
-        )
+        .exec<PollerRow>(pollerQuery, request.topic, now - 7 * DAY)
         .toArray(),
     }));
   }
@@ -544,8 +542,7 @@ export class DomainObject extends DurableObject<Env> {
       writer.write(JSON.stringify(topic).slice(0, -1) + ',"pollers":[');
       let pollerComma = false;
       for (const poller of sql.exec<PollerRow>(
-        `SELECT identity, worker, last_polled_at, last_owned_at FROM pollers
-         WHERE topic = ? AND last_polled_at >= ? ORDER BY identity, worker`,
+        pollerQuery,
         row.topic,
         now - 7 * DAY,
       )) {

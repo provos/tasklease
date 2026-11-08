@@ -321,7 +321,8 @@ def test_hour_change_replaces_entry_and_expiry_refreshes(running: Running) -> No
     assert running.server.cache._hours == 24
     running.server.cache._expires = 0
     assert running.request()[0] == 200
-    assert running.service.calls["identity.whoami"] == 4
+    # The caller's domains are cached for five minutes, across hours and expiry.
+    assert running.service.calls["identity.whoami"] == 1
 
 
 @pytest.mark.parametrize("hours", [1, 720])

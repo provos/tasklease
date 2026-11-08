@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
 from types import TracebackType
 from typing import NoReturn, Self, cast
 
@@ -17,6 +16,7 @@ import httpx
 from tasklease.config import validate_url
 from tasklease.errors import API_ERRORS, Invalid, ProtocolError, TransportError
 from tasklease.generated import protocol as p
+from tasklease.names import is_bearer_token, is_worker_label
 
 # Check the transport envelope and its required top-level members before the
 # generated DTO cast. Full schemas remain a contract-test dependency, rather
@@ -53,7 +53,8 @@ _SUCCESS_FIELDS: dict[str, dict[str, type[object]]] = {
 }
 
 
-def _invalid_constant(value: str) -> NoReturn:
+def reject_nonfinite(value: str) -> NoReturn:
+    """json parse_constant hook: the protocol has no NaN or Infinity."""
     raise ValueError("Nonfinite JSON number")
 
 
@@ -75,17 +76,9 @@ class Client:
         timeout: float | httpx.Timeout | None = 30.0,
     ) -> None:
         self._base_url = validate_url(base_url)
-        if (
-            not isinstance(token, str)
-            or not token
-            or not token.isascii()
-            or any(not 33 <= ord(character) <= 126 for character in token)
-        ):
+        if not is_bearer_token(token):
             raise Invalid("token must be a nonempty bearer token")
-        if (
-            not isinstance(worker_label, str)
-            or re.fullmatch(r"[A-Za-z0-9._-]{1,256}", worker_label) is None
-        ):
+        if not is_worker_label(worker_label):
             raise Invalid(
                 "worker_label must contain 1 to 256 letters, digits, ., _ or -"
             )
@@ -162,7 +155,7 @@ class Client:
     def _decode(self, response: httpx.Response) -> dict[str, object]:
         try:
             value: object = json.loads(
-                response.content, parse_constant=_invalid_constant
+                response.content, parse_constant=reject_nonfinite
             )
         except (ValueError, UnicodeError, RecursionError):
             raise ProtocolError("The service returned invalid JSON") from None

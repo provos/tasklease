@@ -24,12 +24,11 @@ from tasklease import fsio
 from tasklease.client import Client
 from tasklease.errors import Empty, NotFound, StoreError, TransportError
 from tasklease.generated import protocol as p
+from tasklease.names import is_domain, is_segment, is_topic
 
 type RequestState = Literal["submission_unknown", "pending", "answered"]
 type CancelResult = Literal["cancelled", "not_found", "submission_unknown"]
 
-_SEGMENT = re.compile(r"[a-z0-9._-]{1,128}\Z")
-_NAME = re.compile(r"[a-z0-9._-]+(?:/[a-z0-9._-]+)*\Z")
 _HASH = re.compile(r"[0-9a-f]{32}\Z")
 _TASK = re.compile(r"t_[0-7][0-9A-HJKMNP-TV-Z]{25}\Z")
 _RETENTION_SECONDS = 7 * 86400
@@ -57,18 +56,9 @@ def _request_id(value: object) -> str:
 
 
 def _name(value: object, *, domain: bool = False) -> str:
-    maximum = 256 if domain else 128
-    if (
-        not isinstance(value, str)
-        or _NAME.fullmatch(value) is None
-        or (domain and value in {".", ".."})
-        or (
-            len(value) > maximum
-            and (domain or not value.endswith("/error") or len(value) > 134)
-        )
-    ):
+    if not (is_domain(value) if domain else is_topic(value)):
         raise StoreError("Invalid domain or topic in requester state")
-    return value
+    return cast(str, value)
 
 
 def _integer(value: object) -> int:
@@ -212,7 +202,7 @@ class Store:
     def __init__(
         self, agent_id: str, root: Path | None = None, *, initialize: bool = True
     ) -> None:
-        if not isinstance(agent_id, str) or _SEGMENT.fullmatch(agent_id) is None:
+        if not is_segment(agent_id):
             raise StoreError("agent_id must be a topic segment of 1 to 128 characters")
         self.agent_id = agent_id
         self.root = (default_root() if root is None else root).expanduser().absolute()
@@ -222,9 +212,10 @@ class Store:
         found_metadata = False
         for directory in (self.request_directory, self.reply_directory):
             path = directory / "agent.json"
-            if initialize:
-                _publish(path, {"agent_id": agent_id})
             metadata = _read(path)
+            if initialize and metadata is None:
+                _publish(path, {"agent_id": agent_id})
+                metadata = _read(path)
             if not initialize and metadata is None and not directory.exists():
                 continue
             if metadata != {"agent_id": agent_id}:
@@ -486,14 +477,25 @@ class Store:
         request_id: str,
         timeout_seconds: float,
         poll_interval: float = 1.0,
+        max_poll_interval: float = 30.0,
     ) -> ReplyRecord | None:
-        """Return a local reply, or None at a monotonic timeout; never repost."""
+        """Return a local reply, or None at a monotonic timeout; never repost.
+
+        Polls start at ``poll_interval`` and back off by half each round up to
+        ``max_poll_interval``: a quick reply is seen within about a second,
+        while a multi-hour wait makes a few hundred requests, not thousands.
+        """
         if not math.isfinite(timeout_seconds) or timeout_seconds < 0:
             raise StoreError("timeout must be a nonnegative finite number of seconds")
         if not math.isfinite(poll_interval) or poll_interval <= 0:
             raise StoreError(
                 "poll interval must be a positive finite number of seconds"
             )
+        if not math.isfinite(max_poll_interval) or max_poll_interval <= 0:
+            raise StoreError(
+                "maximum poll interval must be a positive finite number of seconds"
+            )
+        delay = poll_interval
         deadline = time.monotonic() + timeout_seconds
         reply = self.reply(request_id)
         if reply is not None:
@@ -522,7 +524,8 @@ class Store:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
-            time.sleep(min(remaining, poll_interval * uniform(0.8, 1.2)))
+            time.sleep(min(remaining, delay * uniform(0.8, 1.2)))
+            delay = min(delay * 1.5, max(poll_interval, max_poll_interval))
         return None
 
     def inbox(self) -> list[ReplyRecord]:
@@ -632,7 +635,11 @@ class Store:
         # The immutable daily claim elects one process without a drain lock.
         day = int(now // 86400)
         path = self.reply_directory / f".prune-{day}.json"
-        if _publish(path, {"created_at": int(now * 1000)}) == "created":
+        # Checking first skips a full publication on every call after the first.
+        if (
+            not path.exists()
+            and _publish(path, {"created_at": int(now * 1000)}) == "created"
+        ):
             self.prune()
 
     @classmethod
@@ -650,11 +657,7 @@ class Store:
                         "Agent metadata is missing from a storage directory"
                     )
                 agent_id = value.get("agent_id")
-                if (
-                    not isinstance(agent_id, str)
-                    or _SEGMENT.fullmatch(agent_id) is None
-                    or hash_id(agent_id) != directory.name
-                ):
+                if not is_segment(agent_id) or hash_id(agent_id) != directory.name:
                     raise StoreError(
                         "Agent metadata does not match its storage directory"
                     )
