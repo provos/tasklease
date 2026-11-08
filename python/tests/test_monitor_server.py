@@ -125,7 +125,9 @@ class Running:
 
 
 @pytest.fixture
-def running(tmp_path: Path) -> Iterator[Running]:
+def running(tmp_path: Path, request: pytest.FixtureRequest) -> Iterator[Running]:
+    selected_domain: object = getattr(request, "param", None)
+    assert selected_domain is None or isinstance(selected_domain, str)
     service = Service()
     with Client(
         "https://service.example", TOKEN, transport=httpx.MockTransport(service.respond)
@@ -136,7 +138,9 @@ def running(tmp_path: Path) -> Iterator[Running]:
         (static_root / "assets").mkdir()
         (static_root / "assets" / "app.js").write_text("console.log('monitor');")
         state_root = tmp_path / "state"
-        with MonitorServer(api, state_root=state_root) as server:
+        with MonitorServer(
+            api, state_root=state_root, domain=selected_domain
+        ) as server:
             server.static_root = static_root
             thread = threading.Thread(
                 target=server.serve_forever, kwargs={"poll_interval": 0.01}
@@ -201,6 +205,58 @@ def test_duplicate_identity_domains_are_fetched_once_in_original_order(
     assert isinstance(domains, list)
     assert [item["domain"] for item in domains] == ["acme/b", "acme/a"]
     assert running.service.calls == {"identity.whoami": 1, "monitor.snapshot": 2}
+
+
+@pytest.mark.parametrize("running", ["acme/b"], indirect=True)
+def test_explicit_domain_fetches_only_selected_authorized_service_view(
+    running: Running,
+) -> None:
+    running.service.domains = ["acme/a", "acme/b", "acme/b"]
+    local = Store("agent-a", running.state_root)
+    local.submit(running.api, "acme/a", "work", "reply/agent-a", {}, "local-pending")
+    running.service.calls.clear()
+    status, _, body = running.request("/api/snapshot?hours=7")
+    assert status == 200
+    value = decoded(body)
+    domains = value["domains"]
+    assert isinstance(domains, list)
+    assert [item["domain"] for item in domains] == ["acme/b"]
+    assert running.service.calls == {"identity.whoami": 1, "monitor.snapshot": 1}
+    assert running.service.hours == [7]
+    records = value["local"]
+    assert isinstance(records, dict)
+    assert records["requests"][0]["domain"] == "acme/a"
+
+
+@pytest.mark.parametrize("running", ["acme/private"], indirect=True)
+def test_unpermitted_domain_does_not_fetch_snapshot_or_read_local_data(
+    running: Running, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    local = Store("local-agent", running.state_root)
+    local.submit(
+        running.api,
+        "acme/a",
+        "work",
+        "reply/local-agent",
+        {"private": "local-secret-must-not-leak"},
+        "private-local",
+    )
+    running.service.calls.clear()
+
+    def forbidden_read(*args: object, **kwargs: object) -> list[str]:
+        raise AssertionError("Unauthorized selection must not read local state")
+
+    monkeypatch.setattr(Store, "agents", forbidden_read)
+    status, _, body = running.request()
+    assert status == 403
+    assert running.service.calls == {"identity.whoami": 1}
+    assert b"local-secret" not in body and TOKEN.encode() not in body
+
+
+@pytest.mark.parametrize("running", ["acme/b"], indirect=True)
+def test_browser_cannot_override_fixed_domain_selection(running: Running) -> None:
+    assert running.request("/api/snapshot?domain=acme/a")[0] == 400
+    assert not running.service.calls
 
 
 def test_concurrent_refreshes_share_one_serialized_cache_entry(

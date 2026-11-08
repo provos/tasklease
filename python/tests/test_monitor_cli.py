@@ -20,23 +20,36 @@ from tasklease.client import Client
 
 
 @pytest.mark.parametrize("open_browser", [False, True])
+@pytest.mark.parametrize("selected_domain", [None, "acme/b", "acme/../pipeline"])
 def test_monitor_prints_loopback_url_and_closes_on_interrupt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     open_browser: bool,
+    selected_domain: str | None,
 ) -> None:
     config = tmp_path / "config.toml"
-    config.write_text('url="https://file.example"\nworker_label="file-worker"\n')
+    config.write_text(
+        'url="https://file.example"\nworker_label="file-worker"\ndomain="acme/file-default"\n'
+    )
     monkeypatch.setenv("TL_TOKEN", "tl_monitor-secret")
+    monkeypatch.setenv("TL_DOMAIN", "acme/environment-default")
     events: list[str] = []
     opened: list[str] = []
 
     class Server:
         url = "http://127.0.0.1:54321"
 
-        def __init__(self, api: Client, *, port: int, state_root: Path | None) -> None:
+        def __init__(
+            self,
+            api: Client,
+            *,
+            port: int,
+            state_root: Path | None,
+            domain: str | None,
+        ) -> None:
             assert port == 1234 and state_root == tmp_path / "data"
+            assert domain == selected_domain
             assert api._base_url == "https://override.example"
             assert api._worker_label == "monitor-test"
             events.append("created")
@@ -83,6 +96,8 @@ def test_monitor_prints_loopback_url_and_closes_on_interrupt(
     ]
     if not open_browser:
         args.append("--no-browser")
+    if selected_domain is not None:
+        args.extend(["--domain", selected_domain])
     assert main(args) == 130
     captured = capsys.readouterr()
     assert json.loads(captured.out) == {"url": Server.url}
@@ -98,6 +113,26 @@ def test_invalid_port_precedes_connection_config(
 ) -> None:
     assert main(["monitor", "--config", str(tmp_path / "missing"), "--port", port]) == 1
     assert "port" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "domain", [".", "..", "Acme", "/acme", "acme/", "acme//x", "x" * 257, ""]
+)
+def test_invalid_domain_is_reported_before_client_or_binding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    domain: str,
+) -> None:
+    def forbidden(*args: object, **kwargs: object) -> Client:
+        raise AssertionError("Invalid domain must precede client creation")
+
+    monkeypatch.setattr("tasklease.cli.common.Client", forbidden)
+    assert (
+        main(["monitor", "--config", str(tmp_path / "missing"), "--domain", domain])
+        == 1
+    )
+    assert "domain" in capsys.readouterr().err
 
 
 def test_actual_headless_cli_reports_free_port_before_exiting(tmp_path: Path) -> None:

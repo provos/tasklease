@@ -15,7 +15,14 @@ from typing import cast
 from urllib.parse import parse_qsl, unquote_to_bytes
 
 from tasklease.client import Client
-from tasklease.errors import APIError, StoreError, TaskleaseError, TransportError
+from tasklease.errors import (
+    APIError,
+    ConfigError,
+    Forbidden,
+    StoreError,
+    TaskleaseError,
+    TransportError,
+)
 from tasklease.store import Store
 
 _CACHE_SECONDS = 25.0
@@ -42,6 +49,22 @@ _CONTENT_TYPES = {
 }
 
 
+def validate_domain_selection(domain: object) -> str | None:
+    """Validate an optional server-side selection independently of config defaults."""
+    if domain is None:
+        return None
+    if (
+        not isinstance(domain, str)
+        or domain in {".", ".."}
+        or len(domain) > 256
+        or re.fullmatch(r"[a-z0-9._-]+(?:/[a-z0-9._-]+)*", domain) is None
+    ):
+        raise ConfigError(
+            "domain must be a valid domain name of at most 256 characters"
+        )
+    return domain
+
+
 class SnapshotCache:
     """One serialized entry; a lock coalesces concurrent refreshes.
 
@@ -49,9 +72,16 @@ class SnapshotCache:
     retain hundreds of large snapshots. Failed refreshes never replace it.
     """
 
-    def __init__(self, client: Client, state_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        client: Client,
+        state_root: Path | None = None,
+        *,
+        domain: str | None = None,
+    ) -> None:
         self.client = client
         self.state_root = state_root
+        self._domain = validate_domain_selection(domain)
         self._lock = Lock()
         self._hours: int | None = None
         self._expires = 0.0
@@ -61,7 +91,12 @@ class SnapshotCache:
         domains = []
         errors: list[str] = []
         identity = self.client.identity_whoami({})
-        for domain in dict.fromkeys(identity["domains"]):
+        allowed_domains = list(dict.fromkeys(identity["domains"]))
+        if self._domain is not None:
+            if self._domain not in allowed_domains:
+                raise Forbidden("The selected domain is not allowed")
+            allowed_domains = [self._domain]
+        for domain in allowed_domains:
             try:
                 domains.append(
                     self.client.monitor_snapshot({"domain": domain, "hours": hours})
@@ -127,11 +162,16 @@ class MonitorServer(ThreadingHTTPServer):
     request_queue_size = 32
 
     def __init__(
-        self, client: Client, *, port: int = 0, state_root: Path | None = None
+        self,
+        client: Client,
+        *,
+        port: int = 0,
+        state_root: Path | None = None,
+        domain: str | None = None,
     ) -> None:
         if type(port) is not int or not 0 <= port <= 65535:
             raise ValueError("port must be an integer from 0 to 65535")
-        self.cache = SnapshotCache(client, state_root)
+        self.cache = SnapshotCache(client, state_root, domain=domain)
         self.static_root: Traversable = files("tasklease.monitor").joinpath("static")
         super().__init__(("127.0.0.1", port), _Handler)
 
@@ -241,6 +281,9 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/snapshot":
             try:
                 content = self.monitor.cache.get(hours)
+            except Forbidden:
+                self._error(HTTPStatus.FORBIDDEN, "The selected domain is not allowed")
+                return
             except TransportError:
                 self._error(HTTPStatus.BAD_GATEWAY, "The service could not be reached")
                 return

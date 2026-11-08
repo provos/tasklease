@@ -498,6 +498,11 @@ unless `--port` is given. It serves:
   the local store, for every agent folder on the machine (§5.3). The result
   is kept for 25 seconds.
 
+`tl monitor --domain D` fixes service snapshots to that permitted identity
+domain. Without the flag it shows every permitted domain, independently of
+the configuration's default domain. Local records still span this machine's
+agents because reply records are not indexed by domain.
+
 It refuses any request whose `Host` header is not `127.0.0.1:<port>` or
 `localhost:<port>` (403). That keeps a web page from another site from
 reading the snapshot by pointing its own domain at `127.0.0.1` (DNS

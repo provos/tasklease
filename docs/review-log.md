@@ -115,8 +115,8 @@ Status: accepted; simplify and independent Astra high review gates passed.
 
 ## Phase 3 — client, operator CLI, deployment and packaging
 
-Status: accepted locally; simplify and independent Astra high gates passed.
-Live R2 acceptance remains pending on requested signing credentials.
+Status: accepted; simplify and independent Astra high gates passed.
+Live R2 acceptance subsequently passed; see phase 4 evidence below.
 
 - Scope: typed client/configuration/errors, operator commands, pinned-Wrangler
   deploy/status, bundled Worker and wheel/sdist builds, local conformance.
@@ -369,13 +369,83 @@ Status: accepted after simplify, independent Astra review and native verificatio
 
 ## Phase 7 — complete-system acceptance
 
-Status: implementation and external acceptance starting.
+Status: accepted locally after simplify and independent Astra whole-system
+review; native Windows and public publication remain external checks.
 
 - Scope: local release/native acceptance tooling, Windows agent handoff,
   clean package installation, live different-bundle upgrade and cross-machine
   request/reply flow, documentation and whole-system review.
 - GitHub Actions remains excluded by design §7.4. Package publication is a
   separate explicit release action; no public upload has been performed.
-- Simplify: pending.
-- Independent Astra high review: pending.
-- Verification: pending.
+- Actual different-bundle forward upgrade passed: installed phase-3 Worker
+  bundle `855f7b17c197…` to completed bundle `6bef2328d14f…`. A held/renewed
+  legacy task survived byte-for-byte, with identity/admin credentials and
+  statistics intact. The old snapshot route was absent; the new route read
+  the preserved task after schema migration. Post-upgrade Consume/reply and
+  stale-ID fencing passed, as did deployment's actual R2 probe. All temporary
+  test tasks were removed and the identity revoked. Helper:
+  `/tmp/tasklease-acceptance-90d25ae.tYv2Oi/final_upgrade_check.py`.
+- Cross-machine acceptance passed using clean installed wheels: Linux Store
+  submitted, a macOS generic EchoHandler owned/consumed, and Linux durably
+  saved/acknowledged the reply. A restarted Store read it offline; scoped
+  snapshot/poller/statistics checks passed. Narrow temporary requester/worker
+  identities were revoked and test tasks removed; SSH carried credentials
+  through stdin only, with no values persisted or printed. Helpers:
+  `/tmp/tasklease-acceptance-90d25ae.tYv2Oi/cross_machine_check.py` and
+  `cross_worker.py` in that directory.
+- `make release` now runs checks/build and publishes only the current
+  version's wheel/sdist when explicitly invoked. Only `make -n release` was
+  used to verify the recipe; no package publication was executed.
+- Added stdlib-only acceptance export, shared manifest/path integrity checks,
+  an installed-wheel/no-Node native runner with JSON/JUnit/full logs, and
+  Windows handoff/release instructions. Normal Python gates include the new
+  tooling tests and lint/type-check all Python scripts.
+- Simplify reuse and efficiency independently reproduced one P2: timeout
+  cleanup could leave a SIGTERM-resistant descendant alive after its parent
+  exited, and Windows taskkill failures skipped fallback termination. The
+  standalone runner now follows the established Wrangler cleanup strategy:
+  final POSIX group kill, Windows failure fallback and parent reaping. The
+  resistant-child and three Windows failure regressions pass; all 27 tooling
+  tests passed independently before the additional review fixes below.
+- Final review found three further P2 gaps and authors fixed each: the
+  documented monitor `--domain` flag now selects only a permitted service
+  domain while preserving the all-domain default and local views; the uv
+  version probe now uses the controlled process-tree runner; and native
+  acceptance binds extracted bytes to the exact verified ZIP before any
+  command runs. The original stale-extraction/new-ZIP false pass is covered
+  by a failing-before/fixed-after regression. New archive member-integrity
+  and resistant-wrapper regressions pass. Focused checks passed 153 monitor/
+  CLI/store tests, 33 tooling tests and strict checks across all 52 files.
+- Final independent Astra high whole-system review and focused re-review are
+  clean. It independently ran 383 tests across critical production/tooling
+  paths, then 186 focused acceptance/monitor/store tests, reproduced the
+  original ZIP mismatch and verified rejection before command execution.
+  Simplify quality independently reran all 33 tooling tests and accepted the
+  controlled version probe and ZIP/extracted-file linkage. No material review
+  findings remain; actual candidate native execution follows below.
+- Initial phase-7 integrated gate passed 745 Python/tooling tests, 188 Workers
+  tests, 13 dashboard tests, 150 conformance checks, 219 examples and all
+  static/drift/build checks. Final correction verification, focused reviews
+  and native bundle execution are recorded below.
+- Final follow-up passed all 766 Python/tooling tests, strict checks across
+  52 Python files and rebuilt wheel/sdist. Unchanged service/frontend gates
+  passed 188 Workers tests, 13 dashboard tests, 150 conformance checks and
+  219 shared examples with generated drift checks. All review findings are
+  resolved; no package was published.
+- Actual exported-candidate acceptance passed from clean installed wheels on
+  both Linux and macOS: 675 runtime tests each, zero failed/skipped, plus the
+  isolated no-Node/PATH-empty probe of package bytes, dashboard, Worker and
+  all four startup exports. Both reports match archive, source-tree and wheel
+  hashes. Preflight ZIP SHA-256:
+  `fcdeb1e38105eb1ad36d8453abced5bf598a290fd9f9c8d0a8bb2c530aef82ac`.
+  It was explicitly exported from the staged review candidate with dirty
+  status recorded. Reports are at
+  `/tmp/tasklease-acceptance-90d25ae.tYv2Oi/native-linux.json` and
+  `native-macos.json` in that directory. The clean final Windows ZIP will
+  differ only in acceptance-document evidence and commit metadata; package,
+  tooling and runtime-test bytes are checked for identity before handoff.
+- Windows handoff: [agent prompt](windows-agent-prompt.md), a source/wheel
+  ZIP and its trusted SHA-256. It requires OS/tool versions, exact artifact
+  identities, native test counts/skips/failures and full tracebacks, plus
+  native Task Scheduler XML parsing without registering a task. Until that
+  report arrives, Windows runtime behavior remains unverified.
