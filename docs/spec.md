@@ -582,14 +582,15 @@ service that the CLI knows nothing about:
 
 1. Publish `requests/h(agent)/h(request_id).json` with
    `{request_id, domain, topic, reply_topic, created_at, data}`, where
-   `data` is the complete body Create will carry.
+   `data` is the exact task payload sent as Create's `data`, including the
+   chosen `request_id` and `reply_topic`.
 2. Send Create.
 3. Publish `requests/h(agent)/h(request_id).task.json` with `{task_id}`.
 
 `tl wait` reads the reply topic from the record. `tl cancel` reads the
 domain and topic from it and the task ID from the `.task.json` file it needs
-for Delete. If Delete returns `not_found`, a worker has already taken the
-request, and `tl cancel` says so.
+for Delete. If Delete returns `not_found`, the task was taken or removed;
+`tl cancel` cannot distinguish these cases and keeps the record for waiting.
 
 **Local reply store.** The CLI drains the agent's reply topic and keeps the
 replies on the agent's machine, in `replies/h(agent)/`. Each pass:
@@ -654,7 +655,8 @@ A request's state is read from the files:
   `tl cancel` cannot cancel it, since it has no task ID, and says so.
   `tl request --resend <request_id>` posts the saved `data` again with the
   same `request_id`; if both arrive, the second reply is dropped as a
-  duplicate.
+  duplicate. Resend is limited to this state; a pending request already has a
+  known task ID, and an answered request needs no new submission.
 - *pending*: the record and its `.task.json` exist, with no reply.
 - *answered*: the reply exists.
 

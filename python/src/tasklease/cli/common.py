@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -41,6 +42,16 @@ def flag(args: argparse.Namespace, name: str) -> bool:
     return value is True
 
 
+def duration_seconds(value: str, *, name: str = "Duration") -> int:
+    """Parse a positive duration expressed in seconds, minutes, hours or days."""
+    match = re.fullmatch(r"([0-9]+)(s|m|h|d)", value)
+    if not match or int(match[1]) <= 0:
+        raise ConfigError(
+            f"{name} must be positive seconds, minutes, hours or days, e.g. 3d"
+        )
+    return int(match[1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[match[2]]
+
+
 def configuration(args: argparse.Namespace) -> Config:
     path: object = getattr(args, "config", None)
     if path is not None and not isinstance(path, (str, Path)):
@@ -67,7 +78,9 @@ def client(args: argparse.Namespace, *, admin: bool = False) -> Iterator[Client]
 
 
 def output(value: object) -> None:
-    print(json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")))
+    # Escaping also preserves unusual wire JSON strings, including isolated
+    # surrogate code units, without failing at the terminal's UTF-8 boundary.
+    print(json.dumps(value, ensure_ascii=True, allow_nan=False, separators=(",", ":")))
 
 
 def message(value: str) -> None:

@@ -20,7 +20,7 @@ and verification evidence are recorded in [review-log.md](review-log.md).
 - [x] **3. Client, operator CLI and deployment:** typed client and configuration;
   operator commands; deploy/status with recovery tests; bundled Worker;
   wheel/sdist; cross-language conformance and isolated real deployment.
-- [ ] **4. Durable requester:** atomic no-replace publication; request/reply
+- [x] **4. Durable requester:** atomic no-replace publication; request/reply
   stores; request/wait/cancel/inbox/resend/pruning; crash and duplicate tests.
 - [ ] **5. Worker runtime:** capacity-before-Own; renewal/deadlines; handler
   interface; retry and lost-lease handling; bounded error routing; graceful
@@ -38,7 +38,7 @@ Keep these separate from local implementation completion. A missing credential
 or machine leaves a check unverified, never passed by inference.
 
 - [x] Isolated Cloudflare deployment with a separate name, bucket and config.
-- [ ] Actual R2 upload/download, signed Content-Length acceptance/rejection.
+- [x] Actual R2 upload/download, signed Content-Length acceptance/rejection.
 - [ ] Upgrade preserves existing Durable Object state and credentials.
 - [ ] macOS filesystem/store/worker tests and clean package installation.
 - [ ] Windows filesystem/store/worker tests and clean package installation.
@@ -75,6 +75,9 @@ Astra high review, both confirmed review fixes, and a clean focused re-review.
 Phase 2 is accepted after simplify, independent Astra high review, resource
 boundary fixes and clean focused re-reviews. Phase 3 implementation is
 accepted after simplify, recovery fixes and a clean independent Astra
-re-review. Phase 4 is next. The installed wheel bootstrapped the isolated
-`tasklease-acceptance-90d25ae` Worker and bucket. Live R2 checks await the
-requested bucket-scoped signing credentials; other phases can proceed.
+re-review. Phase 4 is accepted after simplify, independent Astra high review
+and its clean focused re-review. Phase 5 is in progress. The installed wheel bootstrapped the isolated
+`tasklease-acceptance-90d25ae` Worker and bucket. Live R2 round trip, SHA-256
+and signed Content-Length acceptance/rejection passed with the provided
+bucket-scoped credentials. Native macOS requester tests passed; full worker OS
+and final upgrade checks remain pending.

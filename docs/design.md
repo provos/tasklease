@@ -247,10 +247,10 @@ Domain-key encoding follows spec §4.10. Encode each key segment again for
 the S3 URL: a literal `%2F` in the key becomes `%252F` on the wire. The domain
 names `.` and `..` are prohibited (spec §2).
 
-**Size of uploads.** The PUT URL should sign `Content-Length`, so R2 rejects
+**Size of uploads.** The PUT URL signs `Content-Length`, so R2 rejects
 an upload of any other size (`403 SignatureDoesNotMatch`). With `aws4fetch`,
-query signing (`aws: {signQuery: true}`) is reported to sign only `host`
-unless `allHeaders: true` is also set, so the configuration to try is:
+query signing (`aws: {signQuery: true}`) signs only `host` unless
+`allHeaders: true` is also set. The validated configuration is:
 
 ```ts
 await aws.sign(url, {
@@ -260,10 +260,10 @@ await aws.sign(url, {
 });
 ```
 
-This is checked early in M1 (§9): an upload of the signed size succeeds and
-one of a different size is refused. If R2 does not refuse it, the size limit
-is enforced after upload instead: the reader checks size and SHA-256, and
-oversize objects are left to the lifecycle rule.
+Live acceptance on 2026-11-07 confirmed that 16 signed bytes upload and
+download correctly, while 17 bytes on the same signed URL return 403 and
+create no object. Repeat this check before release. Readers also check size
+and SHA-256 for integrity.
 
 ### 4.6 Configuration
 
@@ -338,11 +338,20 @@ publish it, inside `try/finally` so the temp file is removed whatever
 happens. A `FileExistsError` from the publish step returns `"exists"`.
 
 - **POSIX (macOS, Linux):** publish with `os.link(tmp, path)`, which fails if
-  `path` exists, so exactly one publisher wins. Then `fsync` the directory.
-- **Windows:** publish with `os.rename(tmp, path)`. On Windows `os.rename`
-  refuses to replace an existing file, which is exactly the no-replace rule.
-  `os.fsync` flushes on Windows. A directory cannot be fsynced there, so that
-  step is skipped.
+  `path` exists, so exactly one publisher wins. Sync the destination directory
+  and file on both `created` and `exists`: a loser may observe the name before
+  the winner has flushed it. Create private parents one at a time and sync
+  ancestor entries, including concurrent creation. On macOS request
+  `F_FULLFSYNC` after publication to flush the drive cache too.
+- **Windows:** a small stdlib `ctypes` wrapper calls `MoveFileExW` with
+  `MOVEFILE_WRITE_THROUGH`, without replacement or cross-volume copy flags.
+  Flush the destination file on both `created` and `exists`; Windows file
+  flushes include cached file metadata. There is no equivalent straightforward
+  directory barrier, so ancestor-namespace power-loss persistence is not
+  claimed. Native Windows and macOS execution are separate acceptance checks.
+- **Configuration:** `atomic_replace` reuses the same temp/sync/cleanup core,
+  with replacement explicitly enabled. The configuration module contains no
+  platform-specific file publication code.
 - Temp files are named `.<name>.<random>.tmp` and ignored by every reader.
   Only a crash leaves one behind; those are removed when older than a day.
 
@@ -911,10 +920,11 @@ Settled: the cursor format is spec §4.8's base64url of
 (`WHERE (created_at, id) > (?, ?) ORDER BY created_at, id`), which does not
 need the cursor's own task to still exist.
 
-1. **Content-Length in presigned PUTs** (§4.5): the `allHeaders: true`
-   configuration is to be checked in M1.
-2. **A `tl worker install` command**, or are the templates in `deploy/`
+Settled: **Content-Length in presigned PUTs** (§4.5) is enforced by R2 with
+the validated `allHeaders: true` configuration and live rejection test.
+
+1. **A `tl worker install` command**, or are the templates in `deploy/`
    enough?
-3. **Cloudflare's own metrics** (requests, errors, Durable Object running
+2. **Cloudflare's own metrics** (requests, errors, Durable Object running
    time, cost) on the dashboard. They need a Cloudflare API token on the
    machine running `tl monitor`; left out of the first version.

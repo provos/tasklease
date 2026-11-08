@@ -181,16 +181,85 @@ Live R2 acceptance remains pending on requested signing credentials.
 
 ## Phase 4 — durable requester
 
-Status: implementation starting after phase 3 acceptance.
+Status: accepted after simplify and clean independent Astra focused re-review.
 
 - Scope: cross-platform durable no-replace filesystem operations, request and
   reply stores, request/wait/cancel/inbox/resend/prune and fault/race tests.
 - Read-only filesystem preparation retrieved primary POSIX, Apple and Windows
   documentation. `exists` must also be a durability barrier; parent entries
   and Windows/macOS flush differences require explicit treatment.
-- Simplify: pending.
-- Independent Astra high review: pending.
-- Verification: pending; native Windows/macOS execution remains external.
+- Initial verification and review evidence follows below.
+- Additional isolated remote verification passed using the reviewed phase 3
+  wheel: actual Create/Own/Renew, then redeployment preserving the exact held
+  task plus identity token/admin secret, then atomic Consume/reply Own/Delete
+  and stale-ID fencing. Temporary identity was revoked and test tasks removed;
+  credentials existed only in the test process's memory. This proves redeploy
+  preservation; a later different-bundle upgrade remains a final acceptance
+  check. Test helper: `/tmp/tasklease-acceptance-90d25ae.tYv2Oi/remote_state_check.py`.
+- Clarification: request-record `data` is the exact Create task payload after
+  request/reply correlation fields are set; domain/topic are separate fields.
+  Explicit resend applies to submission-unknown records, preserving immutable
+  known task sidecars. Cancel `not_found` means taken or removed; it does not
+  prove which happened, and waiting metadata is retained.
+- Live R2 acceptance passed using the supplied ignored credential file:
+  installed-wheel deploy returned exit 0 and `verified: true`; task/blob probe
+  and cleanup passed; a 17-byte upload against a signed 16-byte Content-Length
+  was rejected with 403 and created no object; correct-size upload/download
+  and SHA-256 matched. No R2/admin values appeared in logs or config. File
+  permissions were restricted to 0600. Blob samples expire under the seven-day
+  lifecycle. Test helper: `/tmp/tasklease-acceptance-90d25ae.tYv2Oi/live_r2_check.py`.
+- Supervisor added real bundled-Worker conformance: lost committed Create
+  response recovers after Store restart, duplicate replies retain the first,
+  local replies work offline, and lost committed Delete preserves the durable
+  reply. Both integration tests passed.
+- Supervisor found escaped isolated surrogate strings could wedge publication
+  or UTF-8 stdout. Local JSON and CLI output now preserve them with JSON
+  escapes; unencodable correlation IDs are stored unmatched. Added targeted
+  serializer and raw-response tests; service protocol is unchanged.
+- Integrated supervisor `make check` passed: 514 Python tests, 176 Workers
+  tests, 140 conformance checks (6 monitor deferrals), 219 examples and all
+  strict/static/drift checks. Linux/Darwin/Windows static typing passed in
+  focused agent checks. Runtime process races, paused-winner durability,
+  cleanup/crash points, store corruption and deadline cap tests passed on Linux.
+  Native OS evidence follows below.
+- Simplify: reuse and efficiency clean. Quality reproduced one P2: Python's
+  permissive JSON parser accepted saved NaN/Infinity and overflowing floats,
+  allowing a corrupt existing reply to acknowledge a valid duplicate. Strict
+  float/constant hooks now reject nonfinite values before acknowledgement.
+  Added parser cases and five Store regressions; 141 focused tests and strict
+  Linux/Darwin/Windows typing passed. Supervisor `make check-python` then
+  passed all 535 tests, Ruff and strict mypy.
+- Native macOS: 257 current filesystem/store/config/client/requester/operator
+  CLI/JSON/package tests passed on the supplied Mac in an isolated checkout
+  at `/tmp/tasklease-native-04371b7.NoBqe3/repo`. Publication also passed under
+  the actual default `~/Library/Application Support/tasklease` directory.
+  The original checkout was left untouched. Safe-chain's minimum package age
+  blocked new codegen dependencies, so native runtime checks used an
+  age-qualified runtime/test environment; no guard was bypassed. Locked
+  codegen/build checks run on Linux. Native Windows remains pending the
+  final-candidate agent prompt requested by the user.
+- Independent Astra high review: found one P2 in generated-ID recovery:
+  after successful Create, failure or interruption during `--wait` omitted
+  the request ID. Submission and wait now share the recovery boundary;
+  errors print the saved state and wait command, and unknown submissions
+  retain their explicit resend guidance. Seven regressions cover ordinary
+  and resent submissions, transport/protocol failures and Ctrl-C. All 29
+  requester CLI tests and strict mypy/Ruff passed; all 29 also passed natively
+  on macOS. Focused independent Astra high re-review is clean, and independently
+  ran 229 focused tests plus the final 29 CLI tests. No unresolved material
+  findings remain.
+- Review scope clarification: cancellation's intent-first removal protects
+  ordinary process-crash ordering. Local removals do not promise persistence
+  across power loss. A resurrected record never automatically reposts;
+  resend always requires an explicit user action. The documented publication
+  durability guarantee is unchanged.
+
+## Phase 5 — worker runtime
+
+Status: implementation starting.
+
+- Scope: capacity-before-Own library, deadline/renewal and fenced completion,
+  bounded error routing, generic echo/plugin CLI and graceful stop controls.
 - Simplify: pending.
 - Independent Astra high review: pending.
 - Verification: pending.

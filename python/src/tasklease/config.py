@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import re
-import tempfile
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -16,6 +15,7 @@ import tomli_w
 from platformdirs import user_config_path
 
 from tasklease.errors import ConfigError
+from tasklease.fsio import atomic_replace
 
 _DOMAIN = re.compile(r"[a-z0-9._-]+(?:/[a-z0-9._-]+)*\Z")
 _SEGMENT = re.compile(r"[a-z0-9._-]{1,128}\Z")
@@ -205,28 +205,8 @@ def save_deployment(
             "Configuration contains values that cannot be saved"
         ) from None
 
-    temporary: Path | None = None
     try:
-        config.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        descriptor, filename = tempfile.mkstemp(
-            prefix=f".{config.path.name}.", suffix=".tmp", dir=config.path.parent
-        )
-        temporary = Path(filename)
-        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as output:
-            output.write(serialized)
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, config.path)
-        temporary = None
-        if os.name == "posix":
-            directory = os.open(config.path.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
+        atomic_replace(config.path, serialized.encode("utf-8"))
     except OSError:
         raise ConfigError(f"Cannot save configuration at {config.path}") from None
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
     config.values = values

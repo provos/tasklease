@@ -71,6 +71,10 @@ class ConfigError(TaskleaseError, ValueError):
     """Configuration is missing, unreadable or invalid."""
 
 
+class StoreError(TaskleaseError):
+    """Local requester state is missing, unreadable or inconsistent."""
+
+
 API_ERRORS: dict[str, type[APIError]] = {
     error.code: error
     for error in (

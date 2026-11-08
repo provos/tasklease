@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import time
 from collections.abc import Iterator
 
@@ -12,13 +11,14 @@ from tasklease.cli.common import (
     configuration,
     connection_options,
     domain,
+    duration_seconds,
     flag,
     optional_text,
     output,
     text,
 )
 from tasklease.client import Client
-from tasklease.errors import ConfigError, Forbidden, NotFound
+from tasklease.errors import Forbidden, NotFound
 from tasklease.generated.protocol import TasksListRequest, TaskSummary
 
 
@@ -98,12 +98,7 @@ def _move(args: argparse.Namespace) -> int:
 
 
 def _age(value: str) -> int:
-    match = re.fullmatch(r"([0-9]+)(s|m|h|d)", value)
-    if not match or int(match[1]) <= 0:
-        raise ConfigError(
-            "Age must be positive seconds, minutes, hours or days, e.g. 3d"
-        )
-    return int(match[1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[match[2]] * 1000
+    return duration_seconds(value, name="Age") * 1000
 
 
 def _pages(api: Client, selected: str, topic: str) -> Iterator[TaskSummary]:

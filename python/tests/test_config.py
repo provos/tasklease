@@ -246,10 +246,10 @@ def test_failed_replace_leaves_original_file_and_cleans_temporary(
     path.write_text(original)
     config = load_config(path, environ={})
 
-    def fail_replace(source: Path, destination: Path) -> None:
+    def fail_replace(destination: Path, data: bytes) -> None:
         raise OSError("replacement failed")
 
-    monkeypatch.setattr("tasklease.config.os.replace", fail_replace)
+    monkeypatch.setattr("tasklease.config.atomic_replace", fail_replace)
     with pytest.raises(ConfigError, match="Cannot save"):
         save_deployment(
             config,

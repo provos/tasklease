@@ -7,6 +7,7 @@ Callers decide how to recover using the operation's fencing semantics.
 from __future__ import annotations
 
 import json
+import math
 import re
 from types import TracebackType
 from typing import NoReturn, Self, cast
@@ -57,7 +58,12 @@ def _invalid_constant(value: str) -> NoReturn:
 
 
 class Client:
-    """One HTTP connection pool, identity credential and worker label."""
+    """One HTTP connection pool, identity credential and worker label.
+
+    Own and Delete accept a per-call timeout cap in seconds. It limits each
+    configured HTTPX phase timeout, including unlimited phases, and never
+    lengthens a configured limit. Omitting the cap preserves client settings.
+    """
 
     def __init__(
         self,
@@ -105,8 +111,15 @@ class Client:
         self._http.close()
 
     def _send(
-        self, method: str, operation: str, content: bytes | None = None
+        self,
+        method: str,
+        operation: str,
+        content: bytes | None = None,
+        *,
+        timeout: float | None = None,
     ) -> httpx.Response:
+        if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
+            raise Invalid("timeout must be a positive finite number of seconds")
         headers = (
             {
                 "Authorization": f"Bearer {self._token}",
@@ -117,12 +130,26 @@ class Client:
             else {}
         )
         try:
-            response = self._http.request(
-                method,
-                f"{self._base_url}/v1/{operation}",
-                headers=headers,
-                content=content,
-            )
+            url = f"{self._base_url}/v1/{operation}"
+            if timeout is None:
+                response = self._http.request(
+                    method, url, headers=headers, content=content
+                )
+            else:
+                configured = self._http.timeout
+
+                def cap(value: float | None) -> float:
+                    return timeout if value is None else min(value, timeout)
+
+                bounded = httpx.Timeout(
+                    connect=cap(configured.connect),
+                    read=cap(configured.read),
+                    write=cap(configured.write),
+                    pool=cap(configured.pool),
+                )
+                response = self._http.request(
+                    method, url, headers=headers, content=content, timeout=bounded
+                )
         except httpx.RequestError:
             raise TransportError("The tasklease service could not be reached") from None
         if response.status_code >= 500:
@@ -143,14 +170,16 @@ class Client:
             raise ProtocolError("The service returned a non-object response")
         return cast(dict[str, object], value)
 
-    def _post(self, operation: str, request: object) -> dict[str, object]:
+    def _post(
+        self, operation: str, request: object, *, timeout: float | None = None
+    ) -> dict[str, object]:
         try:
             content = json.dumps(
                 request, ensure_ascii=False, allow_nan=False, separators=(",", ":")
             ).encode("utf-8")
         except (TypeError, ValueError, UnicodeError, RecursionError):
             raise Invalid("Request must contain valid JSON values") from None
-        response = self._send("POST", operation, content)
+        response = self._send("POST", operation, content, timeout=timeout)
         body = self._decode(response)
         if body.get("ok") is False:
             error = body.get("error")
@@ -177,8 +206,11 @@ class Client:
     def create(self, request: p.CreateRequest) -> p.CreateResponse:
         return cast(p.CreateResponse, self._post("create", request))
 
-    def own(self, request: p.OwnRequest) -> p.OwnResponse:
-        return cast(p.OwnResponse, self._post("own", request))
+    def own(
+        self, request: p.OwnRequest, *, timeout: float | None = None
+    ) -> p.OwnResponse:
+        """Own a task, optionally capping each configured HTTP timeout in seconds."""
+        return cast(p.OwnResponse, self._post("own", request, timeout=timeout))
 
     def renew(self, request: p.RenewRequest) -> p.RenewResponse:
         return cast(p.RenewResponse, self._post("renew", request))
@@ -186,8 +218,11 @@ class Client:
     def read(self, request: p.ReadRequest) -> p.ReadResponse:
         return cast(p.ReadResponse, self._post("read", request))
 
-    def delete(self, request: p.DeleteRequest) -> p.DeleteResponse:
-        return cast(p.DeleteResponse, self._post("delete", request))
+    def delete(
+        self, request: p.DeleteRequest, *, timeout: float | None = None
+    ) -> p.DeleteResponse:
+        """Delete a task, optionally capping each configured HTTP timeout in seconds."""
+        return cast(p.DeleteResponse, self._post("delete", request, timeout=timeout))
 
     def consume(self, request: p.ConsumeRequest) -> p.ConsumeResponse:
         return cast(p.ConsumeResponse, self._post("consume", request))
