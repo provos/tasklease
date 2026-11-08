@@ -16,7 +16,7 @@ import { version } from "./version";
 export { DomainObject } from "./domain_do";
 export { RegistryObject } from "./registry_do";
 
-type Operation = Exclude<keyof OperationRequests, "monitor.snapshot">;
+type Operation = keyof OperationRequests;
 type Outcome = { ok: true } | ErrorResponse | Response;
 type Handler = (
   body: unknown,
@@ -315,6 +315,12 @@ const routes: Record<Operation, Route> = {
     () => true,
     (body, caller, env) =>
       env.DOMAINS.getByName(body.domain).topicsList(body, caller),
+  ),
+  "monitor.snapshot": domainRoute(
+    validators.validateMonitorSnapshotRequest,
+    () => true,
+    (body, caller, env) =>
+      env.DOMAINS.getByName(body.domain).monitorSnapshot(body, caller),
   ),
   "tasks.list": domainRoute(
     validators.validateTasksListRequest,

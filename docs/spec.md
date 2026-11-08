@@ -408,6 +408,9 @@ Object. Only topics the caller may `read` or `own` are included.
   Tasks List, no `data`), with `truncated: true` when there are more.
 - `stats`: the hourly statistics (below) for the last `hours` hours
   (default 24, at most 720), one row per topic and hour that had activity.
+  This includes the current hourly bucket and the preceding `hours - 1`
+  buckets. Authorized historical topics remain in statistics even when they
+  no longer have tasks, recent pollers or a declaration.
 
 Errors: `invalid`, `forbidden`.
 

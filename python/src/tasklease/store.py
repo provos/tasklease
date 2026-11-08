@@ -203,9 +203,15 @@ class ReplyRecord:
 
 
 class Store:
-    """One agent's requester state; independent processes need no drain lock."""
+    """One agent's requester state; independent processes need no drain lock.
 
-    def __init__(self, agent_id: str, root: Path | None = None) -> None:
+    ``initialize=False`` locates an existing agent without publishing metadata.
+    It is useful to readers such as the monitor; they must use read methods.
+    """
+
+    def __init__(
+        self, agent_id: str, root: Path | None = None, *, initialize: bool = True
+    ) -> None:
         if not isinstance(agent_id, str) or _SEGMENT.fullmatch(agent_id) is None:
             raise StoreError("agent_id must be a topic segment of 1 to 128 characters")
         self.agent_id = agent_id
@@ -213,11 +219,19 @@ class Store:
         self.request_directory = self.root / "requests" / hash_id(agent_id)
         self.reply_directory = self.root / "replies" / hash_id(agent_id)
         self.unmatched_directory = self.reply_directory / "unmatched"
+        found_metadata = False
         for directory in (self.request_directory, self.reply_directory):
             path = directory / "agent.json"
-            _publish(path, {"agent_id": agent_id})
-            if _read(path) != {"agent_id": agent_id}:
+            if initialize:
+                _publish(path, {"agent_id": agent_id})
+            metadata = _read(path)
+            if not initialize and metadata is None and not directory.exists():
+                continue
+            if metadata != {"agent_id": agent_id}:
                 raise StoreError("Agent metadata does not match its storage directory")
+            found_metadata = True
+        if not found_metadata:
+            raise StoreError("No existing metadata for this agent")
 
     def _request_path(self, request_id: str) -> Path:
         return self.request_directory / f"{hash_id(_request_id(request_id))}.json"

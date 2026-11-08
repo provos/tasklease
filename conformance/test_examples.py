@@ -40,8 +40,6 @@ def test_valid_request_corpus(
     service_url: str, corpus_token: str, registry: Registry[Schema], path: Path
 ) -> None:
     operation = path.parents[1].name
-    if operation == "monitor.snapshot":
-        pytest.skip("monitor.snapshot is implemented in phase 6")
     token = (
         "conformance-admin-fake-secret"
         if operation.startswith("identity.") and operation != "identity.whoami"

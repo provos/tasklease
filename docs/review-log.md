@@ -306,10 +306,76 @@ Status: accepted after simplify and clean independent Astra high review.
 
 ## Phase 6 — monitor and operations
 
-Status: implementation starting.
+Status: accepted after simplify, independent Astra review and native verification.
 
 - Scope: scoped consistent snapshots, read-only local server and local-store
   views, Svelte dashboard, packaged assets and platform startup/stop templates.
+- Preparation found aggregate snapshots can exceed RPC's 32 MiB value limit,
+  and SQL cursors across awaits have no snapshot isolation. Snapshot capture
+  now spools bounded chunks inside one transaction for a byte-stream Response,
+  with two-stream admission, expiry and cleanup. Wire schema is unchanged.
+- Clarified hour windows as current bucket plus the previous `hours - 1`,
+  retaining authorized historical statistics independently of live queues.
+- Startup templates are canonical package resources with an offline CLI
+  export command and instructions in `deploy/`. Native `plutil` parsed the
+  launchd template; `systemd-analyze verify` accepted the user unit (unrelated
+  host-unit warnings remain). XML/plist parsing passed. Checked current
+  primary platform references and the Mac's installed launchd manual;
+  bounded launchd unload timeout avoids an infinite shutdown wait, and
+  systemd mixed kill mode preserves handler subprocesses during graceful stop.
+- Microsoft's published Task Scheduler XSD independently validated the Windows
+  XML. Wheel checks now verify all four templates and exercise offline export
+  from a clean installation with Node absent.
+- Service agent passed 188 Workers tests, including a 36,080,125-byte actual
+  RPC snapshot with 110,000 statistics rows, parsed incrementally. Schema 3
+  adds only temporary snapshot tables; migration preserves task state.
+- Dashboard strict Svelte/build checks passed. Added pinned
+  `prettier-plugin-svelte` so the existing formatting gate covers Svelte files.
+  Hourly charts retain each domain's capture time across hour boundaries.
+- Integrated supervisor gate passed 714 Python tests, 188 Workers tests,
+  all 150 conformance checks with no deferrals, 219 examples and every
+  strict/static/drift check. Wheel and sdist built successfully. Native macOS
+  passed 656 runtime tests, excluding Node-dependent build/deploy suites.
+- Browser verification used an actual local server with fake service/store
+  data: populated overview, expanded queue metadata, escaped script text in
+  reply JSON, hourly charts/table, HTTP-502 stale warning and recovery all
+  worked. No real credentials were used in the browser fixture.
+- Simplify: reuse and quality clean. Efficiency reproduced a P2 where 100
+  answered 250 KB requests produced a 25,050,938-byte monitor snapshot with
+  no pending requests. The server now filters answered records before
+  serialization; pending and unknown requests plus inbox replies remain.
+  The large-input regression, readonly checks and all 135 focused tests pass;
+  independent efficiency reran 63 monitor/CLI tests and quality reran 135.
+- Independent Astra high review: clean after the missing-dashboard correction.
+  Absent root/index assets now serve static HTML with HTTP 503 and actionable
+  build/reinstall guidance. Host/path guards remain; two real-socket tests
+  independently passed. Astra also independently passed Svelte checks and
+  all 13 committed fixture-based chart/model Vitest tests. `make check`
+  includes that suite, as required by design §7.4.
+- A final Mac rerun exposed intermittent connection resets during eight
+  concurrent refreshes. Controlled native comparison isolated the default
+  listen backlog: five allowed only 5/8 successful connections in each of
+  three rounds; 32 allowed 8/8 with one refresh. The server now uses a bounded
+  backlog of 32. A deterministic regression queues eight complete requests
+  before accept starts and fails with the old setting. Five repeated native
+  concurrency pairs and all 138 focused Mac tests passed. Independent Astra
+  focused re-review and its two Linux concurrency tests are clean.
+- Final follow-up passed all 718 Python tests, strict mypy/Ruff and rebuilt
+  wheel/sdist. The complete gate also passed 188 Workers tests, 13 monitor
+  component/model tests, 150 conformance checks, 219 examples and generated
+  drift/static checks. Runtime npm audit
+  reports no advisories; existing low/moderate advisories are confined to
+  development lint/build tooling and were not resolved by unsafe downgrades.
+
+## Phase 7 — complete-system acceptance
+
+Status: implementation and external acceptance starting.
+
+- Scope: local release/native acceptance tooling, Windows agent handoff,
+  clean package installation, live different-bundle upgrade and cross-machine
+  request/reply flow, documentation and whole-system review.
+- GitHub Actions remains excluded by design §7.4. Package publication is a
+  separate explicit release action; no public upload has been performed.
 - Simplify: pending.
 - Independent Astra high review: pending.
 - Verification: pending.

@@ -826,7 +826,7 @@ describe("DomainObject task transactions", () => {
     const { domain, stub } = fixture("migration");
     await runInDurableObject(stub, (_instance, state) => {
       state.storage.sql.exec(
-        `DROP TABLE tasks; DROP TABLE pollers; DROP TABLE declared_topics; DROP TABLE stats_hourly; UPDATE schema_version SET version = 1; CREATE TABLE phase_one_marker (value TEXT); INSERT INTO phase_one_marker VALUES ('retained')`,
+        `DROP TABLE tasks; DROP TABLE pollers; DROP TABLE declared_topics; DROP TABLE stats_hourly; DROP TABLE monitor_snapshot_chunks; DROP TABLE monitor_snapshots; UPDATE schema_version SET version = 1; CREATE TABLE phase_one_marker (value TEXT); INSERT INTO phase_one_marker VALUES ('retained')`,
       );
     });
     await evictDurableObject(stub);
@@ -839,7 +839,7 @@ describe("DomainObject task transactions", () => {
     await runInDurableObject(stub, (_instance, state) => {
       expect(
         state.storage.sql.exec("SELECT version FROM schema_version").one(),
-      ).toEqual({ version: 2 });
+      ).toEqual({ version: 3 });
       expect(
         state.storage.sql.exec("SELECT value FROM phase_one_marker").one(),
       ).toEqual({ value: "retained" });

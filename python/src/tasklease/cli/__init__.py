@@ -12,7 +12,16 @@ from tasklease import __version__
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Parse a command without side effects until its handler runs."""
-    from tasklease.cli import identity, inbox, requester, service, tasks, topics, worker
+    from tasklease.cli import (
+        identity,
+        inbox,
+        monitor,
+        requester,
+        service,
+        tasks,
+        topics,
+        worker,
+    )
     from tasklease.cli.common import message
     from tasklease.errors import TaskleaseError
 
@@ -26,7 +35,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--url")
     parser.add_argument("--worker")
     commands = parser.add_subparsers(dest="command")
-    for module in (identity, requester, inbox, tasks, topics, service, worker):
+    for module in (identity, requester, inbox, tasks, topics, service, worker, monitor):
         module.configure_parser(commands)
     args = parser.parse_args(argv)
     selected: object = getattr(args, "handler", None)

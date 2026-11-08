@@ -64,6 +64,12 @@ def test_wheel_contains_deployable_assets(artifacts: Path) -> None:
         assert any(
             name.startswith("tasklease/monitor/static/assets/") for name in files
         )
+        assert {
+            "tasklease/worker_templates/systemd.service",
+            "tasklease/worker_templates/launchd.plist",
+            "tasklease/worker_templates/windows.xml",
+            "tasklease/worker_templates/windows-stop.ps1",
+        } <= files
         prefix = "tasklease/service_bundle/"
         manifest = json_object(wheel.read(prefix + "manifest.json"))
         template = json_object(wheel.read(prefix + "wrangler.template.jsonc"))
@@ -137,7 +143,14 @@ def test_sdist_builds_without_node_and_installs_cleanly(
             "text = p.joinpath('service_bundle/manifest.json').read_text()\n"
             "manifest = json.loads(text)\n"
             "assert manifest['service_version'] == __version__\n"
-            "Client('http://localhost:8787', 'token').close()\n",
+            "Client('http://localhost:8787', 'token').close()\n"
+            "import io, plistlib\n"
+            "from contextlib import redirect_stdout\n"
+            "from tasklease.cli import main\n"
+            "out = io.StringIO()\n"
+            "with redirect_stdout(out):\n"
+            "    assert main(['worker', 'template', '--platform', 'launchd']) == 0\n"
+            "assert plistlib.loads(out.getvalue().encode())['RunAtLoad'] is True\n",
         ],
         cwd=tmp_path,
         env=environment,

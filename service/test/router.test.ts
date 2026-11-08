@@ -88,7 +88,11 @@ describe("HTTP routing and validation", () => {
       401,
       "unauthenticated",
     );
-    await expectError(await post("monitor.snapshot", {}), 400, "invalid");
+    await expectError(
+      await post("monitor.snapshot", {}),
+      401,
+      "unauthenticated",
+    );
     await expectError(await post("version", {}), 400, "invalid");
     await expectError(await post("constructor", {}), 400, "invalid");
     await expectError(

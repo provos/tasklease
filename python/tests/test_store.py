@@ -734,3 +734,48 @@ def test_per_call_timeout_caps_each_configured_phase(
         else configured
     )
     assert backend.timeouts[4] == original.as_dict()
+
+
+def test_locating_existing_store_does_not_publish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    Store("agent", tmp_path)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Read-only initialization must not publish")
+
+    monkeypatch.setattr(stores, "_publish", forbidden)
+    existing = Store("agent", tmp_path, initialize=False)
+    assert existing.requests() == [] and existing.inbox() == []
+
+
+@pytest.mark.parametrize("missing", ["requests", "replies"])
+def test_locating_partial_store_does_not_create_missing_agent_folder(
+    tmp_path: Path, missing: str
+) -> None:
+    store = Store("agent", tmp_path)
+    directory = tmp_path / missing / hash_id("agent")
+    (directory / "agent.json").unlink()
+    directory.rmdir()
+    existing = Store("agent", tmp_path, initialize=False)
+    assert existing.request_directory == store.request_directory
+    assert existing.requests() == [] and existing.inbox() == []
+    assert not directory.exists()
+
+
+def test_locating_absent_store_fails_without_creating_it(tmp_path: Path) -> None:
+    root = tmp_path / "missing"
+    with pytest.raises(StoreError, match="No existing metadata"):
+        Store("agent", root, initialize=False)
+    assert not root.exists()
+
+
+def test_locating_corrupt_metadata_refuses_it_without_replacement(
+    tmp_path: Path,
+) -> None:
+    store = Store("agent", tmp_path)
+    path = store.request_directory / "agent.json"
+    path.write_text('{"agent_id":"different"}')
+    with pytest.raises(StoreError, match="does not match"):
+        Store("agent", tmp_path, initialize=False)
+    assert path.read_text() == '{"agent_id":"different"}'

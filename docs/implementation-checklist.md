@@ -25,7 +25,7 @@ and verification evidence are recorded in [review-log.md](review-log.md).
 - [x] **5. Worker runtime:** capacity-before-Own; renewal/deadlines; handler
   interface; retry and lost-lease handling; bounded error routing; graceful
   stop; generic CLI worker.
-- [ ] **6. Monitor and operations:** scoped snapshots and statistics;
+- [x] **6. Monitor and operations:** scoped snapshots and statistics;
   read-only local server; Svelte dashboard and packaged assets; platform
   startup/stop templates.
 - [ ] **7. Complete-system acceptance:** integrated fault conformance; clean
@@ -77,7 +77,9 @@ boundary fixes and clean focused re-reviews. Phase 3 implementation is
 accepted after simplify, recovery fixes and a clean independent Astra
 re-review. Phase 4 is accepted after simplify, independent Astra high review
 and its clean focused re-review. Phase 5 is accepted after clean simplify and
-independent Astra high review. Phase 6 is in progress. The installed wheel bootstrapped the isolated
+independent Astra high review. Phase 6 is accepted after simplify, native Mac
+connection-admission correction and clean independent Astra focused review.
+Phase 7 is in progress. The installed wheel bootstrapped the isolated
 `tasklease-acceptance-90d25ae` Worker and bucket. Live R2 round trip, SHA-256
 and signed Content-Length acceptance/rejection passed with the provided
 bucket-scoped credentials. Native macOS requester tests passed; full worker OS

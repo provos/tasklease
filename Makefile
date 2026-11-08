@@ -23,6 +23,7 @@ check-service:
 
 check-monitor:
 	npm run check:monitor
+	npm run test:monitor
 
 check-python:
 	cd python && uv run ruff check --config pyproject.toml . ../conformance

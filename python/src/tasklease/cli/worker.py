@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import sys
 from collections.abc import Callable
+from importlib.resources import files
 from pathlib import Path
 from threading import TIMEOUT_MAX
 from typing import cast
@@ -17,6 +19,7 @@ from tasklease.cli.common import (
     flag,
     optional_text,
     output,
+    text,
 )
 from tasklease.errors import ConfigError
 from tasklease.worker import (
@@ -27,6 +30,21 @@ from tasklease.worker import (
     validate_work_topic,
 )
 from tasklease.worker_control import WorkerControl, request_stop
+
+_TEMPLATES = {
+    "systemd": "systemd.service",
+    "launchd": "launchd.plist",
+    "windows": "windows.xml",
+    "windows-stop": "windows-stop.ps1",
+}
+
+
+def _template(args: argparse.Namespace) -> int:
+    resource = files("tasklease").joinpath(
+        "worker_templates", _TEMPLATES[text(args, "platform")]
+    )
+    sys.stdout.write(resource.read_text(encoding="utf-8"))
+    return 0
 
 
 def _table(values: dict[str, object]) -> dict[str, object]:
@@ -161,3 +179,8 @@ def configure_parser(
     connection_options(stop)
     stop.add_argument("--state-dir", type=Path, default=argparse.SUPPRESS)
     stop.set_defaults(handler=_stop)
+    template = commands.add_parser(
+        "template", help="Print a user-worker startup template for editing"
+    )
+    template.add_argument("--platform", choices=tuple(_TEMPLATES), required=True)
+    template.set_defaults(handler=_template)

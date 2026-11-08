@@ -188,7 +188,13 @@ storage, with the tables in spec §7.2.
   one line.
 - **Snapshot:** `monitor.snapshot` reads topics, pollers, the first 100 task
   summaries per topic and the requested hours of statistics in one
-  transaction, so the page shows one consistent moment.
+  transaction, so the page shows one consistent moment. It serializes bounded
+  chunks into temporary SQLite snapshot tables during that transaction, then
+  returns an RPC byte-stream Response over the immutable chunks. This avoids
+  both the 32 MiB RPC value limit and live SQL cursors across awaits (which
+  have no snapshot isolation). At most two snapshots can stream concurrently;
+  excess requests receive HTTP 503. Completion and cancellation clean up
+  chunks; a five-minute expiry and the alarm clean up abandoned snapshots.
 - **Renew:** `UPDATE … SET lease_until = ? WHERE id = ? AND topic = ?`, after
   the holder check.
 - **Delete:** holder and optional `lease_before` cutoff checks precede deletion
@@ -497,6 +503,9 @@ It refuses any request whose `Host` header is not `127.0.0.1:<port>` or
 reading the snapshot by pointing its own domain at `127.0.0.1` (DNS
 rebinding). Everything is `GET` and read-only. Nothing from the browser
 reaches the service except the choice of `hours`.
+Local store views use `Store(..., initialize=False)` so reading never
+publishes metadata or runs retention cleanup. One cached hours selection and
+a shared refresh lock bound retained cache data and coalesce parallel tabs.
 
 **Dashboard** (`monitor/`): Svelte 5 with Vite, built to static files (plain
 Vite, no SvelteKit, since there is one page and no routing). It fetches
@@ -894,11 +903,14 @@ differs.
 
 ### 8.5 Running workers
 
-`deploy/` holds templates; `tl worker install` fills them in later:
+`deploy/` documents the packaged templates. `tl worker template --platform`
+prints one for editing before installation; automated `tl worker install`
+remains a future convenience:
 
 - **Linux:** a systemd user unit (`Restart=on-failure`, `KillSignal=SIGHUP`
   for a graceful stop).
-- **macOS:** a launchd agent plist (`KeepAlive`).
+- **macOS:** a launchd agent plist (restart on unsuccessful exit). Graceful
+  stop uses the stop command; unloading or logout has a bounded stop timeout.
 - **Windows:** a scheduled task that runs at logon and restarts on failure.
   It stops a worker by writing its stop file (§5.4).
 

@@ -16,6 +16,7 @@
     "check:service": "npm run check --workspace service",
     "check:monitor": "npm run check --workspace monitor",
     "test:service": "npm run test --workspace service",
+    "test:monitor": "npm run test --workspace monitor",
     "format": "prettier --write package.json eslint.config.mjs .prettierrc.json service monitor schema scripts",
     "format:check": "prettier --check package.json eslint.config.mjs .prettierrc.json service monitor schema scripts",
     "lint": "eslint service/src service/test service/vitest.config.ts"
@@ -24,10 +25,11 @@
     "@eslint/js": "9.39.5",
     "@types/node": "26.6.6",
     "ajv": "8.20.0",
-    "eslint": "9.39.5",
     "esbuild": "0.28.2",
+    "eslint": "9.39.5",
     "json-schema-to-typescript": "16.0.0",
     "prettier": "3.9.10",
+    "prettier-plugin-svelte": "4.1.1",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.1"
   }

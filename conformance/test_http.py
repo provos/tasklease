@@ -146,10 +146,7 @@ def test_client_task_and_identity_flow(service_url: str, admin: Client) -> None:
 def test_invalid_request_corpus(
     service_url: str, corpus_token: str, path: Path
 ) -> None:
-    # monitor.snapshot is deliberately deferred to the monitor phase.
     operation = path.parents[1].name
-    if operation == "monitor.snapshot":
-        pytest.skip("monitor.snapshot is implemented in phase 6")
     example: object = json.loads(path.read_text())
     assert isinstance(example, dict)
     body = cast(dict[str, object], example)["body"]

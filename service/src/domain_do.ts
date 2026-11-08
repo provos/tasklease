@@ -8,6 +8,7 @@ import type {
   DeleteRequest,
   DeleteResponse,
   HourlyStats,
+  MonitorSnapshotRequest,
   OwnRequest,
   OwnResponse,
   ReadRequest,
@@ -32,6 +33,10 @@ import type { Caller, Result } from "./types";
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const PAGE_SIZE = 500;
+const SNAPSHOT_CHUNK_BYTES = 64 * 1024;
+const SNAPSHOT_TTL = 5 * 60 * 1000;
+const SNAPSHOT_LIMIT = 2;
+const encoder = new TextEncoder();
 
 // Workers' RPC type mapping recursively rewrites JSON unions. Keep the transport
 // boundary finite; the Worker validates and types the JSON payload as Data.
@@ -64,7 +69,73 @@ type PollerRow = {
   last_owned_at: number | null;
 };
 
+type TopicRow = {
+  topic: string;
+  available: number;
+  held: number;
+  oldest_available_at: number | null;
+  declared: number;
+};
+
+type Snapshot = { id: string; expiresAt: number; chunks: number };
+
+const topicQuery = `WITH topics AS (
+  SELECT topic FROM tasks UNION SELECT topic FROM pollers WHERE last_polled_at >= ?
+  UNION SELECT topic FROM declared_topics
+), counts AS (
+  SELECT topic, SUM(lease_until <= ?) AS available, SUM(lease_until > ?) AS held,
+    MIN(CASE WHEN lease_until <= ? THEN created_at END) AS oldest_available_at
+  FROM tasks GROUP BY topic
+)
+SELECT topics.topic, COALESCE(available, 0) AS available, COALESCE(held, 0) AS held,
+  oldest_available_at, declared_topics.topic IS NOT NULL AS declared
+FROM topics LEFT JOIN counts ON counts.topic = topics.topic
+LEFT JOIN declared_topics ON declared_topics.topic = topics.topic ORDER BY topics.topic`;
+
+/** Persist a projection without retaining its aggregate bytes in the isolate. */
+class SnapshotWriter {
+  private readonly buffer = new Uint8Array(SNAPSHOT_CHUNK_BYTES);
+  private used = 0;
+  private chunks = 0;
+
+  constructor(
+    private readonly sql: SqlStorage,
+    private readonly id: string,
+  ) {}
+
+  write(value: string): void {
+    const bytes = encoder.encode(value);
+    for (let offset = 0; offset < bytes.length;) {
+      const count = Math.min(
+        bytes.length - offset,
+        this.buffer.length - this.used,
+      );
+      this.buffer.set(bytes.subarray(offset, offset + count), this.used);
+      this.used += count;
+      offset += count;
+      if (this.used === this.buffer.length) this.flush();
+    }
+  }
+
+  finish(): number {
+    this.flush();
+    return this.chunks;
+  }
+
+  private flush(): void {
+    if (this.used === 0) return;
+    this.sql.exec(
+      "INSERT INTO monitor_snapshot_chunks (snapshot_id, seq, data) VALUES (?, ?, ?)",
+      this.id,
+      this.chunks++,
+      this.buffer.slice(0, this.used).buffer,
+    );
+    this.used = 0;
+  }
+}
+
 type StatsIncrement = Partial<Omit<HourlyStats, "topic" | "hour">>;
+type StatsRow = { [K in keyof HourlyStats]: HourlyStats[K] };
 
 // Each entry upgrades the previous version. Version 1 is the foundation's
 // schema_version table, and intentionally has no application tables.
@@ -98,6 +169,14 @@ const migrations = [
     PRIMARY KEY (topic, hour)
   );
   CREATE INDEX stats_expiry ON stats_hourly (hour);`,
+  `CREATE TABLE monitor_snapshots (
+    id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL
+  );
+  CREATE TABLE monitor_snapshot_chunks (
+    snapshot_id TEXT NOT NULL, seq INTEGER NOT NULL, data BLOB NOT NULL,
+    PRIMARY KEY (snapshot_id, seq)
+  );
+  CREATE INDEX monitor_snapshots_expiry ON monitor_snapshots (expires_at);`,
 ];
 
 export class DomainObject extends DurableObject<Env> {
@@ -122,6 +201,10 @@ export class DomainObject extends DurableObject<Env> {
           sql.exec(migrations[current - 1]!);
           sql.exec("UPDATE schema_version SET version = ?", current + 1);
         }
+        // Response streams do not survive object eviction. Discard their
+        // immutable projections when a new incarnation starts.
+        sql.exec("DELETE FROM monitor_snapshot_chunks");
+        sql.exec("DELETE FROM monitor_snapshots");
       });
     });
   }
@@ -295,30 +378,7 @@ export class DomainObject extends DurableObject<Env> {
   ): Promise<Result<TopicsListResponse>> {
     return this.operation((now) => {
       const topics = this.ctx.storage.sql
-        .exec<{
-          topic: string;
-          available: number;
-          held: number;
-          oldest_available_at: number | null;
-          declared: number;
-        }>(
-          `WITH topics AS (
-             SELECT topic FROM tasks UNION SELECT topic FROM pollers WHERE last_polled_at >= ?
-             UNION SELECT topic FROM declared_topics
-           ), counts AS (
-             SELECT topic, SUM(lease_until <= ?) AS available, SUM(lease_until > ?) AS held,
-               MIN(CASE WHEN lease_until <= ? THEN created_at END) AS oldest_available_at
-             FROM tasks GROUP BY topic
-           )
-           SELECT topics.topic, COALESCE(available, 0) AS available, COALESCE(held, 0) AS held,
-             oldest_available_at, declared_topics.topic IS NOT NULL AS declared
-           FROM topics LEFT JOIN counts ON counts.topic = topics.topic
-           LEFT JOIN declared_topics ON declared_topics.topic = topics.topic ORDER BY topics.topic`,
-          now - 7 * DAY,
-          now,
-          now,
-          now,
-        )
+        .exec<TopicRow>(topicQuery, now - 7 * DAY, now, now, now)
         .toArray()
         .filter(
           (row) =>
@@ -411,9 +471,210 @@ export class DomainObject extends DurableObject<Env> {
     });
   }
 
+  async monitorSnapshot(
+    request: MonitorSnapshotRequest,
+    caller: Caller,
+  ): Promise<Response> {
+    const now = Date.now();
+    const snapshot = this.ctx.storage.transactionSync(() => {
+      this.expireSnapshots(now);
+      const count = this.ctx.storage.sql
+        .exec<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM monitor_snapshots",
+        )
+        .one().count;
+      if (count >= SNAPSHOT_LIMIT) return null;
+      const id = crypto.randomUUID();
+      const expiresAt = now + SNAPSHOT_TTL;
+      this.ctx.storage.sql.exec(
+        "INSERT INTO monitor_snapshots (id, expires_at) VALUES (?, ?)",
+        id,
+        expiresAt,
+      );
+      const writer = new SnapshotWriter(this.ctx.storage.sql, id);
+      this.writeSnapshot(writer, request, caller, now);
+      return { id, expiresAt, chunks: writer.finish() };
+    });
+    if (snapshot === null) {
+      // A capacity failure is operational, like an unavailable backend. Never
+      // return a successful but silently incomplete snapshot.
+      return new Response("Snapshot capacity is busy", {
+        status: 503,
+        headers: { "Retry-After": "5", "Cache-Control": "no-store" },
+      });
+    }
+    try {
+      const alarm = await this.ctx.storage.getAlarm();
+      if (alarm === null || alarm > snapshot.expiresAt) {
+        await this.ctx.storage.setAlarm(snapshot.expiresAt);
+      }
+    } catch (error) {
+      this.discardSnapshot(snapshot.id);
+      throw error;
+    }
+    return this.snapshotResponse(snapshot);
+  }
+
+  private writeSnapshot(
+    writer: SnapshotWriter,
+    request: MonitorSnapshotRequest,
+    caller: Caller,
+    now: number,
+  ): void {
+    const visible = (topic: string) =>
+      caller.operator ||
+      allows(caller.scopes, "read", topic) ||
+      allows(caller.scopes, "own", topic);
+    const sql = this.ctx.storage.sql;
+    writer.write(
+      `{"ok":true,"domain":${JSON.stringify(request.domain)},"generated_at":${now},"topics":[`,
+    );
+    let comma = false;
+    for (const row of sql.exec<TopicRow>(
+      topicQuery,
+      now - 7 * DAY,
+      now,
+      now,
+      now,
+    )) {
+      if (!visible(row.topic)) continue;
+      if (comma) writer.write(",");
+      comma = true;
+      const topic = { ...row, declared: row.declared === 1 };
+      writer.write(JSON.stringify(topic).slice(0, -1) + ',"pollers":[');
+      let pollerComma = false;
+      for (const poller of sql.exec<PollerRow>(
+        `SELECT identity, worker, last_polled_at, last_owned_at FROM pollers
+         WHERE topic = ? AND last_polled_at >= ? ORDER BY identity, worker`,
+        row.topic,
+        now - 7 * DAY,
+      )) {
+        if (pollerComma) writer.write(",");
+        pollerComma = true;
+        writer.write(JSON.stringify(poller));
+      }
+      const tasks = sql
+        .exec<TaskMetadataRow>(
+          `SELECT ${metadataColumns} FROM tasks WHERE topic = ?
+         ORDER BY created_at, id LIMIT 101`,
+          row.topic,
+        )
+        .toArray();
+      writer.write('],"tasks":');
+      writer.write(
+        JSON.stringify(tasks.slice(0, 100).map((task) => summary(task, now))),
+      );
+      writer.write(tasks.length > 100 ? ',"truncated":true}' : "}");
+    }
+    writer.write('],"stats":[');
+    comma = false;
+    const hour = Math.floor(now / HOUR) * HOUR;
+    const since = hour - ((request.hours ?? 24) - 1) * HOUR;
+    for (const row of sql.exec<StatsRow>(
+      `SELECT * FROM stats_hourly WHERE hour >= ? AND hour <= ? ORDER BY topic, hour`,
+      since,
+      hour,
+    )) {
+      if (!visible(row.topic)) continue;
+      if (comma) writer.write(",");
+      comma = true;
+      writer.write(JSON.stringify(row));
+    }
+    writer.write("]}");
+  }
+
+  private snapshotResponse(snapshot: Snapshot): Response {
+    let sequence = 0;
+    let closed = false;
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      this.discardSnapshot(snapshot.id);
+    };
+    const body = new ReadableStream(
+      {
+        type: "bytes",
+        pull: (controller) => {
+          if (closed) return;
+          try {
+            if (Date.now() >= snapshot.expiresAt)
+              throw new Error("Expired snapshot");
+            const row = this.ctx.storage.sql
+              .exec<{ seq: number; data: ArrayBuffer }>(
+                `SELECT seq, data FROM monitor_snapshot_chunks
+                 WHERE snapshot_id = ? AND seq = ?`,
+                snapshot.id,
+                sequence,
+              )
+              .toArray()[0];
+            if (
+              !row ||
+              row.seq !== sequence ||
+              !(row.data instanceof ArrayBuffer) ||
+              row.data.byteLength === 0 ||
+              row.data.byteLength > SNAPSHOT_CHUNK_BYTES
+            ) {
+              throw new Error("Incomplete snapshot");
+            }
+            controller.enqueue(new Uint8Array(row.data));
+            if (++sequence === snapshot.chunks) {
+              cleanup();
+              controller.close();
+            }
+          } catch {
+            try {
+              cleanup();
+            } catch {
+              // Expiry also cleans up abandoned projections after storage errors.
+            }
+            console.log({
+              event: "stream_error",
+              operation: "monitor.snapshot",
+            });
+            controller.error(new Error("Internal server error"));
+          }
+        },
+        cancel: () => cleanup(),
+      },
+      { highWaterMark: 0 },
+    );
+    return new Response(body, {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
+  private discardSnapshot(id: string): void {
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        "DELETE FROM monitor_snapshot_chunks WHERE snapshot_id = ?",
+        id,
+      );
+      this.ctx.storage.sql.exec(
+        "DELETE FROM monitor_snapshots WHERE id = ?",
+        id,
+      );
+    });
+  }
+
+  private expireSnapshots(now: number): void {
+    this.ctx.storage.sql.exec(
+      `DELETE FROM monitor_snapshot_chunks WHERE snapshot_id IN
+       (SELECT id FROM monitor_snapshots WHERE expires_at <= ?)`,
+      now,
+    );
+    this.ctx.storage.sql.exec(
+      "DELETE FROM monitor_snapshots WHERE expires_at <= ?",
+      now,
+    );
+  }
+
   async alarm(): Promise<void> {
     const now = Date.now();
     this.ctx.storage.transactionSync(() => {
+      this.expireSnapshots(now);
       this.ctx.storage.sql.exec(
         "DELETE FROM pollers WHERE last_polled_at < ?",
         now - 7 * DAY,
@@ -423,7 +684,12 @@ export class DomainObject extends DurableObject<Env> {
         now - 30 * DAY,
       );
     });
-    await this.ctx.storage.setAlarm(now + DAY);
+    const snapshot = this.ctx.storage.sql
+      .exec<{ expires_at: number | null }>(
+        "SELECT MIN(expires_at) AS expires_at FROM monitor_snapshots",
+      )
+      .one().expires_at;
+    await this.ctx.storage.setAlarm(Math.min(now + DAY, snapshot ?? Infinity));
   }
 
   /** No await may separate the reads, checks, and writes of an operation. */
