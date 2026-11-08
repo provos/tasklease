@@ -332,3 +332,51 @@ def test_invalid_credentials_are_refused_without_echoing_them(token: str) -> Non
 def test_invalid_worker_labels_are_refused(label: str) -> None:
     with pytest.raises(Invalid):
         Client("https://tasks.example", TOKEN, label)
+
+
+@pytest.mark.parametrize("operation", ["renew", "consume"])
+def test_worker_per_call_timeout_caps_configured_phases(operation: str) -> None:
+    seen: list[object] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.extensions["timeout"])
+        return httpx.Response(200, json=example(operation, "response"))
+
+    with Client(
+        "https://tasks.example",
+        TOKEN,
+        transport=httpx.MockTransport(handler),
+        timeout=httpx.Timeout(connect=2, read=None, write=0.5, pool=4),
+    ) as client:
+        if operation == "renew":
+            request = cast(p.RenewRequest, example(operation, "request"))
+            client.renew(request, timeout=1.25)
+            client.renew(request)
+        else:
+            consume = cast(p.ConsumeRequest, example(operation, "request"))
+            client.consume(consume, timeout=1.25)
+            client.consume(consume)
+    assert seen == [
+        {"connect": 1.25, "read": 1.25, "write": 0.5, "pool": 1.25},
+        {"connect": 2, "read": None, "write": 0.5, "pool": 4},
+    ]
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
+def test_worker_timeout_cap_rejects_invalid_values_without_network(
+    timeout: float,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        pytest.fail("Invalid timeout must not send a request")
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Invalid):
+            client.renew(
+                cast(p.RenewRequest, example("renew", "request")), timeout=timeout
+            )
+        with pytest.raises(Invalid):
+            client.consume(
+                cast(p.ConsumeRequest, example("consume", "request")), timeout=timeout
+            )

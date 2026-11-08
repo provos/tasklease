@@ -505,7 +505,10 @@ finish(task, outcome):
 ```
 
 Because Renew keeps the ID, the renewer and the main loop share one ID that
-never changes. They need no mutex.
+never changes; access to that ID needs no mutex. The local deadline and lost
+state still need synchronization. A deadline watchdog marks the task lost
+even while a network call is blocked, and a late Renew response cannot revive
+a locally lost task.
 
 **Every task ends.** Whatever is wrong with a task (data that does not parse,
 a reply topic the worker may not write to, a reply that comes out too large),
@@ -609,10 +612,10 @@ replies on the agent's machine, in `replies/h(agent)/`. Each pass:
      existing file stays.
 3. `delete` the task, using the ID that `own` returned.
 
-**`publish_new(path, bytes) → created | exists`.** Every file the CLI and
-the worker library publish for other processes to find (replies, request
-records, profile caches) goes through this one operation, never through
-direct file calls. Its contract, on every platform:
+**`publish_new(path, bytes) → created | exists`.** Every immutable data file
+the CLI and worker library publish for other processes to find (replies,
+request records, profile caches) goes through this one operation, never
+through direct file calls. Its contract, on every platform:
 
 - **Atomic:** a reader sees either no file or the whole file, never part of
   it.
@@ -623,6 +626,12 @@ direct file calls. Its contract, on every platform:
 
 The implementation differs by platform (POSIX and Windows) and lives in one
 module; nothing else in the code knows the difference.
+
+Transient worker stop markers contain no task data: their existence is the
+complete signal, and the worker removes them immediately. They use exclusive
+empty-file creation without a later path-based flush, which could race that
+removal. Stop markers do not promise power-loss persistence. Mutable
+configuration uses the explicitly replacing atomic operation in design §5.2.
 
 The agent ID is also part of the agent's reply topic (`verified/<agent-id>`),
 so it must be a valid topic segment (§2). `tl` refuses to start with any

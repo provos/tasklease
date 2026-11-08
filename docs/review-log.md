@@ -256,10 +256,60 @@ Status: accepted after simplify and clean independent Astra focused re-review.
 
 ## Phase 5 — worker runtime
 
-Status: implementation starting.
+Status: accepted after simplify and clean independent Astra high review.
 
 - Scope: capacity-before-Own library, deadline/renewal and fenced completion,
   bounded error routing, generic echo/plugin CLI and graceful stop controls.
+- Portable stop files use the existing identifier hash rather than the raw
+  label, preserving case distinctions and avoiding Windows reserved names and
+  filename limits. The design records the offline stop command and hash.
+- Clarified that a stable task ID requires no ID mutex, while deadline/lost
+  state is synchronized and an independent watchdog fences blocked or late
+  renewal responses.
+- Supervisor review found a short-lease retry issue: after a failed Renew,
+  sleeping the entire remaining subsecond lease left no time to retry. Retry
+  delay now respects the renewal interval and a fraction of remaining time.
+  Error-text normalization also prevents surrogate characters in handler
+  exceptions from poisoning the bounded fallback.
+- Four real packaged-Worker conformance checks passed: committed-but-lost
+  Consume response yields exactly one reply; forbidden reply target routes to
+  the automatic error grant; escaped-surrogate wire data drains using bounded
+  ASCII JSON text; and a lost Renew response recovers while a one-second lease
+  is renewed during active work.
+- Native macOS core verification passed all 125 worker/client tests, including
+  watchdog timing, renewal faults, bounded fallback and thread cleanup.
+- An active-handler stop test reproduced a publication/removal race: the
+  watcher could unlink a marker before durable publication's final flush.
+  Stop markers now have an explicit transient, empty exclusive-create
+  contract; they contain no task data and require no post-publication path
+  access. The watcher retries Windows sharing violations. Immutable requester
+  publication keeps its durability contract.
+- Simplify: reuse, quality and efficiency passes clean. Quality independently
+  ran 170 worker/client/CLI/control tests; efficiency ran 125 worker/client
+  tests. Supervisor reviewed the final transient marker correction for reuse
+  and efficiency; quality independently reviewed it too.
+- Integrated verification passed: 647 Python tests; 176 Workers tests;
+  144 conformance checks, with only the six phase-6 monitor deferrals;
+  219 contract examples; generated drift, strict TS/mypy, lint/format and
+  Svelte checks. A test module was renamed to avoid duplicate mypy module
+  names before completing the Python/conformance gates.
+- Native macOS passed 589 runtime tests, excluding only the Node/build and
+  pinned-Wrangler deployment suites already verified on Linux. This includes
+  actual first/second signal behavior, active-handler stop files, filesystem
+  races, requester recovery and renewal/fencing. Native Windows remains
+  pending the final-candidate agent run.
+- Independent Astra high review: clean. Fresh `gpt-6-astra` at high effort
+  independently passed 170 worker/client/CLI/control tests and reviewed the
+  complete phase against spec/design, including timing and error boundaries.
+  No material findings. Uncooperative custom transports can delay renewal
+  thread join; the watchdog still marks loss and threads cannot accumulate.
+
+## Phase 6 — monitor and operations
+
+Status: implementation starting.
+
+- Scope: scoped consistent snapshots, read-only local server and local-store
+  views, Svelte dashboard, packaged assets and platform startup/stop templates.
 - Simplify: pending.
 - Independent Astra high review: pending.
 - Verification: pending.

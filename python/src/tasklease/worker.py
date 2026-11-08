@@ -1,0 +1,449 @@
+"""Capacity-aware workers with conservative local leases and fenced completion.
+
+Profiles provide a handler and a capacity context. ``step`` is also usable
+under an externally held machine lock; only ``run`` acquires capacity itself.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+import time
+from contextlib import AbstractContextManager, nullcontext
+from dataclasses import dataclass
+from random import uniform
+from threading import TIMEOUT_MAX, Condition, Event, Thread
+from typing import Literal, Protocol, cast
+
+from tasklease.client import Client
+from tasklease.errors import (
+    Empty,
+    Forbidden,
+    Invalid,
+    NotFound,
+    TaskleaseError,
+    TooLarge,
+    TransportError,
+)
+from tasklease.generated import protocol as p
+
+_NAME = re.compile(r"[a-z0-9._-]+(?:/[a-z0-9._-]+)*\Z")
+_ERROR_LIMIT = 128 * 1024
+
+
+class Capacity(Protocol):
+    def acquire(self) -> AbstractContextManager[None]: ...
+
+
+class UnlimitedCapacity:
+    """A worker with no additional local scheduling constraint."""
+
+    def acquire(self) -> AbstractContextManager[None]:
+        return nullcontext()
+
+
+@dataclass(frozen=True)
+class Rejection:
+    """A task the handler recognizes but cannot execute."""
+
+    message: str
+
+
+class Handler[Request, Outcome](Protocol):
+    def validate(self, task: p.Task) -> Request | Rejection: ...
+
+    def run(self, request: Request, lost: Event) -> Outcome: ...
+
+    def reply(self, task: p.Task, outcome: Outcome) -> list[p.NewTask]: ...
+
+
+def _topic(topic: object) -> str:
+    if (
+        not isinstance(topic, str)
+        or _NAME.fullmatch(topic) is None
+        or (len(topic) > 128 and (not topic.endswith("/error") or len(topic) > 134))
+    ):
+        raise Invalid("Invalid topic name")
+    return topic
+
+
+def validate_work_topic(topic: str) -> str:
+    """Reject malformed and manual-only error topics before polling."""
+    _topic(topic)
+    if topic.endswith("/error"):
+        raise Invalid("Automated workers cannot own /error topics")
+    return topic
+
+
+def _reply_topic(task: p.Task) -> str | None:
+    value = task["data"].get("reply_topic")
+    try:
+        return _topic(value)
+    except Invalid:
+        return None
+
+
+def _correlation(task: p.Task) -> p.Data:
+    value = task["data"].get("request_id")
+    return {"request_id": value} if isinstance(value, str) else {}
+
+
+class EchoHandler:
+    """An example handler that echoes a small message and request identifier."""
+
+    def validate(self, task: p.Task) -> str | Rejection:
+        message = task["data"].get("message", "")
+        if not isinstance(message, str):
+            return Rejection("message must be text")
+        try:
+            if len(message.encode("utf-8")) <= 4096:
+                return message
+        except UnicodeError:
+            pass
+        return Rejection("message must contain at most 4096 UTF-8 bytes")
+
+    def run(self, request: str, lost: Event) -> p.Data:
+        return {"status": "ok", "message": request}
+
+    def reply(self, task: p.Task, outcome: p.Data) -> list[p.NewTask]:
+        topic = _reply_topic(task)
+        if topic is None:
+            raise Invalid("Missing or invalid reply_topic")
+        return [{"topic": topic, "data": {**_correlation(task), **outcome}}]
+
+
+def _error(error: BaseException) -> str:
+    try:
+        return f"{type(error).__name__}: {error}"[:2048]
+    except Exception:
+        return type(error).__name__
+
+
+def _json_text(value: object) -> str:
+    try:
+        return json.dumps(
+            value, ensure_ascii=True, allow_nan=False, separators=(",", ":")
+        )
+    except (TypeError, ValueError, UnicodeError, RecursionError):
+        return json.dumps({"unserializable": type(value).__name__})
+
+
+def bounded_error(original: object, outcome: object, error: str) -> p.Data:
+    """Keep JSON-text prefixes within 128 KiB including their extra escaping."""
+    original_text, outcome_text = _json_text(original), _json_text(outcome)
+    # The SDK sends UTF-8 JSON. Prefix strings are already ASCII JSON text;
+    # error messages need the same treatment for isolated surrogate code units.
+    error = error[:2048].encode("utf-8", errors="backslashreplace").decode("utf-8")
+
+    def payload(length: int) -> p.Data:
+        return {
+            "original": original_text[:length],
+            "outcome": outcome_text[:length],
+            "error": error,
+            "truncated": True,
+        }
+
+    low, high = 0, min(max(len(original_text), len(outcome_text)), _ERROR_LIMIT)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if len(_json_text(payload(middle)).encode("ascii")) <= _ERROR_LIMIT:
+            low = middle
+        else:
+            high = middle - 1
+    return payload(low)
+
+
+class _Lease:
+    """Two bounded-lifetime threads: I/O never blocks the deadline watchdog.
+
+    Renewal is joined before completion and before returning local capacity.
+    A custom transport ignoring its timeout can delay that join, but cannot
+    keep the handler's lost event unset or accumulate background renewals.
+    """
+
+    def __init__(
+        self,
+        client: Client,
+        task: p.Task,
+        domain: str,
+        topic: str,
+        seconds: int,
+        renew_every: float,
+        sent: float,
+    ) -> None:
+        self.client = client
+        self.task = task
+        self.domain = domain
+        self.topic = topic
+        self.seconds = seconds
+        self.renew_every = renew_every
+        self.deadline = sent + seconds
+        self.lost = Event()
+        self._condition = Condition()
+        self._stop_renew = Event()
+        self._stop_watchdog = False
+        self._renewer = Thread(
+            target=self._renew, name="tasklease-renewer", daemon=True
+        )
+        self._watcher = Thread(
+            target=self._watch, name="tasklease-deadline", daemon=True
+        )
+
+    def start(self) -> None:
+        self._watcher.start()
+        self._renewer.start()
+
+    def remaining(self) -> float:
+        with self._condition:
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                self.lost.set()
+            return 0 if self.lost.is_set() else remaining
+
+    def _watch(self) -> None:
+        with self._condition:
+            while not self._stop_watchdog:
+                remaining = self.deadline - time.monotonic()
+                if remaining <= 0:
+                    self.lost.set()
+                    return
+                self._condition.wait(remaining)
+
+    def _renew(self) -> None:
+        delay = self.renew_every
+        while not self._stop_renew.wait(delay):
+            remaining = self.remaining()
+            if remaining <= 0:
+                return
+            sent = time.monotonic()
+            try:
+                result = self.client.renew(
+                    {
+                        "domain": self.domain,
+                        "topic": self.topic,
+                        "id": self.task["id"],
+                        "hold_seconds": self.seconds,
+                    },
+                    timeout=remaining,
+                )
+            except TransportError:
+                delay = min(1.0, self.renew_every, max(0.01, self.remaining() / 2))
+                continue
+            except TaskleaseError:
+                self.lost.set()
+                return
+            if result["task"].get("id") != self.task["id"]:
+                self.lost.set()
+                return
+            with self._condition:
+                if self.lost.is_set() or time.monotonic() >= self.deadline:
+                    self.lost.set()
+                    return
+                self.deadline = sent + self.seconds
+                self._condition.notify_all()
+            delay = self.renew_every
+
+    def stop_renewing(self) -> None:
+        self._stop_renew.set()
+        self._renewer.join()
+
+    def close(self) -> None:
+        self.stop_renewing()
+        with self._condition:
+            self._stop_watchdog = True
+            self._condition.notify_all()
+        self._watcher.join()
+
+
+class WorkerLoop[Request, Outcome]:
+    """Execute and finish one task at a time under a renewable local lease."""
+
+    def __init__(
+        self,
+        client: Client,
+        domain: str,
+        topic: str,
+        capacity: Capacity,
+        handler: Handler[Request, Outcome],
+        *,
+        lease: int = 600,
+        renew_every: float = 180,
+        max_owned: int = 3,
+        poll_interval: float = 30,
+        stop: Event | None = None,
+    ) -> None:
+        if (
+            not isinstance(domain, str)
+            or domain in {".", ".."}
+            or len(domain) > 256
+            or _NAME.fullmatch(domain) is None
+        ):
+            raise Invalid("Invalid domain name")
+        validate_work_topic(topic)
+        if type(lease) is not int or not 1 <= lease <= 86400:
+            raise Invalid("lease must be an integer from 1 to 86400 seconds")
+        if type(max_owned) is not int or max_owned <= 0:
+            raise Invalid("max_owned must be a positive integer")
+        if (
+            type(renew_every) not in {int, float}
+            or not 0 < renew_every < lease
+            or not math.isfinite(renew_every)
+        ):
+            raise Invalid("renew_every must be positive and less than lease")
+        if (
+            type(poll_interval) not in {int, float}
+            or not 0 < poll_interval <= TIMEOUT_MAX / 1.2
+            or not math.isfinite(poll_interval)
+        ):
+            raise Invalid("poll_interval must be positive and fit the platform timeout")
+        self.client = client
+        self.domain = domain
+        self.topic = topic
+        self.capacity = capacity
+        self.handler = handler
+        self.lease = lease
+        self.renew_every = renew_every
+        self.max_owned = max_owned
+        self.poll_interval = poll_interval
+        self.stop = stop if stop is not None else Event()
+
+    def _consume(self, task: p.Task, tasks: list[p.NewTask], lease: _Lease) -> bool:
+        """Return false only after the local lease was lost."""
+        while (remaining := lease.remaining()) > 0:
+            try:
+                self.client.consume(
+                    {
+                        "domain": self.domain,
+                        "topic": self.topic,
+                        "id": task["id"],
+                        "tasks": tasks,
+                    },
+                    timeout=remaining,
+                )
+                return True
+            except NotFound:
+                return True
+            except TransportError:
+                lease.lost.wait(min(0.1, remaining))
+        return False
+
+    def _fallback(
+        self, task: p.Task, outcome: object, error: str, lease: _Lease
+    ) -> None:
+        target = self.topic + "/error"
+        for bounded in (False, True):
+            data = (
+                bounded_error(task["data"], outcome, error)
+                if bounded
+                else cast(
+                    p.Data,
+                    {"original": task["data"], "outcome": outcome, "error": error},
+                )
+            )
+            try:
+                self._consume(task, [{"topic": target, "data": data}], lease)
+                return
+            except Forbidden:
+                lease.lost.set()
+                return
+            except (TooLarge, Invalid):
+                if bounded:
+                    raise
+
+    def _finish(
+        self, task: p.Task, outcome: Outcome | p.Data, failed: bool, lease: _Lease
+    ) -> None:
+        if lease.remaining() <= 0:
+            return
+        if _reply_topic(task) is None:
+            self._fallback(task, outcome, "Missing or invalid reply_topic", lease)
+            return
+        try:
+            if failed:
+                replies: list[p.NewTask] = [
+                    {
+                        "topic": cast(str, _reply_topic(task)),
+                        "data": {**_correlation(task), **cast(p.Data, outcome)},
+                    }
+                ]
+            else:
+                replies = self.handler.reply(task, cast(Outcome, outcome))
+            if not isinstance(replies, list) or len(replies) > 16:
+                raise Invalid("Handler reply must contain at most 16 tasks")
+            for reply in replies:
+                if not isinstance(reply, dict) or set(reply) != {"topic", "data"}:
+                    raise Invalid("Handler reply must contain NewTask objects")
+                _topic(reply["topic"])
+                if not isinstance(reply["data"], dict):
+                    raise Invalid("Handler reply data must be an object")
+            self._consume(task, replies, lease)
+        except Exception as error:
+            self._fallback(task, outcome, _error(error), lease)
+
+    def step(self) -> Literal["worked", "empty"]:
+        """Own at most one task; callers may already hold external capacity."""
+        if self.stop.is_set():
+            return "empty"
+        sent = time.monotonic()
+        try:
+            task = self.client.own(
+                {
+                    "domain": self.domain,
+                    "topic": self.topic,
+                    "hold_seconds": self.lease,
+                },
+                timeout=float(self.lease),
+            )["task"]
+        except Empty:
+            return "empty"
+        lease = _Lease(
+            self.client,
+            task,
+            self.domain,
+            self.topic,
+            self.lease,
+            self.renew_every,
+            sent,
+        )
+        if lease.remaining() <= 0:
+            return "worked"
+        lease.start()
+        try:
+            failed = True
+            outcome: Outcome | p.Data
+            if task["owned_count"] > self.max_owned:
+                outcome = {"status": "abandoned", "error": "Maximum Own count exceeded"}
+            else:
+                try:
+                    request = self.handler.validate(task)
+                    if isinstance(request, Rejection):
+                        outcome = {
+                            "status": "rejected",
+                            "error": request.message[:2048],
+                        }
+                    elif lease.remaining() > 0:
+                        outcome = self.handler.run(request, lease.lost)
+                        failed = False
+                    else:
+                        return "worked"
+                except Exception as error:
+                    outcome = {"status": "failed", "error": _error(error)}
+            lease.stop_renewing()
+            self._finish(task, outcome, failed, lease)
+        finally:
+            lease.close()
+        return "worked"
+
+    def run(self) -> None:
+        """Poll until stopped, acquiring local capacity before every Own."""
+        while not self.stop.is_set():
+            try:
+                with self.capacity.acquire():
+                    if self.stop.is_set():
+                        return
+                    result = self.step()
+            except TransportError:
+                result = "empty"
+            if result == "empty":
+                self.stop.wait(self.poll_interval * uniform(0.8, 1.2))

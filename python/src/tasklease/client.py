@@ -60,9 +60,9 @@ def _invalid_constant(value: str) -> NoReturn:
 class Client:
     """One HTTP connection pool, identity credential and worker label.
 
-    Own and Delete accept a per-call timeout cap in seconds. It limits each
-    configured HTTPX phase timeout, including unlimited phases, and never
-    lengthens a configured limit. Omitting the cap preserves client settings.
+    Own, Renew, Consume and Delete accept a per-call timeout cap in seconds.
+    It limits each configured HTTPX phase timeout, including unlimited phases,
+    and never lengthens a configured limit. Omitting the cap preserves settings.
     """
 
     def __init__(
@@ -212,8 +212,11 @@ class Client:
         """Own a task, optionally capping each configured HTTP timeout in seconds."""
         return cast(p.OwnResponse, self._post("own", request, timeout=timeout))
 
-    def renew(self, request: p.RenewRequest) -> p.RenewResponse:
-        return cast(p.RenewResponse, self._post("renew", request))
+    def renew(
+        self, request: p.RenewRequest, *, timeout: float | None = None
+    ) -> p.RenewResponse:
+        """Renew a task, optionally capping each configured HTTP timeout."""
+        return cast(p.RenewResponse, self._post("renew", request, timeout=timeout))
 
     def read(self, request: p.ReadRequest) -> p.ReadResponse:
         return cast(p.ReadResponse, self._post("read", request))
@@ -224,8 +227,11 @@ class Client:
         """Delete a task, optionally capping each configured HTTP timeout in seconds."""
         return cast(p.DeleteResponse, self._post("delete", request, timeout=timeout))
 
-    def consume(self, request: p.ConsumeRequest) -> p.ConsumeResponse:
-        return cast(p.ConsumeResponse, self._post("consume", request))
+    def consume(
+        self, request: p.ConsumeRequest, *, timeout: float | None = None
+    ) -> p.ConsumeResponse:
+        """Consume a task, optionally capping each configured HTTP timeout."""
+        return cast(p.ConsumeResponse, self._post("consume", request, timeout=timeout))
 
     def topics_list(self, request: p.TopicsListRequest) -> p.TopicsListResponse:
         return cast(p.TopicsListResponse, self._post("topics.list", request))

@@ -432,9 +432,16 @@ for the FluxShot worker design. The library supports both shapes.
 
 **Stopping.** A worker stops the same way on every OS: a stop request finishes
 the current task, then exits. A stop request is `SIGHUP` or `SIGTERM` on
-POSIX, or a stop file (`<state dir>/workers/<label>.stop`) on any OS, which
+POSIX, or a stop file (`<state dir>/workers/<h(label)>.stop`) on any OS, which
 is also what the Windows service wrapper uses. A second signal stops at once,
 and the task's lease brings it back for another worker.
+The hash uses the store's first 32 lowercase hexadecimal SHA-256 characters,
+so case-sensitive labels, Windows device names and long labels are portable.
+`tl worker stop --worker <label>` creates the file without needing credentials.
+The empty marker is transient: exclusive creation publishes the entire signal,
+and the watcher removes it. It does not use immutable durable publication,
+because removal can race a publisher's final flush. On Windows a sharing
+violation while the creating handle is still open is retried by the watcher.
 
 ### 5.5 `tl`
 
