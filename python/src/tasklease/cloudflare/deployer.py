@@ -9,7 +9,8 @@ import secrets
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +36,14 @@ from tasklease.errors import TaskleaseError
 type Reporter = Callable[[str], None]
 
 _ACCOUNT_ID = re.compile(r"[a-fA-F0-9]{32}")
+_EXPIRE_RULE = "tasklease-expire"
+_EXACT_RULE = {
+    "name": _EXPIRE_RULE,
+    "enabled": "Yes",
+    "prefix": "(all prefixes)",
+    "action": "Expire objects after 7 days",
+}
+_R2_SECRETS = {"R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"}
 
 R2_HELP = (
     "Open Cloudflare dashboard > R2 Object Storage > Overview > Account Details "
@@ -248,6 +257,345 @@ def _probe(
                 report(f"Probe identity cleanup also failed: {exc}")
 
 
+@dataclass(frozen=True)
+class _Target:
+    """The requested deployment; the account is resolved after sign-in."""
+
+    account: str | None
+    name: str
+    bucket: str
+    key_id: str | None
+    key_secret: str | None
+
+    def r2_secrets(self) -> dict[str, str]:
+        if self.key_id and self.key_secret:
+            return {
+                "R2_ACCESS_KEY_ID": self.key_id,
+                "R2_SECRET_ACCESS_KEY": self.key_secret,
+            }
+        return {}
+
+
+@dataclass(frozen=True)
+class _Workspace:
+    project: Path
+    wrangler: Wrangler
+    account: str
+    rendered: dict[str, object]
+
+
+def _choose(
+    chosen: str | None, saved: Mapping[str, object], key: str, label: str
+) -> str | None:
+    """An explicit value, else the saved one, which is checked only when used."""
+    return chosen or _optional_string(saved.get(key), label)
+
+
+def _target(
+    options: DeployOptions, saved: Mapping[str, object], environment: Mapping[str, str]
+) -> _Target:
+    """Resolve options, environment and saved settings, then validate them."""
+    target = _Target(
+        account=_choose(
+            options.account_id or environment.get("CLOUDFLARE_ACCOUNT_ID"),
+            saved,
+            "account_id",
+            "saved account ID",
+        ),
+        name=_choose(options.name, saved, "name", "saved Worker name") or "tasklease",
+        bucket=_choose(options.bucket, saved, "bucket", "saved bucket")
+        or "tasklease-blobs",
+        key_id=options.r2_access_key_id or environment.get("TL_R2_ACCESS_KEY_ID"),
+        key_secret=options.r2_secret_access_key
+        or environment.get("TL_R2_SECRET_ACCESS_KEY"),
+    )
+    _check_names(target)
+    _check_r2_keys(target, saved)
+    if environment.get("CLOUDFLARE_API_TOKEN") and not target.account:
+        raise DeployError("Pass --account-id with CLOUDFLARE_API_TOKEN.", 4)
+    if options.url and worker_url(options.url, target.name) is None:
+        raise DeployError("--url must be this Worker's HTTPS workers.dev URL.", 4)
+    return target
+
+
+def _check_names(target: _Target) -> None:
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", target.name) is None:
+        raise DeployError(
+            "Worker name must be 1–63 lowercase letters, digits or hyphens.", 4
+        )
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", target.bucket) is None:
+        raise DeployError(
+            "Bucket must be 3–63 lowercase letters, digits or hyphens.", 4
+        )
+
+
+def _check_r2_keys(target: _Target, saved: Mapping[str, object]) -> None:
+    if bool(target.key_id) != bool(target.key_secret):
+        raise DeployError(
+            "Give both R2 keys together: TL_R2_ACCESS_KEY_ID and "
+            "TL_R2_SECRET_ACCESS_KEY.",
+            4,
+        )
+    pending = saved.get("r2_credentials_pending", False)
+    if not isinstance(pending, bool):
+        raise DeployError("cloudflare.r2_credentials_pending must be a boolean.", 4)
+    if target.key_id:
+        return
+    if pending:
+        raise DeployError(
+            "An R2 credential update is pending; supply a fresh pair of R2 keys "
+            "before retrying. Secret names do not confirm their values.",
+            4,
+        )
+    if saved.get("account_id") not in (None, target.account) or saved.get(
+        "bucket"
+    ) not in (None, target.bucket):
+        raise DeployError(
+            "Changing account or bucket requires a new pair of R2 keys.", 4
+        )
+
+
+@contextmanager
+def _workspace(
+    prefix: str,
+    environment: Mapping[str, str],
+    *,
+    account: str | None,
+    name: str,
+    bucket: str,
+    redactions: Iterable[str | None] = (),
+) -> Iterator[_Workspace]:
+    """Stage the bundle, check Node and sign-in, and render wrangler.jsonc."""
+    with tempfile.TemporaryDirectory(prefix=prefix) as temporary:
+        project = Path(temporary)
+        pin, template = stage_bundle(project)
+        wrangler = Wrangler(pin, project, environment)
+        wrangler.redactions.extend(value for value in redactions if value)
+        wrangler.check_node()
+        resolved = _account(wrangler, account)
+        rendered = configure_bundle(
+            project, template, account_id=resolved, name=name, bucket=bucket
+        )
+        yield _Workspace(project, wrangler, resolved, rendered)
+
+
+def _bucket_state(wrangler: Wrangler, bucket: str) -> tuple[bool, list[dict[str, str]]]:
+    """Whether the bucket exists, and its lifecycle rules."""
+    exists = bucket in bucket_names(wrangler.run(["r2", "bucket", "list"]))
+    if not exists:
+        return False, []
+    return True, lifecycle_rules(
+        wrangler.run(["r2", "bucket", "lifecycle", "list", bucket])
+    )
+
+
+def _our_rule(rules: Iterable[Mapping[str, str]]) -> Mapping[str, str] | None:
+    ours = [rule for rule in rules if rule["name"] == _EXPIRE_RULE]
+    if len(ours) > 1:
+        raise DeployError(
+            "Multiple tasklease-expire lifecycle rules exist; "
+            "repair them before deploying."
+        )
+    return ours[0] if ours else None
+
+
+def _secret_names(wrangler: Wrangler, name: str) -> set[str]:
+    return secret_names(
+        wrangler.run(["secret", "list", "--name", name, "--format", "json"])
+    )
+
+
+def _known_secrets(
+    http: httpx.Client,
+    config: Config,
+    saved: Mapping[str, object],
+    target: _Target,
+    workspace: _Workspace,
+    report: Reporter,
+) -> list[str] | None:
+    """Secret names of the saved Worker, if it demonstrably exists."""
+    url = _saved_worker_url(config, saved, target.name, workspace.account)
+    if url is not None:
+        try:
+            _version(http, url)
+        except (httpx.HTTPError, DeployError):
+            pass
+        else:
+            return sorted(_secret_names(workspace.wrangler, target.name))
+    report("Worker existence is unknown; secret inspection skipped.")
+    return None
+
+
+def _saved_worker_url(
+    config: Config, saved: Mapping[str, object], name: str, account: str
+) -> str | None:
+    """The configured URL, if it belongs to the Worker being deployed."""
+    if (
+        config.url
+        and saved.get("name") == name
+        and saved.get("account_id") == account
+        and worker_url(config.url, name) is not None
+    ):
+        return config.url
+    return None
+
+
+def _dry_run(
+    known_secrets: list[str] | None,
+    target: _Target,
+    workspace: _Workspace,
+    bucket_exists: bool,
+    exact_rule: bool,
+    report: Reporter,
+) -> dict[str, object]:
+    report("Dry run: no resources, secrets or configuration were changed.")
+    return {
+        "dry_run": True,
+        "config": workspace.rendered,
+        "account_id": workspace.account,
+        "name": target.name,
+        "bucket": target.bucket,
+        "bucket_exists": bucket_exists,
+        "lifecycle": "unchanged" if exact_rule else "would update",
+        "secrets": known_secrets,
+        "plan": [
+            "deploy Worker",
+            "reconcile secrets",
+            "verify version and task/blob flow",
+            "save configuration",
+        ],
+    }
+
+
+def _reconcile_bucket(
+    wrangler: Wrangler,
+    bucket: str,
+    exists: bool,
+    rule: Mapping[str, str] | None,
+    report: Reporter,
+) -> None:
+    if not exists:
+        wrangler.run(["r2", "bucket", "create", bucket])
+    report(f"Bucket {bucket}: {'unchanged' if exists else 'created'}")
+    if rule == _EXACT_RULE:
+        report(f"Lifecycle {_EXPIRE_RULE}: unchanged")
+        return
+    if rule is not None:
+        wrangler.run(
+            ["r2", "bucket", "lifecycle", "remove", bucket, "--name", _EXPIRE_RULE]
+        )
+    wrangler.run(
+        [
+            "r2",
+            "bucket",
+            "lifecycle",
+            "add",
+            bucket,
+            _EXPIRE_RULE,
+            "--expire-days",
+            "7",
+            "--force",
+        ]
+    )
+    report(f"Lifecycle {_EXPIRE_RULE}: {'updated' if rule else 'created'}")
+
+
+def _upload(workspace: _Workspace, name: str, requested_url: str | None) -> str:
+    """Deploy the Worker and return its workers.dev URL."""
+    output = workspace.project / "deploy.ndjson"
+    workspace.wrangler.run(
+        ["deploy", "--config", str(workspace.project / "wrangler.jsonc")],
+        output_file=output,
+    )
+    return deployment_url(output, name, requested_url)
+
+
+def _save(
+    config: Config,
+    workspace: _Workspace,
+    target: _Target,
+    url: str,
+    r2_credentials_pending: bool | None = None,
+) -> None:
+    save_deployment(
+        config,
+        url=url,
+        account_id=workspace.account,
+        name=target.name,
+        bucket=target.bucket,
+        r2_credentials_pending=r2_credentials_pending,
+    )
+
+
+def _admin_candidate(existing: set[str], rotate: bool, report: Reporter) -> str | None:
+    """A new admin token when none exists or rotation was requested."""
+    if "ADMIN_TOKEN" in existing and not rotate:
+        return None
+    candidate = "tla_" + secrets.token_urlsafe(32)
+    report(f"ADMIN TOKEN (not yet confirmed; store now, never saved): {candidate}")
+    return candidate
+
+
+def _install_secrets(
+    wrangler: Wrangler, name: str, values: Mapping[str, str]
+) -> DeployError | None:
+    """Upload secrets in one call; the failure is returned so the admin
+    candidate can still be confirmed before it is raised."""
+    if not values:
+        return None
+    try:
+        wrangler.run(["secret", "bulk", "--name", name], secrets=dict(values))
+    except DeployError as exc:
+        return exc
+    return None
+
+
+def _settle_admin(
+    http: httpx.Client,
+    url: str,
+    candidate: str | None,
+    bulk_error: DeployError | None,
+    retry_seconds: float,
+    report: Reporter,
+) -> None:
+    """Confirm a new admin token, then raise any secret upload failure."""
+    if candidate and _confirm_admin(http, url, candidate, retry_seconds):
+        report("Admin token confirmed.")
+    elif candidate:
+        report(
+            "Admin token remains unconfirmed; retain it. "
+            "Set TL_ADMIN_TOKEN to the candidate and rerun, or rotate "
+            "again. No conclusion about the previous token is possible."
+        )
+        if bulk_error:
+            raise DeployError(
+                f"{bulk_error}\nAdmin token status is unconfirmed."
+            ) from bulk_error
+        raise DeployError(
+            "Admin token remains unconfirmed after waiting for propagation."
+        )
+    if bulk_error:
+        raise bulk_error
+
+
+def _verify(
+    url: str,
+    admin_token: str | None,
+    transport: httpx.BaseTransport | None,
+    report: Reporter,
+) -> bool:
+    """Run the end-to-end probe when an admin token is available."""
+    if not admin_token:
+        report(
+            "Deployment is unverified: set TL_ADMIN_TOKEN and rerun "
+            "for the task and R2 checks."
+        )
+        return False
+    _probe(url, admin_token, transport, report)
+    report("Task and R2 upload/download checks passed.")
+    return True
+
+
 def deploy(
     options: DeployOptions,
     config: Config,
@@ -260,272 +608,62 @@ def deploy(
     """Deploy an installed bundle, retaining recoverable partial state on failure."""
     environment = dict(os.environ if environ is None else environ)
     saved = _saved(config)
-    account = (
-        options.account_id
-        or environment.get("CLOUDFLARE_ACCOUNT_ID")
-        or _optional_string(saved.get("account_id"), "saved account ID")
-    )
-    name = (
-        options.name
-        or _optional_string(saved.get("name"), "saved Worker name")
-        or "tasklease"
-    )
-    bucket = (
-        options.bucket
-        or _optional_string(saved.get("bucket"), "saved bucket")
-        or "tasklease-blobs"
-    )
-    if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", name) is None:
-        raise DeployError(
-            "Worker name must be 1–63 lowercase letters, digits or hyphens.", 4
-        )
-    if re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", bucket) is None:
-        raise DeployError(
-            "Bucket must be 3–63 lowercase letters, digits or hyphens.", 4
-        )
-    key_id = options.r2_access_key_id or environment.get("TL_R2_ACCESS_KEY_ID")
-    key_secret = options.r2_secret_access_key or environment.get(
-        "TL_R2_SECRET_ACCESS_KEY"
-    )
-    if bool(key_id) != bool(key_secret):
-        raise DeployError(
-            "Give both R2 keys together: TL_R2_ACCESS_KEY_ID and "
-            "TL_R2_SECRET_ACCESS_KEY.",
-            4,
-        )
-    credentials_pending = saved.get("r2_credentials_pending", False)
-    if not isinstance(credentials_pending, bool):
-        raise DeployError("cloudflare.r2_credentials_pending must be a boolean.", 4)
-    if credentials_pending and not key_id:
-        raise DeployError(
-            "An R2 credential update is pending; supply a fresh pair of R2 keys "
-            "before retrying. Secret names do not confirm their values.",
-            4,
-        )
-    if (
-        any(
-            saved.get(key) not in (None, value)
-            for key, value in (("account_id", account), ("bucket", bucket))
-        )
-        and not key_id
+    target = _target(options, saved, environment)
+    with (
+        _workspace(
+            "tasklease-deploy-",
+            environment,
+            account=target.account,
+            name=target.name,
+            bucket=target.bucket,
+            redactions=(target.key_id, target.key_secret),
+        ) as workspace,
+        httpx.Client(transport=transport, timeout=10) as http,
     ):
-        raise DeployError(
-            "Changing account or bucket requires a new pair of R2 keys.", 4
+        wrangler = workspace.wrangler
+        exists, rules = _bucket_state(wrangler, target.bucket)
+        rule = _our_rule(rules)
+        if options.dry_run:
+            known = _known_secrets(http, config, saved, target, workspace, report)
+            return _dry_run(
+                known, target, workspace, exists, rule == _EXACT_RULE, report
+            )
+        _reconcile_bucket(wrangler, target.bucket, exists, rule, report)
+        url = _upload(workspace, target.name, options.url)
+        _save(config, workspace, target, url, True if target.key_id else None)
+        report(
+            "Worker uploaded; deployment coordinates saved. Verification is pending."
         )
-    if environment.get("CLOUDFLARE_API_TOKEN") and not account:
-        raise DeployError("Pass --account-id with CLOUDFLARE_API_TOKEN.", 4)
-    if options.url and worker_url(options.url, name) is None:
-        raise DeployError("--url must be this Worker's HTTPS workers.dev URL.", 4)
-    with tempfile.TemporaryDirectory(prefix="tasklease-deploy-") as temporary:
-        project = Path(temporary)
-        pin, template = stage_bundle(project)
-        wrangler = Wrangler(pin, project, environment)
-        wrangler.redactions.extend(v for v in (key_id, key_secret) if v)
-        wrangler.check_node()
-        account = _account(wrangler, account)
-        rendered = configure_bundle(
-            project, template, account_id=account, name=name, bucket=bucket
-        )
-        buckets = bucket_names(wrangler.run(["r2", "bucket", "list"]))
-        exists = bucket in buckets
-        rules = (
-            lifecycle_rules(wrangler.run(["r2", "bucket", "lifecycle", "list", bucket]))
-            if exists
-            else []
-        )
-        ours = [rule for rule in rules if rule["name"] == "tasklease-expire"]
-        if len(ours) > 1:
+        existing = _secret_names(wrangler, target.name)
+        candidate = _admin_candidate(existing, options.rotate_admin_token, report)
+        values = ({"ADMIN_TOKEN": candidate} if candidate else {}) | target.r2_secrets()
+        bulk_error = _install_secrets(wrangler, target.name, values)
+        if target.key_id and bulk_error is None:
+            _save(config, workspace, target, url, r2_credentials_pending=False)
+        _settle_admin(http, url, candidate, bulk_error, retry_seconds, report)
+        if not _R2_SECRETS <= existing | values.keys():
             raise DeployError(
-                "Multiple tasklease-expire lifecycle rules exist; "
-                "repair them before deploying."
+                "R2 signing credentials are missing. "
+                + R2_HELP.format(bucket=target.bucket),
+                4,
             )
-        exact_rule = bool(ours) and ours[0] == {
-            "name": "tasklease-expire",
-            "enabled": "Yes",
-            "prefix": "(all prefixes)",
-            "action": "Expire objects after 7 days",
+        _check_version(http, url, retry_seconds)
+        verified = _verify(
+            url, candidate or environment.get("TL_ADMIN_TOKEN"), transport, report
+        )
+        _save(config, workspace, target, url)
+        report(
+            "Next: tl identity add for each machine; "
+            "tl topic declare for well-known topics."
+        )
+        return {
+            "url": url,
+            "account_id": workspace.account,
+            "name": target.name,
+            "bucket": target.bucket,
+            "service_version": __version__,
+            "verified": verified,
         }
-        with httpx.Client(transport=transport, timeout=10) as http:
-            if options.dry_run:
-                known_secrets: list[str] | None = None
-                if (
-                    config.url
-                    and saved.get("name") == name
-                    and saved.get("account_id") == account
-                    and worker_url(config.url, name) is not None
-                ):
-                    try:
-                        _version(http, config.url)
-                    except (httpx.HTTPError, DeployError):
-                        report(
-                            "Worker existence is unknown; secret inspection skipped."
-                        )
-                    else:
-                        known_secrets = sorted(
-                            secret_names(
-                                wrangler.run(
-                                    [
-                                        "secret",
-                                        "list",
-                                        "--name",
-                                        name,
-                                        "--format",
-                                        "json",
-                                    ]
-                                )
-                            )
-                        )
-                else:
-                    report("Worker existence is unknown; secret inspection skipped.")
-                report("Dry run: no resources, secrets or configuration were changed.")
-                return {
-                    "dry_run": True,
-                    "config": rendered,
-                    "account_id": account,
-                    "name": name,
-                    "bucket": bucket,
-                    "bucket_exists": exists,
-                    "lifecycle": "unchanged" if exact_rule else "would update",
-                    "secrets": known_secrets,
-                    "plan": [
-                        "deploy Worker",
-                        "reconcile secrets",
-                        "verify version and task/blob flow",
-                        "save configuration",
-                    ],
-                }
-            if not exists:
-                wrangler.run(["r2", "bucket", "create", bucket])
-            report(f"Bucket {bucket}: {'unchanged' if exists else 'created'}")
-            if not exact_rule:
-                if ours:
-                    wrangler.run(
-                        [
-                            "r2",
-                            "bucket",
-                            "lifecycle",
-                            "remove",
-                            bucket,
-                            "--name",
-                            "tasklease-expire",
-                        ]
-                    )
-                wrangler.run(
-                    [
-                        "r2",
-                        "bucket",
-                        "lifecycle",
-                        "add",
-                        bucket,
-                        "tasklease-expire",
-                        "--expire-days",
-                        "7",
-                        "--force",
-                    ]
-                )
-            rule_action = (
-                "unchanged" if exact_rule else "updated" if ours else "created"
-            )
-            report(f"Lifecycle tasklease-expire: {rule_action}")
-            output = project / "deploy.ndjson"
-            wrangler.run(
-                ["deploy", "--config", str(project / "wrangler.jsonc")],
-                output_file=output,
-            )
-            url = deployment_url(output, name, options.url)
-            save_deployment(
-                config,
-                url=url,
-                account_id=account,
-                name=name,
-                bucket=bucket,
-                r2_credentials_pending=True if key_id else None,
-            )
-            report(
-                "Worker uploaded; deployment coordinates saved. "
-                "Verification is pending."
-            )
-            existing = secret_names(
-                wrangler.run(["secret", "list", "--name", name, "--format", "json"])
-            )
-            values: dict[str, str] = {}
-            candidate: str | None = None
-            if "ADMIN_TOKEN" not in existing or options.rotate_admin_token:
-                candidate = "tla_" + secrets.token_urlsafe(32)
-                report(
-                    "ADMIN TOKEN (not yet confirmed; store now, never saved): "
-                    f"{candidate}"
-                )
-                values["ADMIN_TOKEN"] = candidate
-            if key_id and key_secret:
-                values.update(R2_ACCESS_KEY_ID=key_id, R2_SECRET_ACCESS_KEY=key_secret)
-            bulk_error: DeployError | None = None
-            if values:
-                try:
-                    wrangler.run(["secret", "bulk", "--name", name], secrets=values)
-                except DeployError as exc:
-                    bulk_error = exc
-                else:
-                    if key_id:
-                        save_deployment(
-                            config,
-                            url=url,
-                            account_id=account,
-                            name=name,
-                            bucket=bucket,
-                            r2_credentials_pending=False,
-                        )
-            if candidate:
-                if _confirm_admin(http, url, candidate, retry_seconds):
-                    report("Admin token confirmed.")
-                else:
-                    report(
-                        "Admin token remains unconfirmed; retain it. "
-                        "Set TL_ADMIN_TOKEN to the candidate and rerun, or rotate "
-                        "again. No conclusion about the previous token is possible."
-                    )
-                    if bulk_error:
-                        raise DeployError(
-                            f"{bulk_error}\nAdmin token status is unconfirmed."
-                        ) from bulk_error
-                    raise DeployError(
-                        "Admin token remains unconfirmed after waiting for propagation."
-                    )
-            if bulk_error:
-                raise bulk_error
-            present = existing | values.keys()
-            if not {"R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"} <= present:
-                raise DeployError(
-                    "R2 signing credentials are missing. "
-                    + R2_HELP.format(bucket=bucket),
-                    4,
-                )
-            _check_version(http, url, retry_seconds)
-            admin_token = candidate or environment.get("TL_ADMIN_TOKEN")
-            verified = bool(admin_token)
-            if admin_token:
-                _probe(url, admin_token, transport, report)
-                report("Task and R2 upload/download checks passed.")
-            else:
-                report(
-                    "Deployment is unverified: set TL_ADMIN_TOKEN and rerun "
-                    "for the task and R2 checks."
-                )
-            save_deployment(
-                config, url=url, account_id=account, name=name, bucket=bucket
-            )
-            report(
-                "Next: tl identity add for each machine; "
-                "tl topic declare for well-known topics."
-            )
-            return {
-                "url": url,
-                "account_id": account,
-                "name": name,
-                "bucket": bucket,
-                "service_version": __version__,
-                "verified": verified,
-            }
 
 
 def status(
@@ -557,37 +695,18 @@ def status(
     account = _optional_string(saved.get("account_id"), "saved account ID")
     name = _optional_string(saved.get("name"), "saved Worker name")
     bucket = _optional_string(saved.get("bucket"), "saved bucket")
-    if not all((account, name, bucket)):
+    if not (account and name and bucket):
         return result
     environment = dict(os.environ if environ is None else environ)
-    if account:
-        environment["CLOUDFLARE_ACCOUNT_ID"] = account
     try:
-        with tempfile.TemporaryDirectory(prefix="tasklease-status-") as temporary:
-            project = Path(temporary)
-            pin, template = stage_bundle(project)
-            wrangler = Wrangler(pin, project, environment)
-            wrangler.check_node()
-            account = _account(wrangler, account)
-            assert name is not None and bucket is not None
-            configure_bundle(
-                project, template, account_id=account, name=name, bucket=bucket
-            )
-            buckets = bucket_names(wrangler.run(["r2", "bucket", "list"]))
+        with _workspace(
+            "tasklease-status-", environment, account=account, name=name, bucket=bucket
+        ) as workspace:
+            exists, rules = _bucket_state(workspace.wrangler, bucket)
             result["cloudflare"] = {
-                "bucket_exists": bucket in buckets,
-                "lifecycle": lifecycle_rules(
-                    wrangler.run(["r2", "bucket", "lifecycle", "list", bucket])
-                )
-                if bucket in buckets
-                else [],
-                "secrets": sorted(
-                    secret_names(
-                        wrangler.run(
-                            ["secret", "list", "--name", name, "--format", "json"]
-                        )
-                    )
-                ),
+                "bucket_exists": exists,
+                "lifecycle": rules,
+                "secrets": sorted(_secret_names(workspace.wrangler, name)),
             }
     except DeployError as exc:
         report(f"Cloudflare inspection unavailable: {exc}")
