@@ -10,9 +10,34 @@ and opening the monitor do not need Node.
 From the repository root:
 
 ```sh
+make install
 make check
 make build
 ```
+
+`make install` checks every locked npm registry version, including optional
+packages for other platforms, before `npm ci`. The check verifies publication
+at least seven days ago and the registry tarball/integrity pair. Do not replace
+this step with plain `npm ci`: npm's age setting does not reliably reject young
+versions already pinned in a lockfile. Registry failures fail the check.
+`make check` also compares the installed dependency tree with the lockfile,
+runs policy regression tests and requires a clean `npm audit` including dev
+dependencies. Source asset builds repeat the installed-tree check before
+loading build tools.
+
+Repository `.npmrc` disables dependency lifecycle scripts. The pinned esbuild
+and workerd optional native packages provide their binaries without those
+scripts. The sole local dependency exception is a reviewed
+[deepmerge security backport](../scripts/dependency-policy-vendor/deepmerge/README.md)
+with pinned source hashes, upstream provenance, license and regression tests.
+It fixes the advisory that currently has no upstream patched release; remove
+the backport when an aged compatible fix becomes available. Updating dependency
+pins requires rerunning these checks and the service/frontend build gates.
+
+This policy qualifies the source checkout's locked build graph. Installed
+`tl service deploy` uses `npx` with the Wrangler version from the bundled
+manifest; npm resolves its transitive dependencies under the operator's npm
+configuration, outside this checkout's lockfile.
 
 The gates cover generated contract drift, shared examples, strict TypeScript
 and Python checks, Workers tests, Svelte component/model tests, Python tests

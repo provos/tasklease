@@ -19,7 +19,7 @@ You need Workers and R2 enabled, and Node.js current LTS (with npx).
 tl uses the exact Wrangler version recorded in its bundled manifest.
 
 1. SIGN IN
-   Run npx --yes wrangler@4.158.0 login once and approve the browser flow.
+   Run npx --yes wrangler@4.156.0 login once and approve the browser flow.
    For scripts, use the Cloudflare Edit Cloudflare Workers API token template,
    export CLOUDFLARE_API_TOKEN, and pass --account-id. The token must permit
    creating/updating Workers and managing R2 buckets and lifecycle rules.

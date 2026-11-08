@@ -7,3 +7,6 @@ docs/spec.md
 docs/design.md
 dist/
 .wrangler/
+scripts/dependency-policy-vendor/deepmerge/index.cjs
+scripts/dependency-policy-vendor/deepmerge/index.d.ts
+scripts/dependency-policy-vendor/deepmerge/LICENSE

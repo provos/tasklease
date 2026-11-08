@@ -10,6 +10,8 @@
     "node": "^22.12.0 || >=24"
   },
   "scripts": {
+    "check:dependencies": "node scripts/dependency-policy.mjs --installed && npm audit",
+    "test:dependency-policy": "node --test scripts/dependency-policy.test.mjs",
     "codegen": "node scripts/codegen.mjs",
     "codegen:check": "node scripts/codegen.mjs --check",
     "check:examples": "node scripts/check-examples.mjs",
@@ -31,6 +33,14 @@
     "prettier": "3.9.10",
     "prettier-plugin-svelte": "4.1.1",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.72.1"
+    "typescript-eslint": "8.72.1",
+    "deepmerge": "file:scripts/dependency-policy-vendor/deepmerge"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.3"
+    },
+    "semver": "7.8.5",
+    "deepmerge": "$deepmerge"
   }
 }

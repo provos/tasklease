@@ -86,14 +86,105 @@ def _move_windows(source: Path, destination: Path, *, replace: bool) -> None:
         raise ctypes.WinError(ctypes.get_last_error())
 
 
+@contextmanager
+def _windows_handle(path: Path, access: int) -> Iterator[int]:
+    """Open without excluding readers, flushers or an in-flight rename.
+
+    A destination can become visible before MoveFileExW releases its DELETE
+    access. CRT opens omit FILE_SHARE_DELETE and can fail during that interval.
+    The native handle also lets a reader coexist with publication flushers.
+    """
+    if sys.platform != "win32":
+        raise OSError(errno.ENOSYS, "Windows file handles are unavailable")
+    library = ctypes.WinDLL("kernel32", use_last_error=True)
+    create = library.CreateFileW
+    create.argtypes = [
+        ctypes.c_wchar_p,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_void_p,
+    ]
+    create.restype = ctypes.c_void_p
+    open_file = cast(
+        Callable[[str, int, int, None, int, int, None], int | None], create
+    )
+    close = library.CloseHandle
+    close.argtypes = [ctypes.c_void_p]
+    close.restype = ctypes.c_int
+    close_handle = cast(Callable[[int], int], close)
+    # FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, OPEN_EXISTING,
+    # FILE_ATTRIBUTE_NORMAL. No creation, truncation or inheritable handle.
+    handle = open_file(str(path), access, 0x7, None, 3, 0x80, None)
+    if handle is None or handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        yield handle
+    finally:
+        if not close_handle(handle):
+            close_error = ctypes.WinError(ctypes.get_last_error())
+            active_error = sys.exception()
+            if active_error is None:
+                raise close_error
+            active_error.add_note(
+                f"Closing the Windows file handle also failed: {close_error}"
+            )
+
+
+def _flush_windows_file(path: Path) -> None:
+    if sys.platform != "win32":
+        raise OSError(errno.ENOSYS, "Windows file flushing is unavailable")
+    library = ctypes.WinDLL("kernel32", use_last_error=True)
+    function = library.FlushFileBuffers
+    function.argtypes = [ctypes.c_void_p]
+    function.restype = ctypes.c_int
+    flush = cast(Callable[[int], int], function)
+    # FlushFileBuffers requires GENERIC_WRITE; no data is modified.
+    with _windows_handle(path, 0x40000000) as handle:
+        if not flush(handle):
+            raise ctypes.WinError(ctypes.get_last_error())
+
+
+def _read_windows_file(path: Path) -> bytes:
+    if sys.platform != "win32":
+        raise OSError(errno.ENOSYS, "Windows file reading is unavailable")
+    library = ctypes.WinDLL("kernel32", use_last_error=True)
+    function = library.ReadFile
+    function.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.POINTER(ctypes.c_ulong),
+        ctypes.c_void_p,
+    ]
+    function.restype = ctypes.c_int
+    buffer = ctypes.create_string_buffer(64 * 1024)
+    read_count = ctypes.c_ulong()
+    data = bytearray()
+    # GENERIC_READ, with the same sharing contract as publication flushes.
+    with _windows_handle(path, 0x80000000) as handle:
+        while True:
+            if not function(
+                handle, buffer, len(buffer), ctypes.byref(read_count), None
+            ):
+                raise ctypes.WinError(ctypes.get_last_error())
+            if read_count.value == 0:
+                return bytes(data)
+            data.extend(buffer.raw[: read_count.value])
+
+
 def _sync_publication(path: Path) -> None:
     # A second publisher can observe the name before the first publisher gets
     # here. It must finish the same barrier before returning "exists".
+    if sys.platform == "win32":
+        _flush_windows_file(path)
+        return
     _sync_directory(path.parent)
-    # Windows file flushes include cached metadata. Darwin's full flush must
-    # follow the directory flush, so the drive-cache barrier also covers the
-    # newly published namespace entry. Opening also refuses an existing directory.
-    with path.open("r+b" if os.name == "nt" else "rb") as source:
+    # Darwin's full flush follows the directory flush so its drive-cache barrier
+    # covers the new namespace entry. Opening also refuses an existing directory.
+    with path.open("rb") as source:
         os.fsync(source.fileno())
         if sys.platform == "darwin":
             import fcntl
@@ -143,7 +234,11 @@ def _finite_float(value: str) -> float:
 def read_json(path: Path) -> object | None:
     """Read UTF-8 JSON; missing files return None and JSON null is rejected."""
     try:
-        contents = path.read_text(encoding="utf-8")
+        contents = (
+            _read_windows_file(path).decode("utf-8")
+            if sys.platform == "win32"
+            else path.read_text(encoding="utf-8")
+        )
     except FileNotFoundError:
         return None
     value: object = json.loads(

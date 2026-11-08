@@ -30,6 +30,11 @@ class CustomBuildHook(BuildHookInterface[BuilderConfig]):
                     "Building tasklease from a checkout requires Node.js and npm"
                 )
             if not (checkout / "node_modules/.package-lock.json").is_file():
+                subprocess.run(
+                    ["node", str(checkout / "scripts/dependency-policy.mjs")],
+                    cwd=checkout,
+                    check=True,
+                )
                 subprocess.run(["npm", "ci"], cwd=checkout, check=True)
             subprocess.run(
                 ["node", str(source_files[0]), str(python_root / "src/tasklease")],

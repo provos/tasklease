@@ -1,0 +1,23 @@
+--- upstream/deepmerge-4.3.1/dist/cjs.js
++++ tasklease/deepmerge/index.cjs
+@@ -78,0 +79,11 @@
++// Assign own data properties so a key named __proto__ cannot invoke the
++// inherited Object.prototype setter. Keep normal plain-object merge results.
++function setOwn(destination, key, value) {
++	Object.defineProperty(destination, key, {
++		value: value,
++		enumerable: true,
++		configurable: true,
++		writable: true
++	});
++}
++
+@@ -83 +94 @@
+-			destination[key] = cloneUnlessOtherwiseSpecified(target[key], options);
++			setOwn(destination, key, cloneUnlessOtherwiseSpecified(target[key], options));
+@@ -92 +103 @@
+-			destination[key] = getMergeFunction(key, options)(target[key], source[key], options);
++			setOwn(destination, key, getMergeFunction(key, options)(target[key], source[key], options));
+@@ -94 +105 @@
+-			destination[key] = cloneUnlessOtherwiseSpecified(source[key], options);
++			setOwn(destination, key, cloneUnlessOtherwiseSpecified(source[key], options));

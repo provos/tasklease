@@ -58,11 +58,14 @@ See Apple's [launch agent guide](https://developer.apple.com/library/archive/doc
 
 Save and edit the [scheduled task](../python/src/tasklease/worker_templates/windows.xml).
 Use your `DOMAIN\user` or user SID for `USER_ID`. XML escaping applies to
-paths. The task runs in the logged-in user's session, with a logon trigger,
+paths. Save the edited file as UTF-8. Its XML declaration deliberately omits
+an encoding attribute so the same definition also works as the Unicode string
+accepted by Task Scheduler's `XmlText` API and PowerShell's `-Xml` argument.
+The task runs in the logged-in user's session, with a logon trigger,
 failure restarts and no execution time limit. Import and start it in PowerShell:
 
 ```powershell
-Register-ScheduledTask -TaskName 'tasklease-worker' -Xml (Get-Content -Raw .\worker.xml)
+Register-ScheduledTask -TaskName 'tasklease-worker' -Xml (Get-Content -Raw -Encoding UTF8 .\worker.xml)
 Start-ScheduledTask -TaskName 'tasklease-worker'
 ```
 

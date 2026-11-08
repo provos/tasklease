@@ -9,7 +9,8 @@ import {
 import { tmpdir } from "node:os";
 import { basename, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { root, serviceVersion, workerConfig } from "./worker-config.mjs";
+
+const root = resolve(import.meta.dirname, "..");
 
 const output = resolve(
   process.argv[2] ?? resolve(root, "python/src/tasklease"),
@@ -33,6 +34,9 @@ function run(script, args, cwd) {
 }
 
 try {
+  // Check the entire lock and installed graph before executing build tools.
+  run("scripts/dependency-policy.mjs", ["--installed"], root);
+  const { serviceVersion, workerConfig } = await import("./worker-config.mjs");
   const dashboard = resolve(temporary, "static");
   const bundle = resolve(temporary, "service_bundle");
   const config = resolve(temporary, "wrangler.json");

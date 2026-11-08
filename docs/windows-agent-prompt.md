@@ -60,6 +60,12 @@ to obtain a passing result.
 Also check the packaged Windows task XML using the local Task Scheduler COM
 parser, without registering or starting a persistent task:
 
+The template intentionally omits an XML encoding attribute: exported files
+are UTF-8, while `XmlText` receives a Unicode string. A UTF-8 declaration on
+that COM string makes the native parser reject an encoding switch.
+Microsoft documents the [Unicode string boundary](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ms755989(v=vs.85))
+and the [Task Scheduler BSTR input](https://learn.microsoft.com/en-us/windows/win32/api/taskschd/nf-taskschd-itaskdefinition-put_xmltext).
+
 ```powershell
 $taskXml = & $python -I -m tasklease worker template --platform windows
 if ($LASTEXITCODE -ne 0) { throw 'Could not export the Windows template' }

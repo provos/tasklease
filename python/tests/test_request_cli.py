@@ -145,11 +145,15 @@ def test_request_publishes_complete_record_before_create_and_preserves_global_fl
     cli: CLI, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     data_file = tmp_path / "request.json"
-    data_file.write_text('{"input":{"items":[1,null,true]},"text":"héllo"}')
+    data_file.write_text(
+        '{"input":{"items":[1,null,true]},"text":"héllo"}', encoding="utf-8"
+    )
 
     def respond(request: httpx.Request) -> httpx.Response:
         assert operation(request) == "create"
-        saved = cast(dict[str, object], json.loads(cli.record_path().read_text()))
+        saved = cast(
+            dict[str, object], json.loads(cli.record_path().read_text(encoding="utf-8"))
+        )
         assert saved["data"] == body(request)["data"]
         assert saved["domain"] == DOMAIN
         assert saved["topic"] == TOPIC
@@ -189,6 +193,19 @@ def test_request_publishes_complete_record_before_create_and_preserves_global_fl
             "reply_topic": REPLY_TOPIC,
         },
     }
+
+
+def test_non_utf8_data_file_is_rejected_before_publication(
+    cli: CLI, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    data_file = tmp_path / "request-cp1252.json"
+    data_file.write_bytes(b'{"message":"h\xe9llo"}')
+    assert cli.run(request_args(data=f"@{data_file}")) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "Cannot read --data file" in captured.err
+    assert cli.requests == []
+    assert not cli.record_path().exists()
 
 
 def test_request_wait_drains_unmatched_replies_and_wait_survives_restart(

@@ -1,0 +1,2 @@
+# Vendor hashes and the preserved upstream patch must match on every platform.
+scripts/dependency-policy-vendor/deepmerge/** text eol=lf

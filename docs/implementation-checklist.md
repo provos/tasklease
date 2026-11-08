@@ -31,8 +31,8 @@ and verification evidence are recorded in [review-log.md](review-log.md).
 - [x] **7. Complete-system acceptance:** integrated fault conformance; clean
   wheel/sdist installation; packaged deployment and upgrade; OS validation;
   documentation and release tooling; independent whole-system review. Local
-  gates and accessible OS checks are accepted; Windows execution and public
-  publication remain separate external checks below.
+  gates and corrected-candidate native Windows/Linux/macOS checks passed after
+  publication, fixture, template and dependency-policy corrections.
 
 ## Acceptance requiring external access
 
@@ -43,7 +43,7 @@ or machine leaves a check unverified, never passed by inference.
 - [x] Actual R2 upload/download, signed Content-Length acceptance/rejection.
 - [x] Upgrade preserves existing Durable Object state and credentials.
 - [x] macOS filesystem/store/worker tests and clean package installation.
-- [ ] Windows filesystem/store/worker tests and clean package installation.
+- [x] Windows filesystem/store/worker tests and clean package installation.
 - [x] Cross-machine request, work, reply and durable inbox flow.
 - [ ] Public package publication and installation from PyPI, when authorized.
 
@@ -81,10 +81,18 @@ re-review. Phase 4 is accepted after simplify, independent Astra high review
 and its clean focused re-review. Phase 5 is accepted after clean simplify and
 independent Astra high review. Phase 6 is accepted after simplify, native Mac
 connection-admission correction and clean independent Astra focused review.
-All seven implementation and review gates are accepted. The installed wheel
+Phase 7 is accepted after correcting the initial native Windows failures,
+three simplify passes, fresh independent Astra high review and a clean focused
+re-review. The same reviewed source/wheel candidate passed clean installed-wheel
+acceptance on Windows (678 passed, six expected skips), Linux and macOS (681
+passed and three Windows-only skips each), including no-Node probes. Native
+Windows also passed both Task Scheduler COM parsers, all 188 Workers tests,
+asset builds, a clean npm audit and all 302 locked dependency age/source checks.
+The installed wheel
 bootstrapped the isolated
 `tasklease-acceptance-90d25ae` Worker and bucket. Live R2 round trip, SHA-256
 and signed Content-Length acceptance/rejection passed with the provided
 bucket-scoped credentials. Different-bundle upgrade, Linux/macOS clean-wheel
-native checks and the cross-machine request/reply flow passed. Native Windows
-execution awaits the user-run agent prompt; public publication is unperformed.
+native checks and the cross-machine request/reply flow passed. Corrected native
+results and artifact identities are recorded in the review log.
+Public publication is unperformed.

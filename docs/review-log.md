@@ -449,3 +449,115 @@ review; native Windows and public publication remain external checks.
   identities, native test counts/skips/failures and full tracebacks, plus
   native Task Scheduler XML parsing without registering a task. Until that
   report arrives, Windows runtime behavior remains unverified.
+
+## Native Windows acceptance correction — 2026-11-07
+
+Status: accepted after corrections, independent reviews and native qualification.
+
+- The Windows agent tested clean detached `e63dd871f40e49c5b62ef607c26e8e2743430715`:
+  665 passed, four failed, six expected platform skips. Installed-wheel probe
+  passed with Node absent. Original source and evidence were preserved.
+- Windows 11 Pro x64 build 26300.9711; Python 3.12.14, uv 0.13.6,
+  pytest 9.2.0, jsonschema 4.26.0, Node 24.22.1 and npm 11.21.1.
+- Original acceptance ZIP SHA-256:
+  `327b723b6b730161a883ca2f208af76f9161be0057c28d5d5bfd309965c65fb5`;
+  source tree `1c33634ad33815e7479734457624becd786a8c64160c57b198881532f1ac60ff`;
+  wheel `4d3bbe0a00e82c71a61ec7f4738543038ae220797be8761738dee780f2eda200`.
+- Mounted evidence was read from
+  `/mnt/c/Users/provo/AppData/Local/Temp/tasklease-native-ee69b803e201495180bfdc23c7164d77/`.
+  Three concurrency failures share errno 13 at the CRT `r+b` publication-flush
+  reopen. The fourth is a CP1252-written fixture contradicting the CLI's UTF-8
+  input contract. Task Scheduler's real COM parser rejected the UTF-8 XML
+  declaration in a Unicode BSTR with HRESULT `0x8004131A`.
+- A native COM A/B test reproduced the original encoding failure and accepted
+  the same XML without its encoding attribute. No task was registered or run.
+- Security qualification also failed: nine development dependency advisories
+  and eight installed locked packages newer than the seven-day cutoff, despite
+  npm age settings. Independent lockfile age verification and qualified pins
+  are being prepared; npm settings alone are not treated as proof.
+- Native Windows interop is available through WSL with sandbox escalation, so
+  corrected-candidate tests can be run directly in a fresh Windows directory.
+- Corrected publication flushes and JSON reads use pointer-width-safe Win32
+  handles with read/write/delete sharing, preserving real flush errors and
+  closing handles on every path. A deterministic native DELETE-sharing test
+  covers Unicode data larger than the read buffer. Five repeated native
+  concurrency rounds passed all 20 critical cases; filesystem/store checks
+  passed 111 tests with three expected skips.
+- Explicit UTF-8 fixtures preserve the CLI contract; a CP1252 negative case
+  verifies rejection before publication. Encoding-neutral XML passed both
+  native COM Unicode-string and UTF-8-file parsing, including an accented
+  working directory. No Task Scheduler task was registered or started.
+- Corrected editable-source native Windows runtime: 678 passed, zero failed,
+  six expected POSIX-only skips. Evidence:
+  `/mnt/c/Users/provo/AppData/Local/Temp/tasklease-win-runtime-correction-b6mwfvbg/`.
+  This is preliminary runtime evidence; clean installed-wheel qualification
+  follows separately.
+- Replaced young pins and the vulnerable minimatch graph; added a narrowly
+  reviewed deepmerge backport because the primary advisory has no patched
+  upstream release. Original tarball integrity, exact patch, license and
+  runtime source hashes are recorded under
+  `scripts/dependency-policy-vendor/deepmerge/`. Regression tests exercise
+  prototype poisoning and merge/API compatibility. No advisory was suppressed.
+- Added a built-ins-only gate before npm installation and before source asset
+  builds load third-party code. It verifies all 302 locked registry versions,
+  including optional packages for other OS/CPU combinations, against the
+  seven-day cutoff and exact registry tarball/integrity. Installed mode checks
+  hidden-lock parity and actual package versions/links. Lifecycle scripts are
+  disabled; esbuild/workerd binaries and all build/test tools work without
+  them. npm audit reports zero vulnerabilities, including dev dependencies.
+  The supported Worker compatibility date is now `2026-10-30`, with regenerated
+  runtime bindings and no use of newer APIs.
+- Independent simplify reuse, quality and efficiency passes are clean. The
+  reuse pass caught an eager TypeScript import before the asset-build guard;
+  the import now happens after validation. Efficiency independently confirmed
+  one registry request per package name (290 requests for 302 versions), at
+  most eight concurrent requests, and no outstanding requests on success.
+- Fresh independent `gpt-6-astra` high review found a stale Wrangler login pin
+  in first-use help. It now matches qualified Wrangler `4.156.0`; the existing
+  installed-sdist/no-Node probe asserts that help and the generated bundle
+  manifest agree. Focused Astra re-review is clean. It independently passed
+  71 Python cases (three native-only skips), all 13 policy/backport cases,
+  isolated CLI help and the vendor patch's exact upstream-hash reconstruction.
+- Integrated local gate passed 772 Python/tooling tests with three expected
+  native-only skips, 188 Workers tests, 13 dashboard tests, 150 conformance
+  cases, 219 examples, 13 policy cases, strict/static/drift checks and wheel/
+  sdist builds. Focused packaging/help revalidation and final native Windows
+  clean-wheel/security execution follow below.
+- The checkout policy does not lock transitive resolution performed by an
+  operator's `npx` during deployment. That existing design boundary is now
+  explicit in the release instructions.
+- Focused review-fix verification passed all 30 packaging/help tests, Ruff and
+  formatting, then rebuilt wheel/sdist. The vendored patch was recorded with
+  zero context so Git's whitespace checker preserves the original code's tabs
+  without treating unified-diff context markers as source indentation.
+- Corrected reviewed candidate passed from fresh installed wheels on all three
+  operating systems: Windows 678 passed/six expected skips; Linux and macOS
+  each 681 passed/three Windows-only skips. All have zero failures/errors and
+  passed the isolated package-byte/dashboard/Worker/template probe with Node
+  absent from PATH. Both actual Windows Task Scheduler COM cases passed; no
+  task was registered or started. Every report binds identical ZIP, source
+  tree and wheel hashes:
+  - ZIP `ec1a6c893278871496b09ad70df2adf55da8729c71761790a2d8e48bcd67540d`;
+  - source `797b2a1a1cd082d1e32f6d02b28a2ca0654b144f3a05ed3463447e7a1282734d`;
+  - wheel `b785007279ccfe0f63d2d01659ddec6107187d230ac5efa15320c4756185b949`.
+  This preflight was explicitly exported from staged reviewed changes atop
+  `e63dd87`, with dirty status recorded. Subsequent edits update acceptance
+  documentation only; package, tests, build tools and dependency bytes match
+  the qualified candidate.
+- Windows evidence, including exact commands, JUnit, all skip reasons, probe
+  and full pytest logs, is preserved at
+  `/mnt/c/Users/provo/AppData/Local/Temp/tasklease-win-corrected-ihut5w5o/`.
+  Windows qualification separately copied source so Node builds could not
+  alter the verified runtime bundle: pre-install and installed-tree age/source
+  gates passed at the stricter `2026-11-01T00:00:00Z` cutoff; fresh `npm ci`
+  kept lifecycle scripts disabled; audit reports zero at every severity;
+  policy/backport tests passed 13/13; Workers tests passed 188/188; complete
+  Vite and bundled-Worker asset builds passed with native Windows binaries.
+- Linux report: `/tmp/tasklease-linux-corrected-49zbeoi3/native-report.json`.
+  macOS report: `/private/tmp/tasklease-corrected.r8h5eu/native-report.json` on
+  `provos@macbook.localdomain`, copied to
+  `/tmp/tasklease-macos-corrected-native-report.json`. Native Python versions
+  were 3.12.14 on Windows and 3.12.12 on Linux/macOS. All original checkouts
+  and initial failed-candidate evidence were left untouched.
+- Phase 7 is closed. All seven implementation phases and their review gates
+  are accepted; public package publication remains unperformed.

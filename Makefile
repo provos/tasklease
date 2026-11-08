@@ -1,10 +1,16 @@
-.PHONY: install codegen codegen-check check check-service check-monitor check-python conformance build release monitor test-service test-python format
+.PHONY: install dependencies codegen codegen-check check check-service check-monitor check-python conformance build release monitor test-service test-python format
 
 export UV_CACHE_DIR ?= /tmp/tasklease-uv-cache
 
 install:
+	node scripts/dependency-policy.mjs
 	npm ci
+	npm run check:dependencies
 	cd python && uv sync --locked
+
+dependencies:
+	npm run check:dependencies
+	npm run test:dependency-policy
 
 codegen:
 	npm run codegen
@@ -12,7 +18,7 @@ codegen:
 codegen-check:
 	npm run codegen:check
 
-check: codegen-check check-service check-monitor check-python conformance
+check: dependencies codegen-check check-service check-monitor check-python conformance
 
 check-service:
 	npm run format:check

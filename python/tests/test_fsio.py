@@ -415,6 +415,127 @@ def test_windows_move_requests_write_through_without_copy_fallback(
     ]
 
 
+@pytest.mark.parametrize("failure", ["none", "open", "flush", "close", "flush-close"])
+def test_windows_flush_handles_sharing_errors_and_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    events: list[str] = []
+    opened: list[tuple[str, int, int, None, int, int, None]] = []
+    handle = 2**40 + 16  # HANDLE must retain pointer width on 64-bit Windows.
+    error = 0
+
+    class Function:
+        argtypes: list[object]
+        restype: object
+
+    def create(
+        path: str,
+        access: int,
+        share: int,
+        attributes: None,
+        disposition: int,
+        flags: int,
+        template: None,
+    ) -> int | None:
+        nonlocal error
+        events.append("open")
+        opened.append((path, access, share, attributes, disposition, flags, template))
+        if failure == "open":
+            error = 40
+            return ctypes.c_void_p(-1).value
+        return handle
+
+    def flush(value: int) -> int:
+        nonlocal error
+        assert value == handle
+        events.append("flush")
+        if failure.startswith("flush"):
+            error = 50
+            return 0
+        return 1
+
+    def close(value: int) -> int:
+        nonlocal error
+        assert value == handle
+        events.append("close")
+        if "close" in failure:
+            error = 70
+            return 0
+        return 1
+
+    class Create(Function):
+        def __call__(
+            self,
+            path: str,
+            access: int,
+            share: int,
+            attributes: None,
+            disposition: int,
+            flags: int,
+            template: None,
+        ) -> int | None:
+            return create(path, access, share, attributes, disposition, flags, template)
+
+    class Flush(Function):
+        def __call__(self, value: int) -> int:
+            return flush(value)
+
+    class Close(Function):
+        def __call__(self, value: int) -> int:
+            return close(value)
+
+    class Library:
+        CreateFileW = Create()
+        FlushFileBuffers = Flush()
+        CloseHandle = Close()
+
+    def load_library(name: str, *, use_last_error: bool) -> Library:
+        assert name == "kernel32" and use_last_error
+        return Library()
+
+    monkeypatch.setattr(ctypes, "WinDLL", load_library, raising=False)
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: error, raising=False)
+    monkeypatch.setattr(
+        ctypes,
+        "WinError",
+        lambda code: OSError(code, f"Windows error {code}"),
+        raising=False,
+    )
+    monkeypatch.setattr(sys, "platform", "win32")
+    path = tmp_path / "record.json"
+    if failure == "none":
+        fsio._sync_publication(path)
+    else:
+        expected = (
+            40 if failure == "open" else 50 if failure.startswith("flush") else 70
+        )
+        with pytest.raises(OSError) as caught:
+            fsio._sync_publication(path)
+        assert caught.value.errno == expected
+        if failure == "flush-close":
+            assert "Windows error 70" in caught.value.__notes__[0]
+    assert opened == [(str(path), 0x40000000, 7, None, 3, 0x80, None)]
+    assert events == (["open"] if failure == "open" else ["open", "flush", "close"])
+    assert Library.CreateFileW.restype is ctypes.c_void_p
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Native Windows file sharing")
+def test_windows_loser_flush_and_reader_share_an_inflight_delete_handle(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "record.json"
+    payload = {"text": "é" * 70_000, "nested": [1, None, True]}
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    path.write_bytes(data)
+    # A rename can make its destination visible while still holding DELETE
+    # access. Both a duplicate's barrier and an ordinary reader must coexist.
+    with fsio._windows_handle(path, 0x10000):
+        assert fsio.publish_new(path, b"must not replace") == "exists"
+        assert fsio.read_json(path) == payload
+    assert path.read_bytes() == data
+    assert list(tmp_path.iterdir()) == [path]
+
+
 def test_darwin_full_flush_follows_namespace_flush(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
