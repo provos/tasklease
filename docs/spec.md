@@ -500,10 +500,14 @@ while not stopping:
 
 finish(task, outcome):
     if the task is lost: return                    # someone else owns it now
-    if task.data has a well-formed reply topic:
-        r = consume(task.id, [{topic: reply_topic, data: reply(task, outcome)}])
+    if the work succeeded:
+        successors = reply(task, outcome)          # 0-16 new tasks: a reply,
+        r = consume(task.id, successors)           # or a pipeline's next stages
         if r is ok or r is not_found: return
-        # forbidden, invalid or too_large: the reply topic cannot take it
+    elif task.data has a well-formed reply topic:
+        r = consume(task.id, [{topic: reply_topic, data: failure(task, outcome)}])
+        if r is ok or r is not_found: return
+    # no reply topic for a failure, or forbidden, invalid or too_large
     r2 = consume(task.id, [{topic: error_topic(topic),
                             data: {original: task.data, outcome: outcome, error: r}}])
     if r2 is too_large:
@@ -516,6 +520,12 @@ never changes; access to that ID needs no mutex. The local deadline and lost
 state still need synchronization. A deadline watchdog marks the task lost
 even while a network call is blocked, and a late Renew response cannot revive
 a locally lost task.
+
+A successful handler decides what comes next: a request/reply handler
+returns one task for the request's reply topic, and a pipeline stage returns
+the next stages' tasks, which need no reply topic. A failure (a rejection, an
+exception, too many Owns) goes to the task's reply topic when it has one, so
+the requester learns of it, and otherwise to the error topic.
 
 **Every task ends.** Whatever is wrong with a task (data that does not parse,
 a reply topic the worker may not write to, a reply that comes out too large),

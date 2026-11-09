@@ -6,6 +6,13 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+### Changed
+
+- `tl worker` and `WorkerLoop` now Consume a successful task into whatever
+  successors the handler's `reply` returns, even when the task has no
+  `reply_topic`, so a handler can run a pipeline stage. A failure on a task
+  without a `reply_topic` goes to the topic's error topic, as before.
+
 ## [0.1.0] - 2026-11-08
 
 Initial release candidate; PyPI publication is pending.

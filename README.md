@@ -260,10 +260,11 @@ Python `tasklease.client.Client` has a method for each. The
 
 `tl worker` runs a handler on one topic. It owns a task, calls `validate`,
 calls `run` while it renews the lease, and then Consumes the task with the
-successors `reply` returns. A `Rejection`, an exception or too many Owns
-becomes a failure reply to the task's `reply_topic` instead, so every task a
-handler processes carries one. `run` receives a `lost` event that is set if
-the lease is lost; long work should check it and stop.
+successors `reply` returns: one reply for a request, or a pipeline's next
+stages. A `Rejection`, an exception or too many Owns becomes a failure reply
+to the task's `reply_topic` if it has one, and otherwise goes to the topic's
+error topic for an operator. `run` receives a `lost` event that is set if the
+lease is lost; long work should check it and stop.
 
 The fetch stage of the [pipeline example](#example-use-cases), in
 `crawl_stages.py`:
@@ -284,7 +285,7 @@ class Fetch:
         return fetch_and_store(url, lost)  # your code: returns an R2 blob key
 
     def reply(self, task: p.Task, blob: str) -> list[p.NewTask]:
-        data = {**task["data"], "blob": blob}  # keeps url and reply_topic
+        data = {"url": task["data"]["url"], "blob": blob}
         return [
             {"topic": "classify/content", "data": data},
             {"topic": "classify/security", "data": data},
@@ -298,7 +299,7 @@ def fetch() -> Fetch:
 Run it with `topic = "check/url"` and `handler = "crawl_stages:fetch"` in the
 worker's `[worker]` table, with the module importable by `tl` (for example
 through `PYTHONPATH`). Its identity needs `own` on `check/url` and `create` on
-`classify/*` and on the reply topic.
+`classify/*`; failures go to `check/url/error`, which `own` already grants.
 
 ### Calling the service from code
 
@@ -311,7 +312,7 @@ with Client(URL, token, "crawler-1") as client:
         {
             "domain": "crawl",
             "topic": "check/url",
-            "data": {"url": "https://example.com", "reply_topic": "crawl/failed"},
+            "data": {"url": "https://example.com"},
         }
     )
 

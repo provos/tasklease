@@ -287,13 +287,59 @@ def test_rejected_and_max_owned_never_run(status: str) -> None:
 
 
 @pytest.mark.parametrize("reply_topic", [None, "bad topic", "UPPER", "/", 42])
-def test_missing_or_invalid_reply_topic_routes_error(reply_topic: p.JsonValue) -> None:
+def test_echo_without_valid_reply_topic_routes_error(reply_topic: p.JsonValue) -> None:
     backend = Backend()
     backend.task["data"]["reply_topic"] = reply_topic
-    loop(backend).step()
+    WorkerLoop(
+        backend.client(), DOMAIN, TOPIC, UnlimitedCapacity(), EchoHandler()
+    ).step()
     reply = new_tasks(backend.consumed[0])[0]
     assert reply["topic"] == TOPIC + "/error"
     assert reply["data"]["original"] == backend.task["data"]
+    assert "Missing or invalid reply_topic" in cast(str, reply["data"]["error"])
+
+
+@pytest.mark.parametrize("count", [0, 1, 2, 16])
+def test_pipeline_stage_without_reply_topic_posts_its_successors(count: int) -> None:
+    backend = Backend()
+    backend.task["data"] = {"url": "https://a.example"}
+    handler = CustomHandler()
+    successors: list[p.NewTask] = [
+        {"topic": f"classify/stage-{index}", "data": {"url": "https://a.example"}}
+        for index in range(count)
+    ]
+    handler.on_reply = lambda task, outcome: successors
+    loop(backend, handler).step()
+    assert len(backend.consumed) == 1
+    assert new_tasks(backend.consumed[0]) == successors
+
+
+@pytest.mark.parametrize("stage", ["validate", "run", "rejected", "abandoned"])
+def test_failure_without_reply_topic_goes_to_the_error_topic(stage: str) -> None:
+    backend = Backend()
+    backend.task["data"] = {"url": 1}
+    handler = CustomHandler()
+
+    def failure(*args: object) -> object:
+        raise RuntimeError("handler failed")
+
+    if stage == "validate":
+        handler.on_validate = failure
+    elif stage == "run":
+        handler.on_run = failure
+    elif stage == "rejected":
+        handler.on_validate = lambda task: Rejection("url must be text")
+    else:
+        backend.task["owned_count"] = 4
+    handler.on_reply = lambda task, outcome: pytest.fail("failures skip reply")
+    loop(backend, handler).step()
+    assert len(backend.consumed) == 1
+    reply = new_tasks(backend.consumed[0])[0]
+    assert reply["topic"] == TOPIC + "/error"
+    assert reply["data"]["original"] == backend.task["data"]
+    assert reply["data"]["error"] == "Failed, and the task has no reply_topic"
+    status = {"validate": "failed", "run": "failed"}.get(stage, stage)
+    assert cast(p.Data, reply["data"]["outcome"])["status"] == status
 
 
 @pytest.mark.parametrize(
