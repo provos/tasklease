@@ -2,7 +2,6 @@ import type {
   Data,
   HourlyStats,
   MonitorSnapshotResponse,
-  Poller,
   SnapshotTopic,
 } from "../../service/src/generated/protocol.ts";
 
@@ -40,11 +39,6 @@ export interface Snapshot {
 
 export interface TopicView extends SnapshotTopic {
   domain: string;
-}
-
-export interface WorkerView extends Poller {
-  domain: string;
-  topic: string;
 }
 
 export interface StatsTopic {
@@ -89,18 +83,6 @@ export function topics(snapshot: Snapshot | null): TopicView[] {
       domain.topics.map((topic) => ({ ...topic, domain: domain.domain })),
     ) ?? []
   );
-}
-
-export function workers(topics: TopicView[]): WorkerView[] {
-  return topics
-    .flatMap((topic) =>
-      topic.pollers.map((poller) => ({
-        ...poller,
-        domain: topic.domain,
-        topic: topic.topic,
-      })),
-    )
-    .sort((a, b) => b.last_polled_at - a.last_polled_at);
 }
 
 export function statsTopics(snapshot: Snapshot | null): StatsTopic[] {

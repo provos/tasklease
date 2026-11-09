@@ -118,7 +118,9 @@ npm run monitor:mock -- --port 5180       # Vite options go after --
 ```
 
 Pick a scenario in the page URL, for example `/?scenario=empty&delay=3000`:
-`busy` (default), `empty`, `degraded` (some sources unavailable), `large`
+`busy` (default; an incident with a down machine, an error task and a
+lapsed lease), `building` (healthy during a long build), `empty`, `degraded`
+(some sources unavailable), `large`
 (many domains and topics, a truncated queue, long names, inbox paging) or
 `unreachable` (HTTP 502). `TL_MOCK_SCENARIO` sets the default. Scenarios live
 in `monitor/src/mock/` and are tested against the service schema.

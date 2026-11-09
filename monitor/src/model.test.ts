@@ -6,7 +6,6 @@ import {
   hourBuckets,
   statsTopics,
   topics,
-  workers,
   type Snapshot,
 } from "./model";
 
@@ -19,7 +18,7 @@ function snapshot(): Snapshot {
 }
 
 describe("snapshot dashboard model", () => {
-  it("carries schema-fixture topic and poller metadata into their domain", () => {
+  it("carries schema-fixture topic metadata into its domain", () => {
     const queues = topics(snapshot());
     expect(queues).toHaveLength(1);
     expect(queues[0]).toMatchObject({
@@ -28,13 +27,6 @@ describe("snapshot dashboard model", () => {
       available: 0,
       held: 1,
     });
-    expect(workers(queues)).toEqual([
-      {
-        ...fixture.body.topics[0].pollers[0],
-        domain: "acme/pipeline",
-        topic: "work/linux",
-      },
-    ]);
   });
 
   it("includes exactly N buckets ending in the current partial hour", () => {

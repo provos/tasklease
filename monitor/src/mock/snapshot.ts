@@ -23,6 +23,7 @@ import {
 /** Scenarios with a snapshot body. `unreachable` is an HTTP failure instead. */
 export const SNAPSHOT_SCENARIOS = [
   "busy",
+  "building",
   "empty",
   "degraded",
   "large",
@@ -86,12 +87,17 @@ class Builder {
     worker: string,
     minutesAgo: number,
     ownedCount = 1,
+    leaseLeftMinutes: number | null = null,
   ): TaskSummary {
     const ownedAt = this.now - minutesAgo * MINUTE;
     return {
       id: this.taskId(),
       created_at: ownedAt - 40_000,
-      lease_until: ownedAt + 10 * MINUTE,
+      // Without renewal the 10-minute lease runs out; a renewed lease has time left.
+      lease_until:
+        leaseLeftMinutes === null
+          ? ownedAt + 10 * MINUTE
+          : this.now + leaseLeftMinutes * MINUTE,
       owned_count: ownedCount,
       creator: "agent-claude-a1",
       owner: { identity, worker },
@@ -204,6 +210,7 @@ function request(
   minutesAgo: number,
   data: LocalRequest["data"],
   state: LocalRequest["state"] = "pending",
+  task: TaskSummary | null = null,
 ): LocalRequest {
   return {
     agent_id: agent,
@@ -211,9 +218,10 @@ function request(
     domain: DOMAIN,
     topic: topicName,
     reply_topic: `${topicName.startsWith("advise") ? "advised" : "verified"}/${agent}`,
-    created_at: b.now - minutesAgo * MINUTE,
+    created_at: task ? task.created_at - 2_000 : b.now - minutesAgo * MINUTE,
     data,
-    task_id: state === "submission_unknown" ? null : b.taskId(),
+    task_id:
+      state === "submission_unknown" ? null : task ? task.id : b.taskId(),
     state,
   };
 }
@@ -239,15 +247,23 @@ function reply(
   };
 }
 
-/** A FluxShot-like board: verify, build and advise workers on three machines. */
+const PR = { pr: 1031, sha: "3497557d", tier: "pr" };
+
+/**
+ * A FluxShot-like board with an incident: windows-1 is down, so
+ * verify/windows has no live worker; a verify/macos lease has lapsed; and a
+ * failed task waits in verify/linux/error.
+ */
 function busy(hours: number, now: number): Snapshot {
   const b = new Builder(now, 7);
+  const linuxRun = b.held("linux-1", "verify-a", 6);
+  const windowsQueued = b.available(18);
   const topics = [
     topic(
       "verify/linux",
       true,
       [
-        b.held("linux-1", "verify-a", 6),
+        linuxRun,
         b.held("linux-1", "verify-b", 2, 2),
         b.available(3),
         b.available(1, "agent-codex-b7"),
@@ -266,7 +282,7 @@ function busy(hours: number, now: number): Snapshot {
     topic(
       "verify/windows",
       true,
-      [b.available(18), b.available(9)],
+      [windowsQueued, b.available(9)],
       [b.poller("windows-1", "verify-a", 1_900, 47)],
     ),
     topic(
@@ -278,7 +294,7 @@ function busy(hours: number, now: number): Snapshot {
     topic(
       "advise",
       true,
-      [b.held("adviser", "opus", 4)],
+      [b.held("adviser", "opus", 4, 1, 6)],
       [b.poller("adviser", "opus", 20, 4)],
     ),
     topic("verified/agent-claude-a1", false, [b.available(1, "linux-1")], []),
@@ -297,21 +313,29 @@ function busy(hours: number, now: number): Snapshot {
     domains: [domainSnapshot(DOMAIN, now, topics, stats)],
     local: {
       requests: [
-        request(b, "agent-claude-a1", "verify/linux", 6, {
-          pr: 1031,
-          sha: "3497557d",
-          tier: "pr",
-        }),
-        request(b, "agent-claude-a1", "verify/windows", 18, {
-          pr: 1031,
-          sha: "3497557d",
-          tier: "pr",
-        }),
+        request(
+          b,
+          "agent-claude-a1",
+          "verify/linux",
+          6,
+          PR,
+          "pending",
+          linuxRun,
+        ),
+        request(
+          b,
+          "agent-claude-a1",
+          "verify/windows",
+          18,
+          PR,
+          "pending",
+          windowsQueued,
+        ),
         request(
           b,
           "agent-codex-b7",
           "advise",
-          2,
+          7,
           { question: "Is a 30-minute solve-lane hold OK for the G-9 batch?" },
           "submission_unknown",
         ),
@@ -342,6 +366,86 @@ function busy(hours: number, now: number): Snapshot {
           null,
         ),
       ],
+    },
+  };
+}
+
+/**
+ * A healthy board during a long Windows build: windows-1 has not polled for
+ * 35 minutes because build-a holds a renewed lease and verify-a waits for the
+ * machine's capacity. Nothing should alert.
+ */
+function building(hours: number, now: number): Snapshot {
+  const b = new Builder(now, 13);
+  const build = b.held("windows-1", "build-a", 35, 1, 7);
+  const queued = b.available(4);
+  const linux = b.held("linux-1", "verify-a", 3, 1, 8);
+  const topics = [
+    topic(
+      "verify/linux",
+      true,
+      [linux],
+      [
+        b.poller("linux-1", "verify-a", 180, 3),
+        b.poller("linux-1", "verify-b", 14, 40),
+      ],
+    ),
+    topic("verify/macos", true, [], [b.poller("mac-1", "verify-a", 22, 25)]),
+    topic(
+      "verify/windows",
+      true,
+      [queued],
+      [b.poller("windows-1", "verify-a", 2_100, 60)],
+    ),
+    topic(
+      "build/windows",
+      true,
+      [build],
+      [b.poller("windows-1", "build-a", 2_100, 35)],
+    ),
+    topic("advise", true, [], [b.poller("adviser", "opus", 9, 50)]),
+  ];
+  const stats = [
+    ...b.stats("verify/linux", hours, 6, 4, 9),
+    ...b.stats("verify/macos", hours, 3, 6, 14),
+    ...b.stats("verify/windows", hours, 2, 15, 22),
+    ...b.stats("build/windows", hours, 1, 3, 35),
+    ...b.stats("advise", hours, 2, 1, 6),
+  ];
+  return {
+    generated_at: now,
+    domains: [domainSnapshot(DOMAIN, now, topics, stats)],
+    local: {
+      requests: [
+        request(
+          b,
+          "agent-claude-a1",
+          "build/windows",
+          35,
+          { pr: 1032, sha: "9f1c2e7a", target: "installer" },
+          "pending",
+          build,
+        ),
+        request(
+          b,
+          "agent-claude-a1",
+          "verify/windows",
+          4,
+          { pr: 1032, sha: "9f1c2e7a", tier: "pr" },
+          "pending",
+          queued,
+        ),
+        request(
+          b,
+          "agent-codex-b7",
+          "verify/linux",
+          3,
+          { pr: 1033, sha: "51d0aa3c", tier: "pr" },
+          "pending",
+          linux,
+        ),
+      ],
+      replies: [],
     },
   };
 }
@@ -390,6 +494,7 @@ function large(hours: number, now: number): Snapshot {
               `worker-${t}`,
               b.integer(1, 30),
               b.integer(1, 4),
+              b.integer(1, 9),
             )
           : b.available(b.integer(1, 600)),
       );
@@ -456,7 +561,7 @@ function large(hours: number, now: number): Snapshot {
 const builders: Record<
   SnapshotScenario,
   (hours: number, now: number) => Snapshot
-> = { busy, empty, degraded, large };
+> = { busy, building, empty, degraded, large };
 
 export function mockSnapshot(
   scenario: SnapshotScenario,
