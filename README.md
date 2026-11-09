@@ -55,8 +55,8 @@ and you want no servers to operate:
 - **Operations:** after you create R2 access keys in the Cloudflare
   dashboard, one `tl service deploy` provisions the Worker, its storage, the
   bucket and the secrets in your own Cloudflare account; deploying needs
-  Node.js and a Wrangler sign-in. Rerunning it upgrades the service; until the
-  first release, a schema change may mean recreating the service instead.
+  Node.js and a Wrangler sign-in. Rerunning it upgrades the service; check the
+  changelog for compatibility and migration instructions.
   There are no servers, brokers or databases to patch or back up:
   Cloudflare's durability is the backup. Requests are billed, idle polls
   included, so the scale figures assume a paid Workers plan.
@@ -110,17 +110,17 @@ step to run again.
 
 ## Install
 
-Python 3.12 or newer is required. Install a built release wheel:
+Python 3.12 or newer is required. Install from PyPI:
 
 ```sh
-uv tool install /path/to/tasklease-0.1.0-py3-none-any.whl
+uv tool install tasklease
 tl --help
 ```
 
 Wheel and sdist installations include the dashboard and Worker, so installation
 and normal client/worker/monitor use need no Node.js. Service deployment uses
 Node.js and the exact Wrangler version recorded in the installed bundle.
-Public package publication is tracked separately in the acceptance checklist.
+Published packages are available on [PyPI](https://pypi.org/project/tasklease/).
 
 For development, use Node `^22.12.0 || >=24`, Python 3.12+ and uv:
 

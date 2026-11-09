@@ -45,7 +45,8 @@ or machine leaves a check unverified, never passed by inference.
 - [x] macOS filesystem/store/worker tests and clean package installation.
 - [x] Windows filesystem/store/worker tests and clean package installation.
 - [x] Cross-machine request, work, reply and durable inbox flow.
-- [ ] Public package publication and installation from PyPI, when authorized.
+- [x] Public package publication and installation from PyPI: `tasklease 0.1.0`,
+  verified on Linux, macOS and Windows.
 
 ## Contract clarifications
 
@@ -95,4 +96,8 @@ and signed Content-Length acceptance/rejection passed with the provided
 bucket-scoped credentials. Different-bundle upgrade, Linux/macOS clean-wheel
 native checks and the cross-machine request/reply flow passed. Corrected native
 results and artifact identities are recorded in the review log.
-Public publication is unperformed.
+`0.1.0` is published on PyPI from `v0.1.0` at `c373fbf`. Fresh PyPI
+installations passed CLI/resource probes and native runtime tests on Linux,
+macOS and Windows. Deployment from the PyPI installation and an isolated
+state-preserving upgrade passed real Cloudflare/R2 checks. See
+[the publication evidence](review-log.md#first-pypi-publication-2026-11-08).

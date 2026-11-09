@@ -11,9 +11,8 @@ and opening the monitor do not need Node.
 Complete these once, then use the checklist below for the first release and
 every later release:
 
-- [x] Confirm the initial version. The checkout currently uses `0.1.0`; keep
-  it for the first release unless there is a reason to choose another version.
-  There is no need to increment an unpublished version just to publish it.
+- [x] Confirm the initial version. The first release is `0.1.0`, published
+  on 2026-11-08. Later releases must use an unused version.
 - [x] Review the public metadata in `python/pyproject.toml` and the package
   description in the root `README.md`. The metadata hook reads that file in
   a checkout, and the sdist includes its snapshot for builds away from the
@@ -25,13 +24,13 @@ every later release:
   dashboard ships its own `THIRD_PARTY_NOTICES.md`. Review these notices when
   changing bundled dependencies. All three first-party npm workspace manifests
   declare `Apache-2.0`; vendored dependencies keep their upstream licenses.
-- [ ] Confirm the PyPI account's pending publisher matches project
+- [x] Confirm the PyPI account's trusted publisher matches project
   `tasklease`, owner `provos`, repository `tasklease`, workflow `workflow.yml`
-  and no required GitHub environment. The repository records this setup, but
-  only the account can confirm its current state. Ensure GitHub Actions is
-  enabled and the workflow is on `main`. See
+  and no required GitHub environment. The successful `0.1.0` publication
+  confirmed this setup. GitHub Actions is enabled and the workflow is on
+  `main`. See
   [trusted publisher setup](#publish-through-the-trusted-publisher).
-- [ ] Review the outstanding items in the
+- [x] Review the outstanding items in the
   [implementation checklist](implementation-checklist.md). Earlier acceptance
   results are recorded in [the review log](review-log.md); qualify the actual
   release candidate when package, service, tests, build tools or dependencies
@@ -46,8 +45,8 @@ package name; see [PyPI's pending-project documentation](https://docs.pypi.org/t
 
 1. **Prepare the version and release notes.** Choose an unused
    `MAJOR.MINOR.PATCH` version in `python/pyproject.toml`, then run
-   `uv lock --project python` and review the lockfile diff. Keep `0.1.0` for
-   the first release if unchanged. Finalize the entries under `Unreleased` in
+   `uv lock --project python` and review the lockfile diff. The first release
+   used `0.1.0`. Finalize the entries under `Unreleased` in
    [CHANGELOG.md](../CHANGELOG.md) into a version section with the intended
    release date (`YYYY-MM-DD`), leaving an empty `Unreleased` section above it.
    State whether a service upgrade is required, client/service compatibility,
@@ -223,7 +222,7 @@ operator's service as a test.
 
 ## Publish through the trusted publisher
 
-The pending PyPI publisher for `tasklease` is configured for GitHub repository
+The PyPI trusted publisher for `tasklease` is configured for GitHub repository
 `provos/tasklease`, workflow filename `workflow.yml`, and any environment.
 The matching workflow is `.github/workflows/workflow.yml`. No PyPI token or
 GitHub secret is needed. The workflow deliberately omits an environment name

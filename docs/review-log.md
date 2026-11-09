@@ -696,3 +696,54 @@ Status: accepted after corrections, independent reviews and native qualification
   check/build logs and byte-comparison evidence are under
   `/tmp/tasklease-release-010.KeK43m/readme/`. PyPI still returned 404 for
   `tasklease/0.1.0` during preparation; the GitHub release remains a draft.
+
+## First PyPI publication (2026-11-08)
+
+- Published `tasklease 0.1.0` from the final `v0.1.0` tag at
+  `c373fbf94da11d0f4ab3fdad20978100b4dfca99`, including the pipeline-worker
+  change. The tag's annotated object is
+  `c75b7ac4ec6189288310488da5c5e2d35024bc74` and remains unchanged after
+  publication. The [trusted-publisher run](https://github.com/provos/tasklease/actions/runs/42573194865)
+  completed both build and publishing jobs successfully, including metadata
+  checks and attestations. It reran the full checks: 191 Workers, 32 dashboard,
+  809 Python/tooling tests with three expected skips, 154 conformance tests,
+  and the dependency, audit, generation, formatting, lint and type gates.
+- Verified both files' SHA-256 hashes against PyPI's release JSON metadata
+  and the publishing run's artifacts:
+  - wheel: `3e62b9aa3a718d05ad1ff1e5f7e2f39b4ed57322422de22ec99d65fc7a80d9d7`;
+  - sdist: `71f237ef37e4cdb1b978048866c32617d8f83b6b57b5e56198eb2fcaabc60015`.
+  The main README description/sdist snapshot, Apache-2.0 metadata/license,
+  full bundled third-party notices and exact tagged worker source passed
+  artifact inspection. These published files supersede the earlier draft
+  candidate distributions and hashes above.
+- Installed `tasklease==0.1.0` from `https://pypi.org/simple` into fresh
+  environments outside the checkout on all three platforms, without cached
+  package resolution. `tl --version` returned `tl 0.1.0`; help and isolated
+  installed-wheel/no-Node resource probes passed. Native runtime tests passed:
+  Linux 716/three expected skips, macOS 716/three expected skips, and Windows
+  713/six expected skips. Windows Task Scheduler parsing passed without
+  registering a task. Every report binds the same published wheel and clean
+  tagged source snapshot.
+- macOS Safe-chain initially suppressed the newly published version under
+  its minimum-age policy. The user approved a one-time exception solely for
+  SHA-256-pinned `tasklease==0.1.0`, installed with `--no-deps`. Runtime and
+  test dependencies were installed separately under their existing age
+  checks; no persistent security setting was changed.
+- A fresh `tasklease-pypi-010-4992c97a` test Worker, using only the existing
+  dedicated acceptance bucket, bootstrapped from the earlier installed bundle
+  and upgraded from the fresh PyPI installation. The exact held task,
+  identity/admin credentials and statistics survived. Snapshot migration,
+  atomic reply/fencing and real R2 signed-size rejection/upload/download
+  checks passed. The temporary identity was revoked and the new Worker was
+  deleted; the existing acceptance Worker/bucket were not redeployed or
+  deleted. Logs redact credentials, and none were persisted in configuration.
+- PyPI: [tasklease 0.1.0](https://pypi.org/project/tasklease/0.1.0/).
+  GitHub: [v0.1.0 release](https://github.com/provos/tasklease/releases/tag/v0.1.0).
+  The release's wheel/sdist match PyPI exactly, and its checks archive retains
+  publishing logs, PyPI metadata/hash verification, native reports and
+  redacted deployment/cleanup evidence. Local evidence is preserved under
+  `/tmp/tasklease-publish-0.1.0.1Nl0Uq/`.
+- Updated the main README's PyPI installation instructions, marked the
+  first-release setup/publication acceptance complete, and finalized the
+  changelog. This documentation follow-up does not modify the published tag
+  or distributions.
