@@ -1,6 +1,7 @@
 # Local verification and releases
 
-The release workflow runs locally; this project does not use GitHub Actions.
+Routine verification runs locally. A manually dispatched Linux-only GitHub
+Actions workflow provides optional PyPI Trusted Publishing.
 Node is needed to build/check a source checkout and to deploy the bundled
 Worker. Installing the resulting wheel or sdist, running requesters/workers
 and opening the monitor do not need Node.
@@ -117,21 +118,75 @@ preservation flow in [the implementation checklist](implementation-checklist.md)
 Use a separate Worker, bucket and configuration; never redeploy another
 operator's service as a test.
 
-## Publish explicitly
+## Publish through the trusted publisher
 
-Public package publication needs explicit authorization and a project-scoped
-PyPI token on the release machine. PyPI packages include source, even when
-the Git repository is private. Supply the token through `UV_PUBLISH_TOKEN`,
-never a command argument, source file or acceptance bundle.
+The pending PyPI publisher for `tasklease` is configured for GitHub repository
+`provos/tasklease`, workflow filename `workflow.yml`, and any environment.
+The matching workflow is `.github/workflows/workflow.yml`. No PyPI token or
+GitHub secret is needed. The workflow deliberately omits an environment name
+so it matches that registration without additional GitHub environment setup.
 
-`make release` runs the verification and build gates, then invokes `uv publish`
-for the current version's exact wheel and sdist. It is a publication command;
-`make check`, `make build` and acceptance export do not publish. Deploy the
-service first when the release notes require a service change, then publish
-only after the native and isolated upgrade checks are accepted. No publication
-is part of preparing or reviewing these instructions.
+Merge the workflow into `main` before running it. After updating the package
+version and uv lockfile, completing native/isolated upgrade acceptance, and
+merging the release commit, create and push a matching tag:
 
-After an authorized publication, verify installation from PyPI in a separate
+```sh
+git tag -a v0.1.0 RELEASE_COMMIT_SHA -m "tasklease 0.1.0"
+git push origin v0.1.0
+```
+
+Use the intended version and reviewed commit. Tags and ordinary pushes do
+not start this workflow. In GitHub's Actions tab choose **Publish tasklease**,
+**Run workflow**, branch **main**, and tag `v0.1.0`. Leave **publish** disabled
+for a build-only run. The equivalent CLI command is:
+
+```sh
+gh workflow run workflow.yml --repo provos/tasklease --ref main -f tag=v0.1.0
+```
+
+The workflow requires an existing `vMAJOR.MINOR.PATCH` tag reachable from
+`main`, checks its package name/version, and builds that exact tagged commit.
+It runs `make install`, `make check`, and `make build` on Linux, preserving the
+dependency age/audit gates, then saves the wheel and sdist for seven days.
+Actions and build tool versions are pinned. The build job has read-only
+repository access and no OIDC permission.
+
+To authorize publication, explicitly enable **publish**, or run:
+
+```sh
+gh workflow run workflow.yml --repo provos/tasklease --ref main \
+  -f tag=v0.1.0 -f publish=true
+```
+
+This reruns the checks/build, then a separate job downloads only that run's
+distributions and publishes them using PyPA's action with job-scoped
+`id-token: write`. It checks package metadata and creates publishing
+attestations. The publishing job does not check out or execute repository
+build code. Existing PyPI files are not silently skipped on a repeated run.
+The first successful upload creates the pending PyPI project and converts
+its publisher to a normal trusted publisher. The pending entry does not
+reserve the project name until that upload succeeds.
+
+This manual workflow is the only GitHub Actions execution added here; native
+acceptance and isolated service upgrade checks remain explicit release
+prerequisites. Deploy the service first when release notes require a service
+change. PyPI distributions expose their package source even when the GitHub
+repository is private. Creating or merging this workflow does not publish.
+
+See PyPI's [publishing guide](https://docs.pypi.org/trusted-publishers/using-a-publisher/)
+and [pending-project behavior](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/).
+If OIDC authentication fails, check the exact repository and workflow filename
+in PyPI, and confirm that only the publishing job has `id-token: write`.
+
+## Publish locally
+
+The existing `make release` command remains available for an explicitly
+requested local publication. It runs checks/build, then uploads only the
+current version's exact wheel and sdist with `uv publish`. Local publication
+outside an OIDC provider requires a project-scoped PyPI token supplied through
+`UV_PUBLISH_TOKEN`, never a command argument, source file or acceptance bundle.
+A pending GitHub publisher does not authenticate local commands.
+
+After either publication path, verify installation from PyPI in a fresh
 environment and record the published version and checks. See uv's official
-[build and publication guide](https://docs.astral.sh/uv/guides/package/) for
-token and artifact handling.
+[build and publication guide](https://docs.astral.sh/uv/guides/package/).

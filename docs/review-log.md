@@ -577,3 +577,46 @@ Status: accepted after corrections, independent reviews and native qualification
   tests cover the expanded-grant boundary (250 accepted, 251 rejected, nothing
   written) and stream 130 maximal legal identities (over 32 MiB) through
   several internal pages.
+
+## PyPI trusted publisher setup — 2026-11-08
+
+- Implemented in isolated `codex/pypi-trusted-publisher` worktree based on
+  merged `811528d`, while the separate dashboard feature remains in its own
+  checkout. Scope is the publishing workflow and release/design documentation.
+- Matches the supplied pending publisher exactly: project `tasklease`, GitHub
+  repository `provos/tasklease`, workflow filename `workflow.yml`, no required
+  environment name. The file is `.github/workflows/workflow.yml`.
+- Workflow dispatch is manual and limited to this repository's `main` branch.
+  It accepts an existing stable version tag reachable from `main`, verifies
+  the tagged package name/version, and checks/builds that exact commit. No
+  routine push/PR/release-event jobs were introduced. Default `publish=false`
+  saves artifacts only. An explicit `publish=true` permits the separate upload
+  job after all build/check steps succeed.
+- Reuses `make install`, `make check`, and `make build`; the build job has only
+  read access. The publishing job has `id-token: write`, downloads that run's
+  exact distributions, and uses the official PyPA action for OIDC, metadata
+  verification and attestations. It has no repository checkout or build code.
+  No PyPI token/secret or GitHub environment configuration is required for
+  the provided registration. Official action versions are pinned to verified
+  release commit SHAs; Node, Python and uv versions are explicit.
+- Local actionlint 1.7.12 passed after its official binary checksum was
+  verified. Workflow Prettier check and Git whitespace check passed. Ten
+  disposable-Git tests exercised the workflow's exact validation script:
+  annotated tag acceptance, missing/mismatched/invalid tags, package-name
+  mismatch, main ancestry, and shell-injection rejection.
+- Fresh install passed all 302 locked registry age/source checks and reported
+  zero npm advisories. Release checks passed 799 Python/tooling tests with
+  three expected native-only skips, 187 Workers tests, 13 dashboard tests,
+  223 examples, all 13 dependency-policy tests and strict/static/drift checks.
+- Initial full conformance reported one timing-sensitive failure in the
+  existing one-second lost-renew-response case (no reply within its wait).
+  The unchanged focused case then passed, and the full conformance rerun
+  passed all 154 cases. No runtime/test behavior was changed for this setup.
+  Final wheel/sdist builds passed. Logs are under
+  `/tmp/tasklease-publisher-{install,check,conformance-focused,conformance-rerun,build}.log`.
+- Independent fresh Astra high review, including simplify reuse/quality/
+  efficiency, found no material issues. It checked the PyPA action source,
+  permissions, ref/tag guards, artifact isolation, registration matching and
+  release instructions. No GitHub workflow was dispatched, no OIDC exchange
+  or PyPI upload was attempted, and no service was deployed. Authentication
+  and first publication remain unverified until an authorized publish run.

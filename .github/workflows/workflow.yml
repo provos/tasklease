@@ -1,0 +1,110 @@
+name: Publish tasklease
+run-name: "PyPI ${{ inputs.tag }} (publish: ${{ inputs.publish }})"
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag on main, matching python/pyproject.toml (e.g. v0.1.0)"
+        required: true
+        type: string
+      publish:
+        description: "Publish to PyPI after checks pass (false only builds and saves artifacts)"
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: tasklease-pypi
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'provos/tasklease' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out release history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate and select release tag
+        id: release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Expected a vMAJOR.MINOR.PATCH release tag."
+            exit 1
+          fi
+          release_commit="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
+          git merge-base --is-ancestor "$release_commit" origin/main
+          git checkout --detach "$release_commit"
+          python3 - <<'PYTHON'
+          import os
+          import tomllib
+          with open("python/pyproject.toml", "rb") as source:
+              project = tomllib.load(source)["project"]
+          if project["name"] != "tasklease" or os.environ["RELEASE_TAG"] != "v" + project["version"]:
+              raise SystemExit("Release tag must match tasklease's package version.")
+          PYTHON
+          printf 'version=%s\n' "${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Set up uv and select Python
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.6"
+          python-version: "3.12.14"
+          enable-cache: false
+
+      - name: Install qualified dependencies
+        run: make install
+
+      - name: Run release checks
+        run: make check
+
+      - name: Build wheel and sdist
+        run: make build
+
+      - name: Save distributions
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: python-distributions
+          path: |
+            python/dist/tasklease-${{ steps.release.outputs.version }}-py3-none-any.whl
+            python/dist/tasklease-${{ steps.release.outputs.version }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distributions from this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-distributions
+          path: dist
+
+      - name: Publish to PyPI using OIDC
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist
+          attestations: true
