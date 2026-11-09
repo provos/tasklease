@@ -13,7 +13,7 @@ ID. The requester saves replies locally before acknowledging the server copy.
 
 A coding agent on macOS needs to verify a commit on Linux. It posts the
 repository, commit ID, and reply topic to `verify/linux`. A Linux worker
-checks out the commit, runs the tests and uploads the log to R2. One Consume
+checks out the commit, runs the tests, and uploads the log to R2. One Consume
 operation retires the task and posts a result with the log's blob key. The
 requesting agent saves the reply locally.
 
@@ -34,13 +34,14 @@ such as a build slot or GPU, before claiming work.
 | --- | --- | --- |
 | Temporal | Recovers workflow state by [replaying deterministic code](https://docs.temporal.io/workflow-execution#replays) against recorded history. Durable [timers](https://docs.temporal.io/workflow-execution/timers-delays) and Activity [retry policies](https://docs.temporal.io/encyclopedia/retry-policies) coordinate work across steps. | Processes that must preserve progress across dependent steps, long waits, or worker failures. |
 | Celery | Python tasks dispatched through a broker such as RabbitMQ or Redis, with task groups, chains, scheduling, and optional result backends. See the [Celery overview](https://docs.celeryq.dev/en/stable/getting-started/introduction.html). | Python applications that need task composition or scheduling, especially with a broker already in place. |
-| Amazon SQS | A managed message queue with [visibility timeouts](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html), redelivery, and deletion after processing. | AWS applications that already supply worker execution, reply correlation, and result storage. |
-| Cloudflare Queues | A managed queue with Workers push consumers and [HTTP pull consumers](https://developers.cloudflare.com/queues/configuration/pull-consumers/) for external machines. | Message processing in Workers, or external consumers with their own request/reply conventions and result storage. |
+| Amazon SQS | A managed message queue with [visibility timeouts](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html), redelivery, and deletion after processing. [Standard queues](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues.html) support high message throughput. | AWS applications with sustained high message rates and their own worker execution, reply correlation, and result storage. |
+| Cloudflare Queues | A managed queue with [automatic scaling of Workers consumers](https://developers.cloudflare.com/queues/configuration/consumer-concurrency/) and [HTTP pull consumers](https://developers.cloudflare.com/queues/configuration/pull-consumers/) for external machines. | Workloads that need automatic scaling of consumer Workers to absorb traffic bursts, or external HTTP consumers with their own request/reply conventions and result storage. Automatic consumer scaling applies to Workers consumers. |
 
-The first version targets tens of queued tasks per topic. Each domain uses
-one SQLite Durable Object. Idle workers poll every 30 seconds by default,
-with jitter, so pickup delay should suit the workload. Workflow state,
-scheduling, and cooperative cancellation of running jobs belong in
+Choose by workflow requirements, sustained traffic, and deployment needs as
+well as queue depth. Temporal's workflow recovery and Celery's task composition
+serve needs that arise even with few queued jobs. Idle tasklease workers poll
+every 30 seconds by default, with jitter, so pickup delay should suit the
+workload. Workflow state, scheduling, and cooperative cancellation belong in
 application code.
 
 Lease expiry makes a task available for another attempt. The supplied worker
@@ -49,6 +50,38 @@ whether to retry failed work. ID rotation rejects an old owner's completion
 after another worker claims the task. Consume commits task removal and up to
 16 successors together within one domain. External effects, such as publishing
 an artifact, still need idempotence: a crash can cause a job to run again.
+
+### Scale guidance
+
+On a paid Workers plan, with task payloads around 1–16 KiB, a few dozen active
+workers, and modest request traffic, **10,000–100,000 outstanding tasks per
+domain** is a reasonable initial planning range. This estimate comes from
+local SQLite benchmarks.
+Each domain uses one Durable Object and one database, so count tasks across
+all its topics, including work, replies, and errors.
+
+The [benchmark](scripts/bench_queue.py) reads the service's schema and SQL.
+These p95 query times used 1 KiB payloads, one topic, 31 measured runs after
+warmup, and a 64 MiB SQLite page cache on a local Linux machine with SQLite
+3.37.2. The [1 KiB results](docs/benchmarks/queue-1k.json) and
+[16 KiB results](docs/benchmarks/queue-16k.json) record the measurements and
+method. Service latency and throughput require measurements in your deployment;
+the benchmark excludes HTTP, authentication, concurrent requests, and
+replicated durability.
+
+| Tasks in the domain | Claim lookup after 32 held tasks | Poll with all tasks held | Topic counts |
+| ---: | ---: | ---: | ---: |
+| 10,000 | 0.009 ms | 1.1 ms | 2.6 ms |
+| 100,000 | 0.009 ms | 63 ms | 74 ms |
+| 1,000,000 | 0.018 ms | 611 ms | 768 ms |
+
+A million tasks can form a backlog, but calls that scan many held tasks or
+count every task take longer and share the domain's capacity with other
+requests. Measure those calls under load before adopting that scale. Keep
+large outputs in R2 and budget task storage: one million 16 KiB payloads
+alone exceed the paid plan's [10 GB storage limit per Durable Object](https://developers.cloudflare.com/durable-objects/platform/limits/).
+Use separate domains for independent workloads; Consume operates within one
+domain.
 
 ## Install
 

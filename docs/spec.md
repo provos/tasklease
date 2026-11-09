@@ -738,8 +738,11 @@ CREATE TABLE stats_hourly (
 `topics.list` is one query over the first three tables in one database, and
 `monitor.snapshot` reads all four.
 
-Own scans `tasks_pick` for the first row with `lease_until <= now`. Topics
-hold tens of tasks, not millions, so a scan is fine.
+Own scans `tasks_pick` for the first row with `lease_until <= now`. The claim
+may examine many held tasks before finding available work. Topics List
+aggregates every task in the domain. See the README's
+[scale guidance](../README.md#scale-guidance) for local measurements and
+capacity planning.
 
 A daily alarm drops poller rows older than 7 days and statistics rows older
 than 30 days. The service never deletes tasks by itself; pruning is the
