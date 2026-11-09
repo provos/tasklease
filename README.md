@@ -227,14 +227,122 @@ tl --config requester.toml inbox
 ```
 
 The echo handler accepts a message of at most 4096 UTF-8 bytes and returns
-the message and request ID. Custom handlers use an importable
-`module:factory`, implementing `validate`, `run` and `reply`. The library's
+the message and request ID. Custom handlers are an importable
+`module:factory`; see [Writing a handler](#writing-a-handler). The library's
 `WorkerLoop.step()` also supports an externally held capacity lock;
 `WorkerLoop.run()` acquires capacity before Own.
 
 Gracefully stop the worker on its machine with
 `tl --worker echo-on-this-machine worker stop`. Platform startup templates
 and installation instructions are in [deploy/](deploy/README.md).
+
+## API at a glance
+
+Every operation is an authenticated JSON `POST` to `/v1/<operation>`, and the
+Python `tasklease.client.Client` has a method for each. The
+[specification](docs/spec.md#4-operations) defines each request and response.
+
+| Operation | What it does | Needs |
+| --- | --- | --- |
+| Create | Posts a task to a topic. | `create` on the topic |
+| Own | Leases the oldest available task for 1 second to 24 hours and gives it a new ID. | `own` on the topic |
+| Renew | Extends the lease and keeps the ID. | `own`, and holding the task |
+| Consume | Retires the held task and posts up to 16 successors, atomically. | `own` on the task's topic, `create` on each successor's topic |
+| Delete | Removes a task: its holder's, or its creator's before anyone owned it. | the holder rule |
+| Read, Tasks List | One task, or a topic's tasks in pages. | `read` or `own` |
+| Topics List, Topic Pollers | Per-topic counts, and who polled a topic recently. | `read` or `own` |
+| Topic Declare | Keeps a topic listed while it is empty. | an operator identity |
+| Blob Put URL, Blob Get URL | Presigned R2 URLs for payloads too large for a task. | `create`, or `read` or `own`, in the domain |
+| Monitor Snapshot | One consistent view of a domain for the dashboard. | `read` or `own` |
+| Identity Add, Revoke, Rotate, List | Manage machine tokens. | the admin token |
+
+### Writing a handler
+
+`tl worker` runs a handler on one topic. It owns a task, calls `validate`,
+calls `run` while it renews the lease, and then Consumes the task with the
+successors `reply` returns. A `Rejection`, an exception or too many Owns
+becomes a failure reply to the task's `reply_topic` instead, so every task a
+handler processes carries one. `run` receives a `lost` event that is set if
+the lease is lost; long work should check it and stop.
+
+The fetch stage of the [pipeline example](#example-use-cases), in
+`crawl_stages.py`:
+
+```python
+from threading import Event
+
+from tasklease.generated import protocol as p
+from tasklease.worker import Rejection
+
+
+class Fetch:
+    def validate(self, task: p.Task) -> str | Rejection:
+        url = task["data"].get("url")
+        return url if isinstance(url, str) else Rejection("url must be text")
+
+    def run(self, url: str, lost: Event) -> str:
+        return fetch_and_store(url, lost)  # your code: returns an R2 blob key
+
+    def reply(self, task: p.Task, blob: str) -> list[p.NewTask]:
+        data = {**task["data"], "blob": blob}  # keeps url and reply_topic
+        return [
+            {"topic": "classify/content", "data": data},
+            {"topic": "classify/security", "data": data},
+        ]
+
+
+def fetch() -> Fetch:
+    return Fetch()
+```
+
+Run it with `topic = "check/url"` and `handler = "crawl_stages:fetch"` in the
+worker's `[worker]` table, with the module importable by `tl` (for example
+through `PYTHONPATH`). Its identity needs `own` on `check/url` and `create` on
+`classify/*` and on the reply topic.
+
+### Calling the service from code
+
+```python
+from tasklease.client import Client
+from tasklease.errors import Empty, NotFound
+
+with Client(URL, token, "crawler-1") as client:
+    client.create(
+        {
+            "domain": "crawl",
+            "topic": "check/url",
+            "data": {"url": "https://example.com", "reply_topic": "crawl/failed"},
+        }
+    )
+
+with Client(URL, worker_token, "fetcher-1") as client:
+    try:
+        task = client.own(
+            {"domain": "crawl", "topic": "check/url", "hold_seconds": 600}
+        )["task"]
+    except Empty:
+        task = None  # nothing to do; poll again later
+    if task is not None:
+        successor = {**task["data"], "blob": "<blob key>"}
+        try:
+            client.consume(
+                {
+                    "domain": "crawl",
+                    "topic": "check/url",
+                    "id": task["id"],
+                    "tasks": [
+                        {"topic": "classify/content", "data": successor},
+                        {"topic": "classify/security", "data": successor},
+                    ],
+                }
+            )
+        except NotFound:
+            pass  # the lease ran out and another worker took the task
+```
+
+Each error code maps to an exception in `tasklease.errors`, such as `Empty`,
+`NotFound` and `Forbidden`. A worker written against the client renews long
+leases itself; `tl worker` and `tasklease.worker.WorkerLoop` do it for you.
 
 ## Recovery and monitoring
 
