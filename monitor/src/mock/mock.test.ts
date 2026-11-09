@@ -98,7 +98,9 @@ describe("mock API responses", () => {
       NOW,
     )!;
     expect(unknown.status).toBe(400);
-    expect(unknown.body).toContain("busy, empty, degraded, large, unreachable");
+    expect(unknown.body).toContain(
+      "busy, building, empty, degraded, large, unreachable",
+    );
     expect(
       respond("/api/snapshot", `${PAGE}?delay=99999`, "busy", NOW)!.delayMs,
     ).toBe(30_000);

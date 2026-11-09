@@ -2,15 +2,20 @@
   import { onMount } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import HourlyChart from "./HourlyChart.svelte";
-  import { age, count, dateTime, duration, hourLabel, json } from "./format";
+  import { age, count, dateTime, duration, hourLabel, json } from "./format.ts";
+  import {
+    health,
+    type Level,
+    type TopicHealth,
+    type WorkerState,
+  } from "./health.ts";
   import {
     decodeSnapshot,
     hourBuckets,
     statsTopics,
     topics,
-    workers,
     type Snapshot,
-  } from "./model";
+  } from "./model.ts";
 
   let snapshot = $state<Snapshot | null>(null);
   let loading = $state(false);
@@ -26,6 +31,8 @@
   let replyPage = $state(1);
   let showUnmatched = $state(false);
   let hourlyOpen = $state(false);
+  let allAlerts = $state(false);
+  const alertLimit = 6;
   const expandedQueues = new SvelteSet<string>();
   const expandedReplies = new SvelteSet<string>();
   let alive = false;
@@ -33,25 +40,27 @@
   let controller: AbortController | undefined;
   const pageSize = 20;
 
-  const queueRows = $derived(topics(snapshot));
-  const workerRows = $derived(workers(queueRows));
-  const available = $derived(
-    queueRows.reduce((total, topic) => total + topic.available, 0),
+  const board = $derived(snapshot ? health(snapshot) : null);
+  const problems = $derived(board?.alerts.length ?? 0);
+  const boardLevel = $derived<Level>(
+    board?.alerts.some((alert) => alert.level === "critical")
+      ? "critical"
+      : problems
+        ? "warning"
+        : "ok",
   );
-  const held = $derived(
-    queueRows.reduce((total, topic) => total + topic.held, 0),
+  const singleDomain = $derived(
+    snapshot?.domains.length === 1 ? snapshot.domains[0]!.domain : null,
   );
-  const workerCount = $derived(
-    new Set(
-      workerRows.map((worker) =>
-        JSON.stringify([worker.identity, worker.worker]),
-      ),
-    ).size,
+  const machinesUp = $derived(
+    board?.machines.filter((m) => m.state === "busy" || m.state === "live")
+      .length ?? 0,
   );
-  const pending = $derived(
-    (snapshot?.local.requests ?? [])
-      .filter((request) => request.state !== "answered")
-      .sort((a, b) => b.created_at - a.created_at),
+  const machinesTracked = $derived(
+    board?.machines.filter((m) => m.state !== "inactive").length ?? 0,
+  );
+  const inactiveMachines = $derived(
+    board?.machines.filter((m) => m.state === "inactive") ?? [],
   );
   const replies = $derived(
     (snapshot?.local.replies ?? [])
@@ -85,7 +94,6 @@
         created: total.created + row.created,
         consumed: total.consumed + row.consumed,
         reowned: total.reowned + row.reowned,
-        empty: total.empty + row.empty_polls,
         waitSum: total.waitSum + row.wait_ms_sum,
         waitCount: total.waitCount + row.wait_count,
         waitMax: Math.max(total.waitMax, row.wait_ms_max),
@@ -97,7 +105,6 @@
         created: 0,
         consumed: 0,
         reowned: 0,
-        empty: 0,
         waitSum: 0,
         waitCount: 0,
         waitMax: 0,
@@ -107,6 +114,35 @@
       },
     ),
   );
+
+  const stateLabels: Record<WorkerState, string> = {
+    busy: "busy",
+    lapsed: "lease lapsed",
+    live: "idle",
+    waiting: "waiting for capacity",
+    silent: "silent",
+    down: "down",
+    inactive: "inactive",
+  };
+  const stateLevels: Record<WorkerState, Level> = {
+    busy: "ok",
+    lapsed: "warning",
+    live: "ok",
+    waiting: "idle",
+    silent: "warning",
+    down: "critical",
+    inactive: "idle",
+  };
+
+  function updated(timestamp: number, current: number): string {
+    return current - timestamp < 5_000 ? "just now" : age(timestamp, current);
+  }
+
+  function oldest(topic: TopicHealth): string {
+    return topic.oldestAvailableAt === null
+      ? "—"
+      : duration(topic.generatedAt - topic.oldestAvailableAt);
+  }
 
   async function refresh(hours: number): Promise<void> {
     if (!Number.isInteger(hours) || hours < 1 || hours > 720) {
@@ -170,11 +206,8 @@
   }
 
   function applyHours(): void {
-    if (requestedHours === undefined) {
-      inputError = "Choose a whole number of hours from 1 to 720.";
-      return;
-    }
     if (
+      requestedHours === undefined ||
       !Number.isInteger(requestedHours) ||
       requestedHours < 1 ||
       requestedHours > 720
@@ -212,74 +245,85 @@
 </script>
 
 <svelte:head>
-  <title>Tasklease monitor</title>
+  <title
+    >{problems ? `(${problems}) tasklease monitor` : "tasklease monitor"}</title
+  >
   <meta
     name="description"
-    content="Read-only local view of tasklease queues, workers, and replies."
+    content="Read-only local view of tasklease queues, machines, and requests."
   />
 </svelte:head>
 
+{#snippet dot(level: Level)}<span class="dot {level}" aria-hidden="true"
+  ></span>{/snippet}
+
 <div class="shell">
-  <header class="masthead">
-    <a class="brand" href="#overview" aria-label="Tasklease overview"
+  <header class="topbar">
+    <span class="brand"
       ><span class="brand-mark" aria-hidden="true"
         ><i></i><i></i><i></i><i></i></span
-      >tasklease<span class="local-label">LOCAL MONITOR</span></a
+      >tasklease</span
     >
-    <span class="read-only"><span aria-hidden="true">◈</span> Read only</span>
+    {#if board}
+      <span class="pill {boardLevel}" role="status"
+        >{@render dot(boardLevel)}{problems
+          ? `${problems} ${problems === 1 ? "problem" : "problems"}`
+          : "All healthy"}</span
+      >
+      <span class="context">
+        {#if singleDomain}<span class="mono">{singleDomain}</span>{:else}{count(
+            snapshot?.domains.length ?? 0,
+          )} domains{/if}
+        <span>{count(board.waiting)} waiting · {count(board.held)} running</span
+        >
+        {#if machinesTracked}<span
+            >{machinesUp}/{machinesTracked} machines up</span
+          >{/if}
+      </span>
+    {/if}
+    <div class="refresh">
+      <p class="refresh-status" aria-live="polite">
+        <span
+          class="status-dot"
+          class:stale={refreshError || snapshot?.errors?.length}
+        ></span>{lastUpdated === null
+          ? loading
+            ? "Connecting…"
+            : "Waiting for a snapshot"
+          : `Updated ${updated(lastUpdated, now)}`}
+      </p>
+      <form
+        onsubmit={(event) => {
+          event.preventDefault();
+          applyHours();
+        }}
+      >
+        <label for="hours">History <span class="muted">(h)</span></label>
+        <input
+          id="hours"
+          type="number"
+          min="1"
+          max="720"
+          step="1"
+          required
+          bind:value={requestedHours}
+          onchange={applyHours}
+          aria-describedby={inputError ? "hours-error" : undefined}
+          aria-invalid={inputError ? "true" : undefined}
+        />
+        <button class="primary" type="submit" disabled={loading}
+          ><span class:spinning={loading} aria-hidden="true">↻</span><span
+            class="visually-hidden">{loading ? "Refreshing" : "Refresh"}</span
+          ></button
+        >
+      </form>
+    </div>
   </header>
+  {#if inputError}<p id="hours-error" class="field-error" role="alert">
+      {inputError}
+    </p>{/if}
 
   <main id="overview">
-    <section class="page-heading" aria-labelledby="page-title">
-      <div>
-        <p class="eyebrow">YOUR SYSTEM, IN VIEW</p>
-        <h1 id="page-title">Task board</h1>
-        <p class="subtitle">
-          Queues, workers, and replies across your machines.
-        </p>
-      </div>
-      <div class="refresh-controls">
-        <form
-          onsubmit={(event) => {
-            event.preventDefault();
-            applyHours();
-          }}
-        >
-          <label for="hours">History <span class="muted">(hours)</span></label>
-          <input
-            id="hours"
-            type="number"
-            min="1"
-            max="720"
-            step="1"
-            required
-            bind:value={requestedHours}
-            onchange={applyHours}
-            aria-describedby={inputError ? "hours-error" : undefined}
-            aria-invalid={inputError ? "true" : undefined}
-          />
-          <button class="primary" type="submit" disabled={loading}
-            ><span class:spinning={loading} aria-hidden="true">↻</span>{loading
-              ? "Refreshing"
-              : "Refresh"}</button
-          >
-        </form>
-        <p class="refresh-status" aria-live="polite">
-          <span
-            class:warning-dot={refreshError || snapshot?.errors?.length}
-            class="status-dot"
-          ></span>{lastUpdated === null
-            ? loading
-              ? "Connecting to your local monitor…"
-              : "Waiting for a snapshot"
-            : `Updated ${age(lastUpdated, now)} · auto refresh 30s`}
-        </p>
-        {#if inputError}<p id="hours-error" class="field-error" role="alert">
-            {inputError}
-          </p>{/if}
-      </div>
-    </section>
-
     {#if refreshError}
       <div class="notice warning" role="alert">
         <strong
@@ -303,207 +347,354 @@
       </div>
     {/if}
 
-    {#if snapshot}
-      <section class="metrics" aria-label="System overview">
-        <article class="metric">
-          <span>Available tasks</span><strong>{count(available)}</strong><small
-            >Ready for a worker</small
-          >
-        </article>
-        <article class="metric">
-          <span>Held tasks</span><strong>{count(held)}</strong><small
-            >Leases currently active</small
-          >
-        </article>
-        <article class="metric">
-          <span>Workers seen</span><strong>{count(workerCount)}</strong><small
-            >Across {count(snapshot.domains.length)}
-            {snapshot.domains.length === 1 ? "domain" : "domains"}</small
-          >
-        </article>
-        <article class="metric">
-          <span>Pending requests</span><strong>{count(pending.length)}</strong
-          ><small>Saved on this machine</small>
-        </article>
-      </section>
+    {#if snapshot && board}
+      {#if board.alerts.length}
+        <section class="alerts" aria-label="Problems">
+          <ul>
+            {#each allAlerts ? board.alerts : board.alerts.slice(0, alertLimit) as alert (alert.key)}
+              <li class={alert.level}>
+                {@render dot(alert.level)}<strong class="mono"
+                  >{alert.subject}</strong
+                ><span>{alert.detail}</span>
+              </li>
+            {/each}
+            {#if board.alerts.length > alertLimit}<li class="more">
+                <button
+                  type="button"
+                  onclick={() => {
+                    allAlerts = !allAlerts;
+                  }}
+                  >{allAlerts
+                    ? "Show fewer"
+                    : `Show ${board.alerts.length - alertLimit} more`}</button
+                >
+              </li>{/if}
+          </ul>
+        </section>
+      {/if}
 
-      <section class="panel" aria-labelledby="workers-heading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">THE MACHINES DOING THE WORK</p>
-            <h2 id="workers-heading">
-              Workers <span class="counter">{workerRows.length}</span>
+      <div class="board">
+        <section class="panel" aria-labelledby="topics-heading">
+          <div class="panel-heading">
+            <h2 id="topics-heading">
+              Topics <span class="counter">{board.topics.length}</span>
             </h2>
+            <p class="section-note">Most urgent first · expand for tasks</p>
           </div>
-          <p class="section-note">Pollers seen in the last 7 days</p>
+          {#if board.topics.length || board.otherTopics.length}
+            <div class="topic-head" aria-hidden="true">
+              <span>Topic</span><span>Workers</span><span>Waiting</span><span
+                >Running</span
+              ><span>Oldest</span><span>Avg wait</span>
+            </div>
+            {#each [...board.topics, ...board.otherTopics] as topic, index (topic.key)}
+              {#if index === board.topics.length}
+                <p class="topic-group">Replies and undeclared topics</p>
+              {/if}
+              <details
+                class="topic {topic.level}"
+                class:secondary-topic={index >= board.topics.length}
+                open={expandedQueues.has(topic.key)}
+                ontoggle={(event) => {
+                  if (event.currentTarget.open) expandedQueues.add(topic.key);
+                  else expandedQueues.delete(topic.key);
+                }}
+              >
+                <summary title={singleDomain ? undefined : topic.domain}
+                  ><span class="topic-name"
+                    >{@render dot(topic.level)}<strong class="mono"
+                      >{topic.topic}</strong
+                    >{#if topic.reasons.length}<span class="reason"
+                        >{topic.reasons.join(" · ")}</span
+                      >{/if}{#if !singleDomain}<span class="domain mono"
+                        >{topic.domain}</span
+                      >{/if}</span
+                  ><span class="num" data-label="Workers"
+                    >{topic.role === "work"
+                      ? `${topic.serving}/${topic.seen}`
+                      : "—"}</span
+                  ><span class="num" data-label="Waiting"
+                    >{count(topic.available)}</span
+                  ><span class="num" data-label="Running"
+                    >{count(topic.held)}</span
+                  ><span class="num" data-label="Oldest">{oldest(topic)}</span
+                  ><span class="num" data-label="Avg wait"
+                    >{duration(topic.averageWaitMs)}</span
+                  ></summary
+                >
+                {#if expandedQueues.has(topic.key)}<div class="topic-content">
+                    {#if topic.tasks.length}
+                      <div class="table-scroll">
+                        <table
+                          class="stack"
+                          aria-label={`${topic.domain} ${topic.topic} tasks`}
+                        >
+                          <thead
+                            ><tr
+                              ><th>Task / creator</th><th>State</th><th
+                                >Owner</th
+                              ><th>Lease</th><th>Own count</th></tr
+                            ></thead
+                          ><tbody
+                            >{#each topic.tasks as task}{@const lapsed =
+                                task.state === "held" &&
+                                task.lease_until <= topic.generatedAt}<tr
+                                ><td class="wide"
+                                  ><code>{task.id}</code><span class="secondary"
+                                    >Created by {task.creator} · {age(
+                                      task.created_at,
+                                      topic.generatedAt,
+                                    )}</span
+                                  ></td
+                                ><td data-label="State"
+                                  ><span
+                                    class="tag"
+                                    class:held={task.state === "held"}
+                                    class:warning={lapsed}
+                                    >{lapsed
+                                      ? "lease lapsed"
+                                      : task.state}</span
+                                  ></td
+                                ><td data-label="Owner"
+                                  >{#if task.owner}<strong
+                                      >{task.owner.worker}</strong
+                                    ><span class="secondary mono"
+                                      >{task.owner.identity}</span
+                                    >{:else}<span class="muted">Unowned</span
+                                    >{/if}</td
+                                ><td
+                                  data-label="Lease"
+                                  title={dateTime(task.lease_until)}
+                                  >{task.state === "held"
+                                    ? lapsed
+                                      ? `Lapsed ${duration(topic.generatedAt - task.lease_until)} ago`
+                                      : `${duration(task.lease_until - topic.generatedAt)} left`
+                                    : "—"}</td
+                                ><td data-label="Own count"
+                                  ><span
+                                    class:warn-text={task.owned_count > 1}
+                                    title={task.owned_count > 1
+                                      ? "Owned more than once: an earlier lease expired"
+                                      : undefined}
+                                    >{count(task.owned_count)}</span
+                                  ></td
+                                ></tr
+                              >{/each}</tbody
+                          >
+                        </table>
+                      </div>
+                      {#if topic.truncated}<p class="limit-note">
+                          Showing the first 100 of {count(
+                            topic.available + topic.held,
+                          )} tasks.
+                        </p>{/if}
+                    {:else}<p class="inline-empty">
+                        This topic has no tasks.
+                      </p>{/if}
+                  </div>{/if}
+              </details>
+            {/each}
+          {:else}<div class="empty">
+              <h3>Your queues are clear</h3>
+              <p>Tasks, recent pollers, and declared topics appear here.</p>
+            </div>{/if}
+        </section>
+
+        <section class="panel" aria-labelledby="machines-heading">
+          <div class="panel-heading">
+            <h2 id="machines-heading">
+              Machines <span class="counter">{machinesTracked}</span>
+            </h2>
+            <p class="section-note">Workers on declared topics</p>
+          </div>
+          {#if board.undeclaredDomains.length}<p class="hint">
+              No declared topics in {board.undeclaredDomains.join(", ")}.
+              Declare work topics with <code>tl topic declare</code> to track machines.
+            </p>{/if}
+          <ul class="machines">
+            {#each board.machines.filter((m) => m.state !== "inactive") as machine (machine.identity)}
+              <li>
+                <div class="machine-line">
+                  {@render dot(machine.level)}<strong class="mono"
+                    >{machine.identity}</strong
+                  ><span class="machine-state {machine.level}"
+                    >{machine.state === "busy"
+                      ? `busy · ${machine.workers.filter((w) => w.state === "busy").length} running`
+                      : machine.state === "live"
+                        ? `idle · polled ${age(machine.lastPolledAt, machine.generatedAt)}`
+                        : `${machine.state} · quiet ${duration(machine.generatedAt - machine.lastPolledAt)}`}</span
+                  >
+                </div>
+                <div class="chips">
+                  {#each machine.workers as worker (worker.domain + worker.worker)}
+                    <span
+                      class="chip {stateLevels[worker.state]}"
+                      title={`${singleDomain ? "" : `${worker.domain} · `}${worker.topics.join(", ")} · last poll ${age(worker.lastPolledAt, worker.generatedAt)}${worker.task ? ` · ${worker.task.topic} task` : ""}`}
+                      ><strong>{worker.worker}</strong>
+                      {worker.state === "busy" && worker.task
+                        ? `busy ${duration(worker.generatedAt - (worker.task.owned_at ?? worker.generatedAt))}`
+                        : stateLabels[worker.state]}
+                      <span class="chip-topic mono"
+                        >{worker.topics.join(", ")}</span
+                      ></span
+                    >
+                  {/each}
+                </div>
+              </li>
+            {:else}
+              <li class="inline-empty">
+                No workers have polled a declared topic.
+              </li>
+            {/each}
+          </ul>
+          {#if inactiveMachines.length}<p class="limit-note">
+              Inactive for a day: {inactiveMachines
+                .map((m) => m.identity)
+                .join(", ")}
+            </p>{/if}
+        </section>
+      </div>
+
+      <section class="panel" aria-labelledby="requests-heading">
+        <div class="panel-heading">
+          <h2 id="requests-heading">
+            Pending requests <span class="counter">{board.requests.length}</span
+            >
+          </h2>
+          <p class="section-note">From agents on this machine</p>
         </div>
-        {#if workerRows.length}
-          <div class="table-scroll">
-            <table class="stack" aria-label="Workers by domain and topic">
+        {#if board.requests.length}<div class="table-scroll">
+            <table class="stack requests" aria-label="Pending local requests">
               <thead
                 ><tr
-                  ><th>Worker / identity</th><th>Domain / topic</th><th
-                    >Last poll</th
-                  ><th>Last successful Own</th></tr
+                  ><th>Request</th><th>Topic</th><th>Status</th><th
+                    >Submitted</th
+                  ></tr
                 ></thead
-              ><tbody>
-                {#each workerRows as worker}
-                  <tr
+              ><tbody
+                >{#each board.requests as item (item.request.agent_id + item.request.request_id)}<tr
                     ><td class="wide"
-                      ><strong class="worker-label"
-                        ><span class="worker-icon" aria-hidden="true">▣</span
-                        >{worker.worker}</strong
-                      ><span class="secondary mono">{worker.identity}</span></td
-                    ><td class="wide"
-                      ><strong class="mono">{worker.topic}</strong><span
-                        class="secondary mono">{worker.domain}</span
+                      ><span class="summary">{item.summary}</span><span
+                        class="secondary mono"
+                        title={item.request.request_id}
+                        >{item.request.agent_id} · {item.request.request_id.slice(
+                          0,
+                          8,
+                        )}</span
                       ></td
+                    ><td data-label="Topic"
+                      ><strong class="mono">{item.request.topic}</strong
+                      >{#if !singleDomain}<span class="secondary mono"
+                          >{item.request.domain}</span
+                        >{/if}</td
+                    ><td data-label="Status" class="status {item.level}"
+                      >{@render dot(item.level)}{item.status}</td
                     ><td
-                      data-label="Last poll"
-                      title={dateTime(worker.last_polled_at)}
-                      >{age(worker.last_polled_at, now)}</td
-                    ><td
-                      data-label="Last successful Own"
-                      title={dateTime(worker.last_owned_at)}
-                      >{worker.last_owned_at === null
-                        ? "Never"
-                        : age(worker.last_owned_at, now)}</td
+                      data-label="Submitted"
+                      title={dateTime(item.request.created_at)}
+                      >{age(item.request.created_at, now)}</td
                     ></tr
-                  >
-                {/each}
-              </tbody>
+                  >{/each}</tbody
+              >
             </table>
-          </div>
-        {:else}<div class="empty">
-            <span aria-hidden="true">▣</span>
-            <h3>No workers seen yet</h3>
-            <p>Workers appear here after they poll a topic you can view.</p>
-          </div>{/if}
+          </div>{:else}<p class="inline-empty">
+            No pending requests on this machine.
+          </p>{/if}
       </section>
 
-      <section class="panel" aria-labelledby="queues-heading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">WHAT IS WAITING, WHAT IS RUNNING</p>
-            <h2 id="queues-heading">
-              Queues <span class="counter">{queueRows.length}</span>
-            </h2>
-          </div>
-          <p class="section-note">Expand a topic to inspect task metadata</p>
-        </div>
-        {#if queueRows.length}
-          <div class="queue-head" aria-hidden="true">
-            <span>Domain / topic</span><span>Available</span><span>Held</span
-            ><span>Oldest available</span>
-          </div>
-          {#each queueRows as topic (JSON.stringify( [topic.domain, topic.topic] ))}
-            {@const queueKey = JSON.stringify([topic.domain, topic.topic])}
-            <details
-              class="queue"
-              ontoggle={(event) => {
-                if (event.currentTarget.open) expandedQueues.add(queueKey);
-                else expandedQueues.delete(queueKey);
+      <section class="panel" aria-labelledby="inbox-heading">
+        <div class="panel-heading">
+          <h2 id="inbox-heading">
+            Inbox <span class="counter">{snapshot.local.replies.length}</span>
+          </h2>
+          <label class="checkbox"
+            ><input
+              type="checkbox"
+              bind:checked={showUnmatched}
+              onchange={() => {
+                replyPage = 1;
               }}
-            >
-              <summary
-                ><span class="queue-name"
-                  ><span class="chevron" aria-hidden="true">›</span><span
-                    ><strong class="mono">{topic.topic}</strong><span
-                      class="secondary mono"
-                      >{topic.domain}{#if topic.declared}<span class="declared"
-                          >declared</span
-                        >{/if}</span
-                    ></span
-                  ></span
-                ><span class="queue-number"
-                  ><span class="mobile-label">Available</span><span
-                    class:has-tasks={topic.available > 0}
-                    class="badge">{count(topic.available)}</span
-                  ></span
-                ><span class="queue-number"
-                  ><span class="mobile-label">Held</span><span
-                    class="badge neutral">{count(topic.held)}</span
-                  ></span
-                ><span
-                  class="oldest"
-                  title={dateTime(topic.oldest_available_at)}
-                  ><span class="mobile-label">Oldest</span
-                  >{topic.oldest_available_at === null
-                    ? "—"
-                    : duration(now - topic.oldest_available_at)}</span
-                ></summary
+            />Unmatched only
+            <span class="counter">{unmatchedCount}</span></label
+          >
+        </div>
+        {#if visibleReplies.length}<div class="reply-list">
+            {#each visibleReplies as reply (JSON.stringify( [reply.agent_id, reply.task_id] ))}{@const replyKey =
+                JSON.stringify([reply.agent_id, reply.task_id])}
+              <details
+                class="reply"
+                ontoggle={(event) => {
+                  if (event.currentTarget.open) expandedReplies.add(replyKey);
+                  else expandedReplies.delete(replyKey);
+                }}
               >
-              {#if expandedQueues.has(queueKey)}<div class="queue-content">
-                  {#if topic.tasks.length}
-                    <div class="table-scroll">
-                      <table
-                        class="task-table stack"
-                        aria-label={`${topic.domain} ${topic.topic} task metadata`}
-                      >
-                        <thead
-                          ><tr
-                            ><th>Task / creator</th><th>State</th><th>Owner</th
-                            ><th>Lease</th><th>Own count</th></tr
-                          ></thead
-                        ><tbody
-                          >{#each topic.tasks as task}<tr
-                              ><td class="wide"
-                                ><code>{task.id}</code><span class="secondary"
-                                  >Created by {task.creator} · {age(
-                                    task.created_at,
-                                    now,
-                                  )}</span
-                                ></td
-                              ><td data-label="State"
-                                ><span
-                                  class:held={task.state === "held"}
-                                  class="task-state">{task.state}</span
-                                ></td
-                              ><td data-label="Owner"
-                                >{#if task.owner}<strong
-                                    >{task.owner.worker}</strong
-                                  ><span class="secondary mono"
-                                    >{task.owner.identity}</span
-                                  >{:else}<span class="muted">Unowned</span
-                                  >{/if}</td
-                              ><td
-                                data-label="Lease"
-                                title={dateTime(task.lease_until)}
-                                >{task.state === "held"
-                                  ? task.lease_until > now
-                                    ? `${duration(task.lease_until - now)} left`
-                                    : "Expired since snapshot"
-                                  : "Available"}</td
-                              ><td data-label="Own count"
-                                >{count(task.owned_count)}</td
-                              ></tr
-                            >{/each}</tbody
-                        >
-                      </table>
-                    </div>
-                    {#if topic.truncated}<p class="limit-note">
-                        Showing the first 100 tasks. More tasks are present in
-                        this queue.
-                      </p>{/if}
-                  {:else}<p class="inline-empty">
-                      This topic has no tasks.
-                    </p>{/if}
-                </div>{/if}
-            </details>
-          {/each}
-        {:else}<div class="empty">
-            <span aria-hidden="true">≋</span>
-            <h3>Your queues are clear</h3>
-            <p>Tasks, recent pollers, and declared topics will appear here.</p>
-          </div>{/if}
+                <summary
+                  ><span
+                    ><strong class="mono"
+                      >{reply.request_id ?? "Unmatched reply"}</strong
+                    ><span class="secondary"
+                      >Agent {reply.agent_id} · from {reply.creator}</span
+                    ></span
+                  ><span
+                    class="reply-received"
+                    title={dateTime(reply.received_at)}
+                    >{age(reply.received_at, now)}<span
+                      class="chevron"
+                      aria-hidden="true">›</span
+                    ></span
+                  ></summary
+                >{#if expandedReplies.has(replyKey)}<div class="reply-content">
+                    <dl>
+                      <div>
+                        <dt>Topic</dt>
+                        <dd class="mono">{reply.topic}</dd>
+                      </div>
+                      <div>
+                        <dt>Task ID</dt>
+                        <dd class="mono">{reply.task_id}</dd>
+                      </div>
+                      <div>
+                        <dt>Received</dt>
+                        <dd>{dateTime(reply.received_at)}</dd>
+                      </div>
+                    </dl>
+                    <pre>{json(reply.data)}</pre>
+                  </div>{/if}
+              </details>{/each}
+          </div>
+          <nav class="pagination" aria-label="Inbox pages">
+            <span
+              >{(currentPage - 1) * pageSize + 1}–{Math.min(
+                currentPage * pageSize,
+                replies.length,
+              )} of {replies.length}</span
+            ><button
+              type="button"
+              disabled={currentPage <= 1}
+              onclick={() => {
+                replyPage = currentPage - 1;
+              }}>Previous</button
+            ><button
+              type="button"
+              disabled={currentPage >= pages}
+              onclick={() => {
+                replyPage = currentPage + 1;
+              }}>Next</button
+            >
+          </nav>{:else}<p class="inline-empty">
+            {showUnmatched
+              ? "No unmatched replies."
+              : "Your inbox is empty. Replies saved by an agent appear here."}
+          </p>{/if}
       </section>
 
       <section class="panel" aria-labelledby="activity-heading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">A PICTURE OF THE LAST {loadedHours} HOURS</p>
-            <h2 id="activity-heading">Throughput &amp; latency</h2>
-          </div>
+        <div class="panel-heading">
+          <h2 id="activity-heading">
+            Throughput &amp; latency <span class="muted"
+              >· last {loadedHours} h</span
+            >
+          </h2>
           {#if choices.length}<label class="topic-picker"
               >Topic<select
                 value={stats?.key ?? ""}
@@ -511,7 +702,9 @@
                   selectedStats = event.currentTarget.value;
                 }}
                 >{#each choices as choice}<option value={choice.key}
-                    >{choice.domain} · {choice.topic}</option
+                    >{singleDomain
+                      ? ""
+                      : `${choice.domain} · `}{choice.topic}</option
                   >{/each}</select
               ></label
             >{/if}
@@ -550,8 +743,6 @@
           </div>
           <div class="activity-summary">
             <span><strong>{count(totals.reowned)}</strong> re-owns</span><span
-              ><strong>{count(totals.empty)}</strong> empty polls</span
-            ><span
               ><strong
                 >{duration(totals.waitCount ? totals.waitMax : null)}</strong
               > max wait</span
@@ -607,7 +798,6 @@
               </div>{/if}
           </details>
         {:else}<div class="empty">
-            <span aria-hidden="true">⌁</span>
             <h3>No activity to chart</h3>
             <p>
               Hourly throughput and latency appear as tasks move through your
@@ -615,147 +805,8 @@
             </p>
           </div>{/if}
       </section>
-
-      <section class="panel" aria-labelledby="local-heading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">DURABLE RECORDS, CLOSE TO HOME</p>
-            <h2 id="local-heading">This machine</h2>
-          </div>
-          <p class="section-note">All local agent sessions</p>
-        </div>
-        <div class="subsection">
-          <h3>
-            Pending requests <span class="counter">{pending.length}</span>
-          </h3>
-          {#if pending.length}<div class="table-scroll">
-              <table class="stack" aria-label="Pending local requests">
-                <thead
-                  ><tr
-                    ><th>Request / agent</th><th>Domain / topic</th><th
-                      >State</th
-                    ><th>Submitted</th></tr
-                  ></thead
-                ><tbody
-                  >{#each pending as request}<tr
-                      ><td class="wide"
-                        ><strong class="mono">{request.request_id}</strong><span
-                          class="secondary mono">{request.agent_id}</span
-                        ></td
-                      ><td class="wide"
-                        ><strong class="mono">{request.topic}</strong><span
-                          class="secondary mono">{request.domain}</span
-                        ></td
-                      ><td data-label="State"
-                        ><span
-                          class:unknown={request.state === "submission_unknown"}
-                          class="task-state"
-                          >{request.state === "submission_unknown"
-                            ? "Submission unknown"
-                            : "Pending"}</span
-                        ></td
-                      ><td
-                        data-label="Submitted"
-                        title={dateTime(request.created_at)}
-                        >{age(request.created_at, now)}</td
-                      ></tr
-                    >{/each}</tbody
-                >
-              </table>
-            </div>{:else}<p class="inline-empty">
-              No pending requests on this machine.
-            </p>{/if}
-        </div>
-        <div class="subsection inbox">
-          <div class="inbox-heading">
-            <h3>
-              Inbox <span class="counter">{snapshot.local.replies.length}</span>
-            </h3>
-            <label class="checkbox"
-              ><input
-                type="checkbox"
-                bind:checked={showUnmatched}
-                onchange={() => {
-                  replyPage = 1;
-                }}
-              />Unmatched only
-              <span class="counter">{unmatchedCount}</span></label
-            >
-          </div>
-          {#if visibleReplies.length}<div class="reply-list">
-              {#each visibleReplies as reply (JSON.stringify( [reply.agent_id, reply.task_id] ))}{@const replyKey =
-                  JSON.stringify([reply.agent_id, reply.task_id])}
-                <details
-                  class="reply"
-                  ontoggle={(event) => {
-                    if (event.currentTarget.open) expandedReplies.add(replyKey);
-                    else expandedReplies.delete(replyKey);
-                  }}
-                >
-                  <summary
-                    ><span
-                      ><strong class="mono"
-                        >{reply.request_id ?? "Unmatched reply"}</strong
-                      ><span class="secondary"
-                        >Agent {reply.agent_id} · from {reply.creator}</span
-                      ></span
-                    ><span
-                      class="reply-received"
-                      title={dateTime(reply.received_at)}
-                      >{age(reply.received_at, now)}<span
-                        class="chevron"
-                        aria-hidden="true">›</span
-                      ></span
-                    ></summary
-                  >{#if expandedReplies.has(replyKey)}<div
-                      class="reply-content"
-                    >
-                      <dl>
-                        <div>
-                          <dt>Topic</dt>
-                          <dd class="mono">{reply.topic}</dd>
-                        </div>
-                        <div>
-                          <dt>Task ID</dt>
-                          <dd class="mono">{reply.task_id}</dd>
-                        </div>
-                        <div>
-                          <dt>Received</dt>
-                          <dd>{dateTime(reply.received_at)}</dd>
-                        </div>
-                      </dl>
-                      <pre>{json(reply.data)}</pre>
-                    </div>{/if}
-                </details>{/each}
-            </div>
-            <nav class="pagination" aria-label="Inbox pages">
-              <span
-                >{(currentPage - 1) * pageSize + 1}–{Math.min(
-                  currentPage * pageSize,
-                  replies.length,
-                )} of {replies.length}</span
-              ><button
-                type="button"
-                disabled={currentPage <= 1}
-                onclick={() => {
-                  replyPage = currentPage - 1;
-                }}>Previous</button
-              ><button
-                type="button"
-                disabled={currentPage >= pages}
-                onclick={() => {
-                  replyPage = currentPage + 1;
-                }}>Next</button
-              >
-            </nav>{:else}<p class="inline-empty">
-              {showUnmatched
-                ? "No unmatched replies."
-                : "Your inbox is empty. Replies saved by an agent appear here."}
-            </p>{/if}
-        </div>
-      </section>
       <footer>
-        Tasklease · local monitor <span
+        tasklease · local monitor <span
           >Snapshot {dateTime(snapshot.generated_at)}</span
         >
       </footer>
@@ -807,6 +858,9 @@
     --notice-bg: #fff9eb;
     --notice-border: #efdaa9;
     --error-text: #a04d21;
+    --critical-text: #b42318;
+    --critical-bg: #fdecea;
+    --critical-dot: #d92d20;
     --shadow: #26395603;
     --series-1: #3859d6;
     --series-2: #168071;
@@ -845,12 +899,16 @@
       --notice-bg: #2a2212;
       --notice-border: #574420;
       --error-text: #f39a72;
+      --critical-text: #ff9e93;
+      --critical-bg: #3a1815;
+      --critical-dot: #f0624f;
       --shadow: transparent;
       --series-1: #7d95ff;
       --series-2: #3fc2a7;
       --chart-grid: #262f41;
     }
   }
+
   :global(*) {
     box-sizing: border-box;
   }
@@ -870,7 +928,7 @@
       "Segoe UI",
       sans-serif;
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.45;
     -webkit-font-smoothing: antialiased;
   }
   :global(button),
@@ -882,7 +940,7 @@
   :global(input),
   :global(select),
   :global(summary) {
-    outline-offset: 4px;
+    outline-offset: 3px;
   }
   :global(:focus-visible) {
     outline: 2px solid var(--accent);
@@ -894,9 +952,6 @@
     cursor: default;
     opacity: 0.55;
   }
-  :global(a) {
-    color: inherit;
-  }
   :global(h1),
   :global(h2),
   :global(h3),
@@ -904,122 +959,142 @@
     margin: 0;
   }
   :global(h2) {
-    font-size: 1.1rem;
+    font-size: 0.95rem;
     font-weight: 650;
-    letter-spacing: -0.025em;
+    letter-spacing: -0.015em;
   }
   :global(h3) {
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 650;
   }
   .shell {
     max-width: 1440px;
     margin: 0 auto;
-    padding: 0 48px;
+    padding: 0 32px;
   }
-  .masthead {
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* Top bar: one line of chrome. */
+  .topbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
-    min-height: 88px;
+    gap: 8px 18px;
+    min-height: 56px;
+    padding: 8px 0;
     border-bottom: 1px solid var(--border);
-    gap: 20px;
   }
   .brand {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 10px;
-    text-decoration: none;
-    font-size: 1.2rem;
+    gap: 8px;
+    font-size: 1.05rem;
     font-weight: 750;
     letter-spacing: -0.04em;
   }
   .brand-mark {
     display: grid;
-    grid-template-columns: repeat(2, 7px);
-    gap: 3px;
-    padding: 8px;
+    grid-template-columns: repeat(2, 6px);
+    gap: 2px;
+    padding: 6px;
     background: var(--accent);
-    border-radius: 9px;
+    border-radius: 7px;
   }
   .brand-mark i {
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
     background: var(--on-accent);
     border-radius: 1.5px;
   }
   .brand-mark i:nth-child(2) {
     opacity: 0.5;
   }
-  .local-label {
-    margin-left: 12px;
-    padding-left: 18px;
-    border-left: 1px solid var(--border-strong);
-    font-size: 0.7rem;
-    font-weight: 650;
-    letter-spacing: 0.14em;
-    color: var(--muted);
-  }
-  .read-only {
+  .pill {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    font-size: 0.75rem;
-    color: var(--muted);
-  }
-  main {
-    padding-top: 38px;
-  }
-  .page-heading {
-    display: flex;
-    justify-content: space-between;
-    align-items: end;
-    gap: 24px;
-    margin-bottom: 28px;
-  }
-  .eyebrow {
-    color: var(--muted);
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.13em;
-    margin-bottom: 7px;
-  }
-  h1 {
-    font-size: clamp(1.8rem, 3vw, 2.3rem);
-    line-height: 1.2;
+    gap: 7px;
+    padding: 4px 11px;
+    border-radius: 999px;
+    font-size: 0.8rem;
     font-weight: 650;
-    letter-spacing: -0.055em;
   }
-  .subtitle {
-    margin-top: 10px;
+  .pill.critical {
+    color: var(--critical-text);
+    background: var(--critical-bg);
+  }
+  .pill.warning {
+    color: var(--warn-text);
+    background: var(--warn-bg);
+  }
+  .pill.ok {
+    color: var(--ok-text);
+    background: var(--ok-bg);
+  }
+  .context {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
     color: var(--muted);
-    font-size: 0.85rem;
+    font-size: 0.78rem;
   }
-  .refresh-controls {
-    text-align: right;
+  .context > :global(*) + :global(*)::before {
+    content: "·";
+    margin-right: 14px;
+    color: var(--icon);
+  }
+  .refresh {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-left: auto;
+  }
+  .refresh-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+  }
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ok-dot);
+  }
+  .status-dot.stale {
+    background: var(--warn-dot);
   }
   form {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 7px;
   }
   form label {
     font-size: 0.75rem;
+    color: var(--muted);
   }
   form input {
-    width: 74px;
-    height: 36px;
-    padding: 7px 9px;
+    width: 62px;
+    height: 30px;
+    padding: 4px 8px;
     border: 1px solid var(--border-strong);
-    border-radius: 7px;
+    border-radius: 6px;
     background: var(--surface);
     color: var(--text);
   }
   button {
-    min-height: 34px;
-    padding: 6px 12px;
+    min-height: 30px;
+    padding: 4px 10px;
     border: 1px solid var(--border-strong);
-    border-radius: 7px;
+    border-radius: 6px;
     background: var(--surface);
     color: var(--text-2);
     font-size: 0.75rem;
@@ -1029,49 +1104,32 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 7px;
-    min-width: 100px;
-    min-height: 36px;
+    min-width: 34px;
     color: var(--on-accent);
     background: var(--accent);
     border-color: var(--accent);
     box-shadow: 0 2px 4px var(--accent-shadow);
   }
-  .primary span {
-    font-size: 1.2rem;
+  .primary span[aria-hidden] {
+    font-size: 1.05rem;
     line-height: 1;
-  }
-  .refresh-status {
-    display: flex;
-    align-items: center;
-    justify-content: end;
-    gap: 6px;
-    margin-top: 9px;
-    color: var(--muted);
-    font-size: 0.72rem;
-  }
-  .status-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--ok-dot);
-  }
-  .status-dot.warning-dot {
-    background: var(--warn-dot);
   }
   .field-error {
     margin-top: 6px;
     color: var(--error-text);
     font-size: 0.75rem;
   }
+  main {
+    padding-top: 14px;
+  }
   .notice {
     display: flex;
     gap: 6px 12px;
     flex-wrap: wrap;
-    padding: 14px 18px;
-    margin-bottom: 20px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
     border: 1px solid var(--notice-border);
-    border-radius: 9px;
+    border-radius: 8px;
     font-size: 0.8rem;
   }
   .notice.warning {
@@ -1083,109 +1141,116 @@
     padding-left: 18px;
     overflow-wrap: anywhere;
   }
-  .metrics {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 17px;
-    margin-bottom: 28px;
+
+  /* Status dots shared by alerts, topics, machines and requests. */
+  .dot {
+    flex: none;
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--icon);
   }
-  .metric {
-    padding: 19px 22px;
-    background: var(--surface);
+  .dot.critical {
+    background: var(--critical-dot);
+  }
+  .dot.warning {
+    background: var(--warn-dot);
+  }
+  .dot.ok {
+    background: var(--ok-dot);
+  }
+
+  /* Alerts: one line per problem, most severe first. */
+  .alerts {
+    margin-bottom: 12px;
     border: 1px solid var(--border);
-    border-radius: 11px;
-    box-shadow: 0 2px 3px var(--shadow);
+    border-radius: 9px;
+    background: var(--surface);
+    overflow: hidden;
   }
-  .metric > span {
-    color: var(--muted);
-    font-size: 0.75rem;
+  .alerts ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
-  .metric strong {
-    display: block;
-    margin: 6px 0 5px;
-    font-size: 2rem;
-    font-weight: 620;
-    letter-spacing: -0.05em;
-    line-height: 1.3;
+  .alerts li {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    padding: 7px 14px;
+    border-left: 3px solid var(--warn-dot);
+    font-size: 0.8rem;
+    color: var(--text-3);
   }
-  .metric small {
-    color: var(--muted);
+  .alerts li + li {
+    border-top: 1px solid var(--divider);
+  }
+  .alerts li.critical {
+    border-left-color: var(--critical-dot);
+  }
+  .alerts li .dot {
+    align-self: center;
+  }
+  .alerts li.more {
+    border-left-color: transparent;
+    padding: 5px 14px;
+  }
+  .alerts li.more button {
+    min-height: 24px;
+    padding: 1px 9px;
     font-size: 0.72rem;
   }
+  .alerts strong {
+    color: var(--text);
+    font-size: 0.78rem;
+    font-weight: 650;
+  }
+
+  /* Topics and machines side by side on wide screens. */
+  .board {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(300px, 2fr);
+    gap: 12px;
+    align-items: start;
+  }
   .panel {
-    margin-bottom: 24px;
+    margin-bottom: 12px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 11px;
+    border-radius: 9px;
     box-shadow: 0 2px 3px var(--shadow);
     overflow: hidden;
   }
-  .section-heading {
+  .panel-heading {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 18px;
-    padding: 22px 24px 19px;
-  }
-  .section-heading .eyebrow {
-    margin-bottom: 5px;
-    font-size: 0.72rem;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--divider);
   }
   .section-note {
-    font-size: 0.72rem;
     color: var(--muted);
+    font-size: 0.72rem;
     text-align: right;
   }
   .counter {
     display: inline-block;
-    padding: 1px 7px;
-    margin-left: 5px;
+    padding: 0 6px;
+    margin-left: 4px;
     color: var(--muted);
     background: var(--fill);
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     font-weight: 500;
     vertical-align: middle;
     border-radius: 5px;
     letter-spacing: 0;
   }
-  .table-scroll {
-    overflow-x: auto;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    text-align: left;
-    font-size: 0.75rem;
-  }
-  th {
-    padding: 10px 24px;
+  .muted {
     color: var(--muted);
-    background: var(--surface-subtle);
-    border-top: 1px solid var(--divider);
-    border-bottom: 1px solid var(--divider);
-    font-size: 0.7rem;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  td {
-    padding: 14px 24px;
-    border-bottom: 1px solid var(--divider);
-    vertical-align: middle;
-    color: var(--text-3);
-  }
-  tr:last-child td {
-    border-bottom: 0;
-  }
-  td strong {
-    color: var(--text-2);
-    font-weight: 550;
-  }
-  .secondary {
-    display: block;
-    color: var(--muted);
-    font-size: 0.72rem;
-    margin-top: 3px;
-    overflow-wrap: anywhere;
+    font-weight: 400;
   }
   .mono,
   code {
@@ -1196,52 +1261,64 @@
     color: var(--text-3);
     font-size: 0.72rem;
   }
-  .worker-label {
-    display: inline-flex;
-    gap: 8px;
-    align-items: center;
+  .secondary {
+    display: block;
+    color: var(--muted);
+    font-size: 0.7rem;
+    margin-top: 2px;
+    overflow-wrap: anywhere;
   }
-  .worker-icon {
-    color: var(--accent-icon);
-    font-size: 1rem;
+  .hint {
+    padding: 10px 16px;
+    color: var(--muted);
+    font-size: 0.75rem;
+    border-bottom: 1px solid var(--divider);
   }
   .empty {
-    padding: 30px 24px 38px;
+    padding: 22px 16px 26px;
     text-align: center;
-    border-top: 1px solid var(--divider);
-  }
-  .empty > span {
-    display: inline-block;
-    margin-bottom: 8px;
-    color: var(--icon);
-    font-size: 1.5rem;
   }
   .empty h3 {
     color: var(--text-3);
-    margin-bottom: 5px;
-    font-size: 0.85rem;
+    margin-bottom: 4px;
   }
-  .empty p {
+  .empty p,
+  .inline-empty {
     color: var(--muted);
     font-size: 0.75rem;
   }
-  .queue-head,
-  .queue > summary {
+  .inline-empty {
+    padding: 12px 16px;
+    list-style: none;
+  }
+  .limit-note {
+    padding: 8px 16px;
+    border-top: 1px solid var(--divider);
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+
+  /* Topic rows. */
+  .topic-head,
+  .topic > summary {
     display: grid;
-    grid-template-columns: minmax(220px, 1fr) 110px 90px 150px;
-    gap: 14px;
+    grid-template-columns: minmax(0, 1fr) 64px 60px 60px 70px 70px;
+    gap: 10px;
     align-items: center;
   }
-  .queue-head {
-    padding: 10px 24px;
+  .topic-head {
+    padding: 6px 16px;
     color: var(--muted);
     background: var(--surface-subtle);
-    border-top: 1px solid var(--divider);
     border-bottom: 1px solid var(--divider);
-    font-size: 0.7rem;
+    font-size: 0.68rem;
+    font-weight: 600;
   }
-  .queue-head > span:first-child {
-    padding-left: 21px;
+  .topic-head > span:not(:first-child) {
+    text-align: right;
+  }
+  .topic-head > span:first-child {
+    padding-left: 18px;
   }
   details > summary {
     cursor: pointer;
@@ -1250,111 +1327,321 @@
   details > summary::-webkit-details-marker {
     display: none;
   }
-  .queue {
+  .topic {
     border-bottom: 1px solid var(--divider);
   }
-  .queue:last-child {
+  .topic:last-child {
     border-bottom: none;
   }
-  .queue > summary {
-    padding: 16px 24px;
-    font-size: 0.75rem;
+  .topic > summary {
+    min-height: 36px;
+    padding: 6px 16px;
+    font-size: 0.78rem;
   }
-  .queue > summary:hover,
+  .topic > summary:hover,
   .reply > summary:hover {
     background: var(--surface-subtle);
   }
-  .queue-name {
+  .topic.critical > summary {
+    background: color-mix(in srgb, var(--critical-bg) 55%, transparent);
+  }
+  .topic-name {
     display: flex;
-    align-items: center;
-    gap: 11px;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px 10px;
     min-width: 0;
   }
-  .queue-name strong {
-    color: var(--text-2);
-    font-size: 0.74rem;
-    font-weight: 550;
+  .topic-name .dot {
+    align-self: center;
   }
-  .chevron {
-    display: inline-block;
-    color: var(--muted);
-    font-size: 1.2rem;
-    line-height: 1;
-  }
-  details[open] > summary .chevron {
-    transform: rotate(90deg);
-  }
-  .declared {
-    display: inline-block;
-    padding: 0 4px;
-    margin-left: 8px;
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    color: var(--muted);
-    font-family: system-ui, sans-serif;
-    font-size: 0.72rem;
-  }
-  .badge {
-    display: inline-block;
-    min-width: 25px;
-    padding: 2px 7px;
-    background: var(--fill);
-    color: var(--muted);
-    text-align: center;
-    border-radius: 5px;
-    font-size: 0.72rem;
+  .topic-name strong {
+    color: var(--text);
+    font-size: 0.76rem;
     font-weight: 600;
   }
-  .badge.has-tasks {
-    color: var(--accent-text);
-    background: var(--accent-soft);
+  .reason {
+    font-size: 0.72rem;
+    color: var(--warn-text);
   }
-  .badge.neutral {
+  .topic.critical .reason {
+    color: var(--critical-text);
+    font-weight: 600;
+  }
+  .domain {
+    flex-basis: 100%;
+    padding-left: 18px;
     color: var(--muted);
-    background: var(--fill);
+    font-size: 0.68rem;
   }
-  .oldest {
+  .num {
+    text-align: right;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .topic-group {
+    padding: 6px 16px;
     color: var(--muted);
-    font-size: 0.7rem;
+    background: var(--surface-subtle);
+    border-bottom: 1px solid var(--divider);
+    font-size: 0.68rem;
+    font-weight: 600;
   }
-  .mobile-label {
-    display: none;
+  .secondary-topic > summary {
+    opacity: 0.75;
   }
-  .queue-content {
+  .topic-content {
     border-top: 1px solid var(--divider);
     background: var(--surface-subtle);
   }
-  .task-table th {
-    background: var(--surface-sunken);
+
+  /* Tables. */
+  .table-scroll {
+    overflow-x: auto;
   }
-  .task-state {
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 0.75rem;
+  }
+  th {
+    padding: 6px 16px;
+    color: var(--muted);
+    background: var(--surface-sunken);
+    border-bottom: 1px solid var(--divider);
+    font-size: 0.68rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  td {
+    padding: 7px 16px;
+    border-bottom: 1px solid var(--divider);
+    vertical-align: middle;
+    color: var(--text-3);
+  }
+  tr:last-child td {
+    border-bottom: 0;
+  }
+  td strong {
+    color: var(--text-2);
+    font-weight: 600;
+  }
+  .tag {
     display: inline-block;
-    padding: 3px 7px;
+    padding: 2px 7px;
     border-radius: 5px;
     color: var(--ok-text);
     background: var(--ok-bg);
     font-size: 0.7rem;
     white-space: nowrap;
   }
-  .task-state.held {
+  .tag.held {
     color: var(--held-text);
     background: var(--held-bg);
   }
-  .task-state.unknown {
+  .tag.warning {
     color: var(--warn-text);
     background: var(--warn-bg);
   }
-  .limit-note {
-    padding: 10px 24px;
-    border-top: 1px solid var(--divider);
+  .warn-text {
+    color: var(--warn-text);
+    font-weight: 650;
+  }
+  .requests .summary {
+    color: var(--text);
+    font-weight: 550;
+  }
+  .status {
+    white-space: nowrap;
+  }
+  .status .dot {
+    margin-right: 7px;
+  }
+  .status.critical {
+    color: var(--critical-text);
+    font-weight: 600;
+  }
+  .status.warning {
+    color: var(--warn-text);
+  }
+
+  /* Machines. */
+  .machines {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .machines > li {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--divider);
+  }
+  .machines > li:last-child {
+    border-bottom: 0;
+  }
+  .machine-line {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 0.78rem;
+  }
+  .machine-line strong {
+    color: var(--text);
+    font-weight: 650;
+  }
+  .machine-state {
+    margin-left: auto;
     color: var(--muted);
     font-size: 0.72rem;
   }
-  .inline-empty {
-    padding: 18px 24px;
-    color: var(--muted);
-    font-size: 0.75rem;
+  .machine-state.critical {
+    color: var(--critical-text);
+    font-weight: 600;
   }
+  .machine-state.warning {
+    color: var(--warn-text);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 6px;
+    padding-left: 17px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-left-width: 3px;
+    border-radius: 5px;
+    color: var(--muted);
+    font-size: 0.7rem;
+  }
+  .chip strong {
+    color: var(--text-2);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .chip.ok {
+    border-left-color: var(--ok-dot);
+  }
+  .chip.warning {
+    border-left-color: var(--warn-dot);
+    color: var(--warn-text);
+  }
+  .chip.critical {
+    border-left-color: var(--critical-dot);
+    color: var(--critical-text);
+  }
+  .chip-topic {
+    min-width: 0;
+    color: var(--faint);
+    font-size: 0.66rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Inbox. */
+  .checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+  .checkbox input {
+    accent-color: var(--accent);
+  }
+  .reply {
+    margin: 0 16px;
+    border-bottom: 1px solid var(--divider);
+  }
+  .reply > summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    padding: 8px 2px;
+    font-size: 0.72rem;
+  }
+  .reply > summary strong {
+    font-weight: 600;
+    color: var(--text-3);
+  }
+  .reply-received {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 0.72rem;
+    white-space: nowrap;
+  }
+  .chevron {
+    display: inline-block;
+    color: var(--muted);
+    font-size: 1.1rem;
+    line-height: 1;
+  }
+  details[open] > summary .chevron {
+    transform: rotate(90deg);
+  }
+  .reply-content {
+    padding-bottom: 12px;
+  }
+  .reply-content dl {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    margin: 0 0 10px;
+    font-size: 0.72rem;
+  }
+  .reply-content dt {
+    color: var(--muted);
+    margin-bottom: 2px;
+  }
+  .reply-content dd {
+    margin: 0;
+    color: var(--text-3);
+  }
+  pre {
+    margin: 0;
+    padding: 12px 14px;
+    max-height: 320px;
+    overflow: auto;
+    color: var(--text-3);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    font-size: 0.7rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: end;
+    gap: 8px;
+    padding: 10px 16px 12px;
+  }
+  .pagination > span {
+    margin-right: auto;
+    color: var(--muted);
+    font-size: 0.72rem;
+  }
+  .pagination button {
+    min-height: 26px;
+    padding: 2px 9px;
+    font-size: 0.7rem;
+  }
+
+  /* Activity. */
   .topic-picker {
     display: flex;
     align-items: center;
@@ -1363,9 +1650,9 @@
     font-size: 0.72rem;
   }
   select {
-    max-width: 350px;
+    max-width: 320px;
     width: 100%;
-    padding: 6px 9px;
+    padding: 5px 8px;
     color: var(--text-3);
     background: var(--surface-subtle);
     border: 1px solid var(--border-strong);
@@ -1375,19 +1662,17 @@
   .activity-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    padding: 0 24px;
+    padding: 12px 16px 0;
   }
   .chart-card {
     min-width: 0;
-    padding: 0 15px 16px;
+    padding: 0 16px 14px;
   }
   .chart-card:first-child {
     border-right: 1px solid var(--divider);
     padding-left: 0;
-    padding-right: 24px;
   }
   .chart-card:last-child {
-    padding-left: 24px;
     padding-right: 0;
   }
   .chart-card h3 {
@@ -1398,7 +1683,7 @@
   .chart-totals {
     display: flex;
     gap: 20px;
-    margin: 9px 0 14px;
+    margin: 6px 0 10px;
   }
   .chart-totals span {
     color: var(--muted);
@@ -1407,15 +1692,15 @@
   .chart-totals strong {
     margin-right: 5px;
     color: var(--text-2);
-    font-size: 1.1rem;
+    font-size: 1.05rem;
     font-weight: 600;
     letter-spacing: -0.04em;
   }
   .activity-summary {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px 24px;
-    padding: 14px 24px;
+    gap: 8px 22px;
+    padding: 10px 16px;
     border-top: 1px solid var(--divider);
     color: var(--muted);
     font-size: 0.72rem;
@@ -1428,13 +1713,12 @@
   .activity-summary small {
     margin-left: auto;
     font-size: 0.7rem;
-    color: var(--muted);
   }
   .hourly-data {
     border-top: 1px solid var(--divider);
   }
   .hourly-data > summary {
-    padding: 11px 24px;
+    padding: 9px 16px;
     color: var(--faint);
     font-size: 0.72rem;
   }
@@ -1452,120 +1736,14 @@
     position: sticky;
     top: 0;
   }
-  .subsection {
-    border-top: 1px solid var(--divider);
-  }
-  .subsection > h3 {
-    padding: 18px 24px 14px;
-    font-size: 0.78rem;
-    color: var(--text-3);
-  }
-  .inbox-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 18px 24px 14px;
-    gap: 18px;
-  }
-  .inbox-heading h3 {
-    font-size: 0.78rem;
-    color: var(--text-3);
-  }
-  .checkbox {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--muted);
-    font-size: 0.72rem;
-  }
-  .checkbox input {
-    accent-color: var(--accent);
-  }
-  .checkbox .counter {
-    margin-left: 0;
-  }
-  .reply {
-    margin: 0 24px;
-    border-top: 1px solid var(--divider);
-  }
-  .reply > summary {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 14px;
-    padding: 12px 2px;
-    font-size: 0.7rem;
-  }
-  .reply > summary strong {
-    font-weight: 550;
-    color: var(--text-3);
-  }
-  .reply-received {
-    display: inline-flex;
-    align-items: center;
-    gap: 14px;
-    color: var(--muted);
-    font-size: 0.72rem;
-    white-space: nowrap;
-  }
-  .reply-content {
-    padding-bottom: 16px;
-  }
-  .reply-content dl {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 22px;
-    margin: 0 0 12px;
-    font-size: 0.72rem;
-  }
-  .reply-content dt {
-    color: var(--muted);
-    margin-bottom: 2px;
-  }
-  .reply-content dd {
-    margin: 0;
-    color: var(--text-3);
-  }
-  pre {
-    margin: 0;
-    padding: 14px 16px;
-    max-height: 320px;
-    overflow: auto;
-    color: var(--text-3);
-    background: var(--surface-sunken);
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    font-size: 0.7rem;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  .pagination {
-    display: flex;
-    align-items: center;
-    justify-content: end;
-    gap: 8px;
-    padding: 12px 24px 18px;
-  }
-  .pagination > span {
-    margin-right: auto;
-    color: var(--muted);
-    font-size: 0.72rem;
-  }
-  .pagination button {
-    min-height: 28px;
-    padding: 3px 9px;
-    font-size: 0.7rem;
-  }
+
   footer {
     display: flex;
     justify-content: space-between;
     gap: 20px;
-    margin: 30px 0 32px;
+    margin: 18px 0 26px;
     color: var(--muted);
     font-size: 0.7rem;
-  }
-  .muted {
-    color: var(--muted);
   }
   .initial-loading {
     padding: 100px 20px 140px;
@@ -1589,6 +1767,7 @@
     animation: spin 1s linear infinite;
   }
   .spinning {
+    display: inline-block;
     animation: spin 1s linear infinite;
   }
   @keyframes spin {
@@ -1596,98 +1775,77 @@
       transform: rotate(360deg);
     }
   }
-  @media (max-width: 1050px) {
-    .shell {
-      padding: 0 28px;
-    }
-    .queue-head,
-    .queue > summary {
-      grid-template-columns: minmax(180px, 1fr) 90px 65px 115px;
-      gap: 10px;
-    }
-    .metric {
-      padding: 17px;
-    }
-    .section-heading {
-      align-items: start;
-    }
-    .topic-picker {
-      flex-direction: column;
-      align-items: start;
-      max-width: 45%;
+
+  @media (max-width: 1100px) {
+    .board {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
     }
   }
   @media (max-width: 760px) {
     .shell {
-      padding: 0 18px;
+      padding: 0 14px;
     }
-    .masthead {
-      min-height: 70px;
-    }
-    .local-label {
-      display: none;
-    }
-    main {
-      padding-top: 26px;
-    }
-    .page-heading {
-      align-items: start;
-      flex-direction: column;
-      gap: 20px;
-    }
-    .refresh-controls {
+    .refresh {
       width: 100%;
-      text-align: left;
+      margin-left: 0;
+      justify-content: space-between;
     }
-    .refresh-controls form {
-      justify-content: start;
-    }
-    .refresh-status {
-      justify-content: start;
-    }
-    .metrics {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-    .metric {
-      padding: 15px 17px;
-    }
-    .metric strong {
-      font-size: 1.8rem;
-    }
-    .section-heading {
-      padding: 18px;
-      flex-wrap: wrap;
-      gap: 10px;
+    .context > :global(*) + :global(*)::before {
+      display: none;
     }
     .section-note {
-      text-align: left;
-    }
-    th,
-    td {
-      padding-left: 18px;
-      padding-right: 18px;
-    }
-    .queue-head {
       display: none;
     }
-    .queue > summary {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      padding: 14px 18px;
-      gap: 10px;
+    .topic-head {
+      display: none;
     }
-    .queue-name {
+    .topic > summary {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 6px 8px;
+      padding: 9px 14px;
+    }
+    .topic-name {
       grid-column: 1 / -1;
     }
-    .queue-number:first-of-type {
-      padding-left: 22px;
+    .num {
+      text-align: left;
+      font-size: 0.72rem;
     }
-    .mobile-label {
-      display: inline;
-      margin-right: 0.4em;
+    .num::before {
+      content: attr(data-label);
+      display: block;
       color: var(--muted);
-      font-size: 0.7rem;
+      font-size: 0.62rem;
+    }
+    .activity-grid {
+      grid-template-columns: 1fr;
+      padding: 12px 14px 0;
+    }
+    .chart-card:first-child {
+      border-right: 0;
+      border-bottom: 1px solid var(--divider);
+      padding: 0 0 14px;
+    }
+    .chart-card:last-child {
+      padding: 14px 0;
+    }
+    .activity-summary small {
+      flex-basis: 100%;
+      margin-left: 0;
+    }
+    .panel-heading {
+      flex-wrap: wrap;
+    }
+    .topic-picker select {
+      max-width: none;
+    }
+    .reply {
+      margin: 0 14px;
+    }
+    footer {
+      flex-direction: column;
+      gap: 6px;
     }
     /* Data tables become one card per row, with each cell labelled. */
     table.stack thead {
@@ -1706,8 +1864,8 @@
     .stack tr {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 10px 16px;
-      padding: 14px 18px;
+      gap: 8px 14px;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--divider);
     }
     .stack tr:last-child {
@@ -1726,66 +1884,10 @@
       display: block;
       margin-bottom: 2px;
       color: var(--muted);
-      font-size: 0.68rem;
+      font-size: 0.66rem;
     }
-    .queue-number {
-      white-space: nowrap;
-    }
-    .oldest {
-      font-size: 0.72rem;
-      white-space: nowrap;
-    }
-    .activity-grid {
-      grid-template-columns: 1fr;
-      padding: 0 18px;
-    }
-    .chart-card:first-child {
-      border-right: 0;
-      border-bottom: 1px solid var(--divider);
-      padding: 0 0 20px;
-    }
-    .chart-card:last-child {
-      padding: 20px 0;
-    }
-    .activity-summary {
-      padding: 14px 18px;
-      gap: 10px 18px;
-    }
-    .activity-summary small {
-      flex-basis: 100%;
-      margin-left: 0;
-    }
-    .topic-picker {
-      max-width: 100%;
-      width: 100%;
-    }
-    .topic-picker select {
-      max-width: none;
-    }
-    .subsection > h3,
-    .inbox-heading {
-      padding-left: 18px;
-      padding-right: 18px;
-    }
-    .reply {
-      margin: 0 18px;
-    }
-    .reply > summary {
-      align-items: start;
-    }
-    .reply-received {
-      max-width: 100px;
+    .status {
       white-space: normal;
-      text-align: right;
-    }
-    .inbox-heading {
-      align-items: start;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    footer {
-      flex-direction: column;
-      gap: 6px;
     }
   }
   @media (prefers-reduced-motion: reduce) {

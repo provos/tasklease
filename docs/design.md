@@ -514,16 +514,55 @@ a shared refresh lock bound retained cache data and coalesce parallel tabs.
 **Dashboard** (`monitor/`): Svelte 5 with Vite, built to static files (plain
 Vite, no SvelteKit, since there is one page and no routing). It fetches
 `/api/snapshot` every 30 seconds and shows the time of the last refresh,
-and a stale warning when a refresh fails. Sections:
+and a stale warning when a refresh fails. The first screen answers "is
+anything broken?" before anything else:
 
-- **Workers:** pollers per topic with their last poll, so a dead machine is
-  obvious.
-- **Queues:** per topic, available and held tasks, the oldest available
-  task's age, and the tasks themselves (owner, lease, `owned_count`).
-- **Throughput and latency:** per topic and hour, created / consumed,
-  average and maximum wait and run times, re-owns and empty polls. Charts are
-  small inline SVG, with no chart library.
-- **This machine:** pending requests and inbox, including unmatched replies.
+- **Top bar:** a health pill (the number of problems, or "All healthy"), the
+  domain, waiting and running work, machines up, and the refresh controls.
+  The page title carries the problem count.
+- **Alerts:** one line per problem, most severe first, capped at six with
+  the rest behind a toggle.
+- **Topics:** one row per declared work topic and error topic, sorted by
+  severity: workers serving/seen, waiting, running, oldest wait and average
+  wait, expandable to the tasks (owner, lease, `owned_count`). Reply topics
+  (those of this machine's requests) and undeclared topics are listed apart
+  and left out of the totals.
+- **Machines:** workers on declared topics grouped by identity, each marked
+  busy, idle, waiting for capacity, silent, down or lease lapsed.
+- **Pending requests:** a summary of each request's data and its task's
+  state: queued with its position, running and on which worker, lapsed,
+  unconfirmed, or queued with no live worker.
+
+Below them: the inbox (including unmatched replies) and throughput and
+latency per topic and hour (created / consumed, average and maximum wait
+and run times, re-owns and empty polls), as small inline SVG charts with no
+chart library.
+
+Health is derived in `monitor/src/health.ts` from the snapshot alone,
+measured against each domain's `generated_at`:
+
+- A worker is **busy** while it holds a task with an unexpired lease (a
+  worker at capacity stops polling, §4.9), **lapsed** when it holds one whose
+  lease has expired, **idle** within 3 minutes of its last poll (workers
+  poll every 30 s), **silent** up to 10 minutes, **down** after that and
+  **inactive** after a day. A quiet worker on a machine with a busy worker
+  is **waiting for capacity**, since workers on one machine share it.
+- A machine is down when none of its workers is busy, idle or waiting and
+  one is down; silent likewise. Only pollers of declared work topics count,
+  because `tl wait` also polls reply topics. A domain with no declared
+  topics shows a hint instead.
+- A work topic is **critical** when tasks wait and no worker serves it,
+  and a **warning** when its oldest task has waited over 10 minutes and 3×
+  its average wait, or a held lease has lapsed. An error topic with tasks
+  is critical.
+- A pending request finds its task by `task_id` among the topic's first
+  100 tasks. A request whose submission stays unconfirmed for 5 minutes is
+  a warning.
+
+Busy detection only sees tasks among the first 100 per topic, and a worker
+that waits for capacity held outside tasklease (such as a machine-wide test
+lock) stops polling and looks silent, then down. A service-side liveness
+signal would remove both limits.
 
 ### 5.8 Packaging and releases
 
