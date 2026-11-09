@@ -620,3 +620,53 @@ Status: accepted after corrections, independent reviews and native qualification
   release instructions. No GitHub workflow was dispatched, no OIDC exchange
   or PyPI upload was attempted, and no service was deployed. Authentication
   and first publication remain unverified until an authorized publish run.
+
+## 0.1.0 release candidate — 2026-11-08
+
+- Prepared from `4aa5c40`, retaining the initial `0.1.0` package version.
+  Added the user-selected Apache-2.0 license to the repository, Python
+  metadata/distributions and all first-party npm workspace manifests. Added
+  a packaged long description and repository/changelog URLs. The changelog
+  records the initial release candidate; PyPI publication remains pending.
+- Asset builds now include full upstream license texts for Ajv's embedded
+  validator runtime, aws4fetch, Vite's runtime helper and the dashboard's
+  actual bundled dependencies (Svelte and clsx). Vite generates the dashboard
+  report; the service bundle includes the combined `THIRD_PARTY_NOTICES.md`.
+  Packaging tests verify upstream license bytes, Apache metadata and license
+  inclusion, no-Node sdist rebuilding/installation, and rejection of either
+  missing notice file. The first-release metadata checklist item is complete.
+- `make install`, `make check` and `make build` passed. The final check run
+  includes all 302 locked dependency age/source checks, zero npm advisories,
+  all 13 dependency-policy tests, 223 contract examples, generated-code drift,
+  formatting/linting, strict TypeScript/Svelte/Python checks, 191 Workers
+  tests, 32 dashboard tests, 801 Python/tooling tests with three expected
+  native-only skips, and all 154 local Worker conformance tests.
+- Clean candidate export at `0a562deade46095a897b75ff9c5c7febeee83435` passed
+  identical installed-wheel/no-Node acceptance on Linux, macOS and Windows.
+  Linux and macOS each passed 708 runtime tests with three native-Windows
+  skips; Windows passed 705 with six expected POSIX/platform skips. All had
+  zero failures/errors, the same source/wheel/archive hashes, and successful
+  packaged-resource probes. Windows passed both native Task Scheduler COM
+  test cases and a separate exported-template parse without registering a
+  task. Python was 3.12.12 on Linux/macOS and 3.12.11 on Windows.
+- Candidate identities:
+  - acceptance ZIP: `fbbaed45d184dd8ccf8096c9ee4d564ecb1f1cb63c78cb58999d55f3ed79a5fb`;
+  - source tree: `efe8bd51d82da266760442a0cdf7f458ae183f1a22e261d31d5e783413b7cbe4`;
+  - wheel: `d45fc55ebbbc8a2e2b2d24c38424ebf83a9cf1a7d16a7df2e954a4abbdb781ae`;
+  - sdist: `358c560c5f1639c67bd0f503f8d836d0f7c271d973f8f96dadb3cdb4ee3a9ff7`.
+- A fresh `tasklease-release-010-13d0327d` Worker in the acceptance account
+  reused only the dedicated `tasklease-acceptance-90d25ae` test bucket. An
+  installed earlier phase-3 wheel bootstrapped it; the installed candidate
+  upgraded it. The different-bundle upgrade preserved the exact held task,
+  identity/admin credentials and statistics, then passed snapshot migration,
+  atomic reply and stale-ID fencing. Both deployments passed real task/R2
+  probes. Wrong signed Content-Length returned 403 without creating an
+  object; the correct upload/download and SHA-256 passed. The temporary
+  identity was revoked and the new Worker was deleted after acceptance. The
+  earlier acceptance Worker/bucket were not redeployed or deleted; probe
+  objects use the existing seven-day lifecycle. No credentials were logged
+  or saved in the candidate or service configuration.
+- Full local logs, native JSON/JUnit/probe/pytest reports, the verified ZIP,
+  redacted live deployment results and cleanup evidence are preserved under
+  `/tmp/tasklease-release-010.KeK43m/`. This evidence-only documentation update
+  does not change the qualified package, build inputs or tests.
