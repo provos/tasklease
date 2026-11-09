@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/read.json",
+  "title": "Read",
+  "description": "POST /v1/read. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "ReadRequest",
+      "type": "object",
+      "properties": {
+        "domain": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+        },
+        "topic": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicName"
+        },
+        "id": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
+        }
+      },
+      "required": ["domain", "topic", "id"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "ReadResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "task": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Task"
+        }
+      },
+      "required": ["ok", "task"],
+      "additionalProperties": false
+    }
+  }
+}

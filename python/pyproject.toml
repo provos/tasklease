@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tasklease"
+version = "0.1.0"
+description = "A leased task board for coordinating agents and workers"
+requires-python = ">=3.12"
+dependencies = [
+  "httpx>=0.28,<1",
+  "platformdirs>=4,<5",
+  "tomli-w>=1,<2",
+]
+
+[project.scripts]
+tl = "tasklease.cli:main"
+
+[dependency-groups]
+dev = [
+  "build>=1.2,<2",
+  "datamodel-code-generator==0.90.0",
+  "editables>=0.5,<1",
+  "jsonschema==4.26.0",
+  "hatchling>=1.27,<2",
+  "mypy>=1.15,<2",
+  "pytest>=8,<10",
+  "ruff>=0.9,<1",
+  "types-jsonschema>=4.26.0.20261006",
+]
+
+[tool.hatch.build]
+artifacts = [
+  "src/tasklease/monitor/static/**",
+  "src/tasklease/service_bundle/**",
+]
+
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tasklease"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/tasklease", "tests", "pyproject.toml", "uv.lock", "hatch_build.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-config --strict-markers"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+extend-exclude = ["src/tasklease/generated"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tasklease"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+disallow_any_explicit = true
+exclude = ["src/tasklease/generated/"]
+
+[[tool.mypy.overrides]]
+module = "tasklease.generated.*"
+ignore_errors = true
+disallow_any_explicit = false

@@ -1,0 +1,6 @@
+{
+  "kind": "request",
+  "body": {
+    "glob": "work/**"
+  }
+}

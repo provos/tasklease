@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/version.json",
+  "title": "Version",
+  "description": "Unauthenticated GET /v1/version. Other operations use POST /v1/<operation>.",
+  "$defs": {
+    "Request": {
+      "title": "VersionRequest",
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "VersionResponse",
+      "type": "object",
+      "properties": {
+        "service_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?(?![\\s\\S])"
+        },
+        "protocol": {
+          "const": "v1"
+        }
+      },
+      "required": ["service_version", "protocol"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "name": "tasklease-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "service",
+    "monitor"
+  ],
+  "engines": {
+    "node": "^22.12.0 || >=24"
+  },
+  "scripts": {
+    "check:dependencies": "node scripts/dependency-policy.mjs --installed && npm audit",
+    "test:dependency-policy": "node --test scripts/dependency-policy.test.mjs",
+    "codegen": "node scripts/codegen.mjs",
+    "codegen:check": "node scripts/codegen.mjs --check",
+    "check:examples": "node scripts/check-examples.mjs",
+    "check:service": "npm run check --workspace service",
+    "check:monitor": "npm run check --workspace monitor",
+    "test:service": "npm run test --workspace service",
+    "test:monitor": "npm run test --workspace monitor",
+    "format": "prettier --write package.json eslint.config.mjs .prettierrc.json service monitor schema scripts",
+    "format:check": "prettier --check package.json eslint.config.mjs .prettierrc.json service monitor schema scripts",
+    "lint": "eslint service/src service/test service/vitest.config.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "26.6.6",
+    "ajv": "8.20.0",
+    "esbuild": "0.28.2",
+    "eslint": "9.39.5",
+    "json-schema-to-typescript": "16.0.0",
+    "prettier": "3.9.10",
+    "prettier-plugin-svelte": "4.1.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "deepmerge": "file:scripts/dependency-policy-vendor/deepmerge"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.3"
+    },
+    "semver": "7.8.5",
+    "deepmerge": "$deepmerge"
+  }
+}

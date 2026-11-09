@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/create.json",
+  "title": "Create",
+  "description": "POST /v1/create. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "CreateRequest",
+      "type": "object",
+      "properties": {
+        "domain": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+        },
+        "topic": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicName"
+        },
+        "data": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Data"
+        }
+      },
+      "required": ["domain", "topic", "data"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "CreateResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "id": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
+        }
+      },
+      "required": ["ok", "id"],
+      "additionalProperties": false
+    }
+  }
+}

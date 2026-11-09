@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/own.json",
+  "title": "Own",
+  "description": "POST /v1/own. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "OwnRequest",
+      "type": "object",
+      "properties": {
+        "domain": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+        },
+        "topic": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicName"
+        },
+        "hold_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        }
+      },
+      "required": ["domain", "topic", "hold_seconds"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "OwnResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "task": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Task"
+        }
+      },
+      "required": ["ok", "task"],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "topic": "work/linux",
+    "data": []
+  }
+}

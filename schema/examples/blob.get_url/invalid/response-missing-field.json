@@ -1,0 +1,7 @@
+{
+  "kind": "response",
+  "body": {
+    "url": "https://account.r2.cloudflarestorage.com/bucket/key?signature=example",
+    "expires_at": 1700003600000
+  }
+}

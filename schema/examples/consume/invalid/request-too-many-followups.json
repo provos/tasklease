@@ -1,0 +1,78 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "topic": "work/linux",
+    "id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "tasks": [
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      },
+      {
+        "topic": "reply/agent-1",
+        "data": {}
+      }
+    ]
+  }
+}

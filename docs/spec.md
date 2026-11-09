@@ -32,7 +32,8 @@ being worked on, workflow definitions, scheduling.
 
 **Domain.** Every task belongs to one domain: a separate namespace for
 topics, tasks, pollers and blobs. A domain name is lowercase segments of
-`[a-z0-9._-]+` joined by `/`, at most 256 characters. The service gives the
+`[a-z0-9._-]+` joined by `/`, at most 256 characters. The complete names `.`
+and `..` are prohibited. The service gives the
 name no meaning. A project on GitHub can use its repository
 (`github.com/provos/fluxshoteditor`); a team or a home lab can use
 `render-farm.example` or `acme/pipeline`. No operation reads or writes across
@@ -116,6 +117,10 @@ most 256 domains, and each scope list at most 256 globs:
 }
 ```
 
+Identity Add returns `invalid`, before storing an identity, if an automatic
+error grant (§4.13) would exceed the 256-character glob limit or a scope
+list's 256-entry limit.
+
 **Worker label.** Several workers can share one machine and one identity.
 Each request carries an `X-Worker` header (for example `verify-a`): 1 to 256
 characters of `[A-Za-z0-9._-]`. The label is self-reported and not
@@ -136,6 +141,10 @@ So `verify/*` matches `verify/linux` but not `verify` or
 `verify/linux/error`; `verify/**` matches both `verify/linux` and
 `verify/linux/error` but not `verify`. A glob for a topic and its error
 topic is therefore two globs: `verify/linux` and `verify/linux/error`.
+
+A glob is 1 to 256 characters: segments of `[a-z0-9._-]` and `*`, separated
+by `/`, with `**` only as a whole segment. A topic is at most 134 characters,
+so the limit leaves room for any useful glob.
 
 | Operation | Needs |
 |---|---|
@@ -189,7 +198,7 @@ Success is `200 {"ok": true, ...}`. Failure is
 |---|---|---|
 | `invalid` | 400 | malformed request, bad topic name, bad duration, a name or list over its limit |
 | `unauthenticated` | 401 | missing or unknown token |
-| `forbidden` | 403 | scope or holder rule refused it |
+| `forbidden` | 403 | scope, holder rule, or conditional Delete refused it |
 | `not_found` | 404 | no task with this domain, topic and ID |
 | `empty` | 404 | Own found no available task |
 | `exists` | 409 | Identity Add for a name already in use |
@@ -246,10 +255,16 @@ Returns the whole task. It takes no lease and changes nothing. Error:
 
 ### 4.5 Delete
 
-`delete {domain, topic, id}` → `{}`
+`delete {domain, topic, id, lease_before?}` → `{}`
 
 Retires the task with no successor, under the holder rule (§3). Errors:
 `not_found`, `forbidden`.
+
+If `lease_before` is supplied (a timestamp), the stored lease must be strictly
+older than it; otherwise Delete returns `forbidden` without changing anything.
+The holder and cutoff checks share the deletion transaction. `tl prune` uses
+this guard so a concurrent Renew cannot turn an abandoned task into live work
+between listing and deletion and still have it deleted.
 
 ### 4.6 Consume
 
@@ -309,7 +324,9 @@ warn when no worker is serving the topic.
 
 The server builds the key as `<D>/<yyyy-mm-dd>/<ULID>/<name>`, where `<D>`
 is the domain name with each `/` written as `%2F`, so the domain is always
-exactly one key segment. Without that encoding, domain `acme`'s prefix
+exactly one key segment. These percent signs are literal bytes in the R2 key
+and are encoded again when constructing its S3 URL. Without that encoding,
+domain `acme`'s prefix
 `acme/` would also be the start of every key in domain `acme/pipeline`. The
 caller never supplies a key, so it cannot write outside its domain. `url` is a
 presigned R2 PUT, valid for 1 hour, with `size` signed as its
@@ -355,6 +372,9 @@ Creates an identity and returns its token. This is the only time the token
 is shown, and the server keeps only its SHA-256. `name` matches
 `[a-z0-9-]{1,64}`. For every glob in `own`, the server adds `<glob>/error` to
 `create`, so a worker can always move a broken task out of the way (§6.1).
+This is an append-only expansion of each glob as written. Manually owning
+an error topic does not also grant `create` on that topic; a manual Consume
+into it needs an explicit create grant.
 
 `identity.revoke {name}` → `{}`. The token stops working within 60 seconds:
 the Worker keeps token lookups in memory for up to that long (§7.1). Tasks
@@ -391,6 +411,9 @@ Object. Only topics the caller may `read` or `own` are included.
   Tasks List, no `data`), with `truncated: true` when there are more.
 - `stats`: the hourly statistics (below) for the last `hours` hours
   (default 24, at most 720), one row per topic and hour that had activity.
+  This includes the current hourly bucket and the preceding `hours - 1`
+  buckets. Authorized historical topics remain in statistics even when they
+  no longer have tasks, recent pollers or a declaration.
 
 Errors: `invalid`, `forbidden`.
 
@@ -449,6 +472,12 @@ than run it again.
 
 ### 6.1 Worker loop
 
+Automated workers operate only on non-error work topics. Both the worker
+library and `tl worker` refuse topics ending in `/error` before calling Own.
+Error topics are handled manually by operators. A non-operator manually
+owning an error topic needs an explicit `create` grant to Consume into that
+same topic; the automatic glob expansion in §4.13 does not grant it.
+
 ```text
 LEASE = 600 s; RENEW_EVERY = 180 s; MAX_OWNED = 3
 while not stopping:
@@ -482,7 +511,10 @@ finish(task, outcome):
 ```
 
 Because Renew keeps the ID, the renewer and the main loop share one ID that
-never changes. They need no mutex.
+never changes; access to that ID needs no mutex. The local deadline and lost
+state still need synchronization. A deadline watchdog marks the task lost
+even while a network call is blocked, and a late Renew response cannot revive
+a locally lost task.
 
 **Every task ends.** Whatever is wrong with a task (data that does not parse,
 a reply topic the worker may not write to, a reply that comes out too large),
@@ -496,9 +528,9 @@ worker that gets `too_large` there sends the bounded form instead:
 whole payload serializes to at most 128 KiB. The cut is measured on the
 serialized payload, not on the strings, because escaping in JSON can make a
 string several times longer. So the bounded form always fits, whatever the
-task or the outcome held. `tl identity add` gives every identity `create` on
-`<topic>/error` for each topic it can `own` (§4.13), so this last Consume is
-always allowed.
+task or the outcome held. For each non-error work topic an identity can
+`own`, the glob expansion in §4.13 grants `create` on `<topic>/error`, so
+this automated worker's last Consume is always allowed.
 
 **Replies stay small.** A reply echoes the request's identifying fields only,
 never the whole request data. A request near the size limit would otherwise
@@ -559,14 +591,15 @@ service that the CLI knows nothing about:
 
 1. Publish `requests/h(agent)/h(request_id).json` with
    `{request_id, domain, topic, reply_topic, created_at, data}`, where
-   `data` is the complete body Create will carry.
+   `data` is the exact task payload sent as Create's `data`, including the
+   chosen `request_id` and `reply_topic`.
 2. Send Create.
 3. Publish `requests/h(agent)/h(request_id).task.json` with `{task_id}`.
 
 `tl wait` reads the reply topic from the record. `tl cancel` reads the
 domain and topic from it and the task ID from the `.task.json` file it needs
-for Delete. If Delete returns `not_found`, a worker has already taken the
-request, and `tl cancel` says so.
+for Delete. If Delete returns `not_found`, the task was taken or removed;
+`tl cancel` cannot distinguish these cases and keeps the record for waiting.
 
 **Local reply store.** The CLI drains the agent's reply topic and keeps the
 replies on the agent's machine, in `replies/h(agent)/`. Each pass:
@@ -585,10 +618,10 @@ replies on the agent's machine, in `replies/h(agent)/`. Each pass:
      existing file stays.
 3. `delete` the task, using the ID that `own` returned.
 
-**`publish_new(path, bytes) → created | exists`.** Every file the CLI and
-the worker library publish for other processes to find (replies, request
-records, profile caches) goes through this one operation, never through
-direct file calls. Its contract, on every platform:
+**`publish_new(path, bytes) → created | exists`.** Every immutable data file
+the CLI and worker library publish for other processes to find (replies,
+request records, profile caches) goes through this one operation, never
+through direct file calls. Its contract, on every platform:
 
 - **Atomic:** a reader sees either no file or the whole file, never part of
   it.
@@ -599,6 +632,12 @@ direct file calls. Its contract, on every platform:
 
 The implementation differs by platform (POSIX and Windows) and lives in one
 module; nothing else in the code knows the difference.
+
+Transient worker stop markers contain no task data: their existence is the
+complete signal, and the worker removes them immediately. They use exclusive
+empty-file creation without a later path-based flush, which could race that
+removal. Stop markers do not promise power-loss persistence. Mutable
+configuration uses the explicitly replacing atomic operation in design §5.2.
 
 The agent ID is also part of the agent's reply topic (`verified/<agent-id>`),
 so it must be a valid topic segment (§2). `tl` refuses to start with any
@@ -631,7 +670,8 @@ A request's state is read from the files:
   `tl cancel` cannot cancel it, since it has no task ID, and says so.
   `tl request --resend <request_id>` posts the saved `data` again with the
   same `request_id`; if both arrive, the second reply is dropped as a
-  duplicate.
+  duplicate. Resend is limited to this state; a pending request already has a
+  known task ID, and an answered request needs no new submission.
 - *pending*: the record and its `.task.json` exist, with no reply.
 - *answered*: the reply exists.
 

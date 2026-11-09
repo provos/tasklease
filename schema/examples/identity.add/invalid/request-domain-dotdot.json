@@ -1,0 +1,13 @@
+{
+  "kind": "request",
+  "body": {
+    "name": "linux-1",
+    "domains": [".."],
+    "scopes": {
+      "create": ["reply/*", "work/linux/error"],
+      "own": ["work/linux"],
+      "read": ["**"]
+    },
+    "operator": false
+  }
+}

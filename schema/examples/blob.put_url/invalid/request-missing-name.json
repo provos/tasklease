@@ -1,0 +1,8 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "size": 42,
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

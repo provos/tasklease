@@ -1,0 +1,7 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+  }
+}

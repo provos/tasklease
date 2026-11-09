@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/tasks.list.json",
+  "title": "TasksList",
+  "description": "POST /v1/tasks.list. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "TasksListRequest",
+      "type": "object",
+      "properties": {
+        "domain": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+        },
+        "topic": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicName"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "$comment": "Runtime decodes base64url v1:<created_at>:<task ID> and validates each component."
+        }
+      },
+      "required": ["domain", "topic"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "TasksListResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskSummary"
+          },
+          "maxItems": 500
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["ok", "tasks"],
+      "additionalProperties": false
+    }
+  }
+}

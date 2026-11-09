@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/blob.put_url.json",
+  "title": "BlobPutUrl",
+  "description": "POST /v1/blob.put_url. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "BlobPutUrlRequest",
+      "type": "object",
+      "properties": {
+        "domain": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,128}(?![\\s\\S])",
+          "not": {
+            "enum": [".", ".."]
+          }
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483648
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}(?![\\s\\S])"
+        }
+      },
+      "required": ["domain", "name", "size", "sha256"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "BlobPutUrlResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "key": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "expires_at": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+        }
+      },
+      "required": ["ok", "key", "url", "expires_at"],
+      "additionalProperties": false
+    }
+  }
+}

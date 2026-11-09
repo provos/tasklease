@@ -1,0 +1,8 @@
+{
+  "kind": "response",
+  "body": {
+    "key": "acme%2Fpipeline/2026-11-07/01ARZ3NDEKTSV4RRFFQ69G5FAV/report.json",
+    "url": "https://account.r2.cloudflarestorage.com/bucket/key?signature=example",
+    "expires_at": 1700003600000
+  }
+}

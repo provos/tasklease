@@ -1,0 +1,9 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "topic": "work/linux",
+    "declared": true,
+    "unexpected": true
+  }
+}

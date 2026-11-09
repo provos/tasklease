@@ -1,0 +1,7 @@
+{
+  "kind": "request",
+  "body": {
+    "topic": "work/linux",
+    "hold_seconds": 600
+  }
+}

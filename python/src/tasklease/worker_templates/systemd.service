@@ -1,0 +1,15 @@
+[Unit]
+Description=tasklease worker
+
+[Service]
+Type=exec
+WorkingDirectory=/absolute/path/to/checkout
+ExecStart=:/absolute/path/to/tl --config /absolute/path/to/config.toml --worker WORKER_LABEL worker --domain DOMAIN --topic TOPIC
+Restart=on-failure
+RestartSec=10s
+KillSignal=SIGHUP
+KillMode=mixed
+TimeoutStopSec=infinity
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,17 @@
+{
+  "name": "@tasklease/deepmerge",
+  "version": "4.3.1-tasklease.1",
+  "description": "Reviewed security backport of deepmerge 4.3.1 for CVE-2026-93753",
+  "type": "commonjs",
+  "main": "index.cjs",
+  "types": "index.d.ts",
+  "license": "MIT",
+  "taskleaseVendor": {
+    "upstream": "deepmerge@4.3.1",
+    "tarball": "https://registry.npmjs.org/deepmerge/-/deepmerge-4.3.1.tgz",
+    "integrity": "sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A==",
+    "published": "2023-03-16T22:58:56.511Z",
+    "advisory": "GHSA-gcqx-w48m-w2h4",
+    "patch": "Use own data-property definitions for merge output keys, preserving existing prototype-chain guards."
+  }
+}

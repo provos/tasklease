@@ -1,0 +1,13 @@
+{
+  "kind": "request",
+  "body": {
+    "name": "agent\n",
+    "domains": ["acme/pipeline"],
+    "scopes": {
+      "create": ["reply/*", "work/linux/error"],
+      "own": ["work/linux"],
+      "read": ["**"]
+    },
+    "operator": false
+  }
+}

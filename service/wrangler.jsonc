@@ -1,0 +1,30 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "tasklease",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "R2_ACCOUNT_ID": "local",
+    "R2_BUCKET_NAME": "tasklease-blobs",
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "DOMAINS", "class_name": "DomainObject" },
+      { "name": "REGISTRY", "class_name": "RegistryObject" },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DomainObject", "RegistryObject"],
+    },
+  ],
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "tasklease-blobs" }],
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 },
+  },
+}

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/monitor.snapshot.json",
+  "title": "MonitorSnapshot",
+  "description": "POST /v1/monitor.snapshot. Responses are success envelopes; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "MonitorSnapshotRequest",
+      "type": "object",
+      "properties": {
+        "domain": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+        },
+        "hours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 720
+        }
+      },
+      "required": ["domain"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "MonitorSnapshotResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "domain": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+        },
+        "generated_at": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/Timestamp"
+        },
+        "topics": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/SnapshotTopic"
+          }
+        },
+        "stats": {
+          "type": "array",
+          "items": {
+            "$ref": "https://tasklease.dev/schema/common.json#/$defs/HourlyStats"
+          }
+        }
+      },
+      "required": ["ok", "domain", "generated_at", "topics", "stats"],
+      "additionalProperties": false
+    }
+  }
+}

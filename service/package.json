@@ -1,0 +1,23 @@
+{
+  "name": "@tasklease/service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ../scripts/run-worker.mjs dev",
+    "build": "node ../scripts/run-worker.mjs deploy --dry-run --outdir dist",
+    "types": "wrangler types worker-configuration.d.ts",
+    "check": "tsc --noEmit && tsc --noEmit -p test/tsconfig.json",
+    "test": "vitest run",
+    "codegen": "node ../scripts/codegen.mjs",
+    "check:examples": "node ../scripts/check-examples.mjs"
+  },
+  "dependencies": {
+    "aws4fetch": "1.0.20"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.4.11",
+    "vitest": "4.1.12",
+    "wrangler": "4.156.0"
+  }
+}

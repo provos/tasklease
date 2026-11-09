@@ -1,0 +1,32 @@
+{
+  "kind": "response",
+  "body": {
+    "task": {
+      "id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "domain": "acme/pipeline",
+      "topic": "work/linux",
+      "created_at": 1700000000000,
+      "lease_until": 1700000001000,
+      "owned_count": 1,
+      "creator": "agent-1",
+      "owner": {
+        "identity": "linux-1",
+        "worker": "worker-1"
+      },
+      "owned_at": 1700000000000,
+      "data": {
+        "request_id": "request-1",
+        "reply_topic": "reply/agent-1",
+        "nested": [
+          null,
+          true,
+          1,
+          "hello",
+          {
+            "a": [2]
+          }
+        ]
+      }
+    }
+  }
+}

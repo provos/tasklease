@@ -1,0 +1,16 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "topic": "work/linux",
+    "tasks": [
+      {
+        "topic": "reply/agent-1",
+        "data": {
+          "request_id": "request-1",
+          "status": "ok"
+        }
+      }
+    ]
+  }
+}

@@ -188,9 +188,17 @@ storage, with the tables in spec §7.2.
   one line.
 - **Snapshot:** `monitor.snapshot` reads topics, pollers, the first 100 task
   summaries per topic and the requested hours of statistics in one
-  transaction, so the page shows one consistent moment.
+  transaction, so the page shows one consistent moment. It serializes bounded
+  chunks into temporary SQLite snapshot tables during that transaction, then
+  returns an RPC byte-stream Response over the immutable chunks. This avoids
+  both the 32 MiB RPC value limit and live SQL cursors across awaits (which
+  have no snapshot isolation). At most two snapshots can stream concurrently;
+  excess requests receive HTTP 503. Completion and cancellation clean up
+  chunks; a five-minute expiry and the alarm clean up abandoned snapshots.
 - **Renew:** `UPDATE … SET lease_until = ? WHERE id = ? AND topic = ?`, after
   the holder check.
+- **Delete:** holder and optional `lease_before` cutoff checks precede deletion
+  in the same transaction, so pruning cannot race a Renew that retains the ID.
 - **Consume:** delete, then insert each new task, in one transaction.
 - **Alarm:** once a day, delete poller rows older than 7 days and statistics
   rows older than 30 days, then set the next alarm. It is set on first use,
@@ -208,6 +216,17 @@ hash, domains, scopes as JSON, operator flag, created_at, last_seen_at).
 - `add`, `revoke`, `rotate`, `list`, `whoami` as in spec §4.13–4.14. `add`
   generates the token (32 random bytes, base64url, prefixed `tl_`) and expands
   each `own` glob into a `create` grant on `<glob>/error`.
+- `add` rejects an expanded `<glob>/error` grant longer than 256 characters
+  before insertion (spec §3). With every glob capped, a legal identity
+  serializes to at most about 265 KB, far below SQLite's row limit.
+- Identity List uses internal RPC pages of 64 records, at most about 17 MB,
+  below RPC's 32 MiB message limit. The Worker streams
+  the same public `{ok: true, identities: [...]}` JSON response with
+  backpressure and cancellation. Neither side assembles the complete list,
+  so individually valid identities cannot overflow RPC's message limit when
+  listed together. These cursors are internal, not part of the wire protocol.
+  Concurrent registry changes can appear between pages; each page is read in
+  one transaction, and the overall list is a best-effort view.
 
 ### 4.4 Token cache
 
@@ -216,6 +235,12 @@ entries kept for 60 seconds. Only found identities are cached. Each isolate
 has its own cache; that is why revocation is "within 60 seconds" rather than
 exact.
 
+The cache also has an 8 MiB conservative retained-byte budget and a 4096-entry
+cap. Charges include UTF-16 string lengths and container overhead; a legal
+identity charges under 1 MB. An entry over the whole budget would still
+authenticate without being cached; expired and evicted entries release their
+charges, so cached identities cannot exhaust the isolate.
+
 ### 4.5 Blob URLs
 
 Presigned with `aws4fetch` against R2's S3 endpoint, using an R2 API token
@@ -223,10 +248,14 @@ Presigned with `aws4fetch` against R2's S3 endpoint, using an R2 API token
 the Worker checks the object exists through the R2 binding (`head`), so a
 missing blob is `not_found`, not a URL that fails later.
 
-**Size of uploads.** The PUT URL should sign `Content-Length`, so R2 rejects
+Domain-key encoding follows spec §4.10. Encode each key segment again for
+the S3 URL: a literal `%2F` in the key becomes `%252F` on the wire. The domain
+names `.` and `..` are prohibited (spec §2).
+
+**Size of uploads.** The PUT URL signs `Content-Length`, so R2 rejects
 an upload of any other size (`403 SignatureDoesNotMatch`). With `aws4fetch`,
-query signing (`aws: {signQuery: true}`) is reported to sign only `host`
-unless `allHeaders: true` is also set, so the configuration to try is:
+query signing (`aws: {signQuery: true}`) signs only `host` unless
+`allHeaders: true` is also set. The validated configuration is:
 
 ```ts
 await aws.sign(url, {
@@ -236,10 +265,10 @@ await aws.sign(url, {
 });
 ```
 
-This is checked early in M1 (§9): an upload of the signed size succeeds and
-one of a different size is refused. If R2 does not refuse it, the size limit
-is enforced after upload instead: the reader checks size and SHA-256, and
-oversize objects are left to the lifecycle rule.
+Live acceptance on 2026-11-07 confirmed that 16 signed bytes upload and
+download correctly, while 17 bytes on the same signed URL return 403 and
+create no object. Repeat this check before release. Readers also check size
+and SHA-256 for integrity.
 
 ### 4.6 Configuration
 
@@ -273,7 +302,8 @@ check use it.
 ## 5. Python package
 
 Python 3.12 or newer. Runtime dependencies kept small: `httpx` (HTTP),
-`platformdirs` (per-OS paths). `tomllib` from the standard library for
+`platformdirs` (per-OS paths), `tomli-w` (preserving TOML updates). `tomllib`
+from the standard library for
 configuration. Development: `pytest`, `mypy --strict`, `ruff`,
 `jsonschema` (tests only), `datamodel-code-generator` (codegen only).
 
@@ -313,11 +343,20 @@ publish it, inside `try/finally` so the temp file is removed whatever
 happens. A `FileExistsError` from the publish step returns `"exists"`.
 
 - **POSIX (macOS, Linux):** publish with `os.link(tmp, path)`, which fails if
-  `path` exists, so exactly one publisher wins. Then `fsync` the directory.
-- **Windows:** publish with `os.rename(tmp, path)`. On Windows `os.rename`
-  refuses to replace an existing file, which is exactly the no-replace rule.
-  `os.fsync` flushes on Windows. A directory cannot be fsynced there, so that
-  step is skipped.
+  `path` exists, so exactly one publisher wins. Sync the destination directory
+  and file on both `created` and `exists`: a loser may observe the name before
+  the winner has flushed it. Create private parents one at a time and sync
+  ancestor entries, including concurrent creation. On macOS request
+  `F_FULLFSYNC` after publication to flush the drive cache too.
+- **Windows:** a small stdlib `ctypes` wrapper calls `MoveFileExW` with
+  `MOVEFILE_WRITE_THROUGH`, without replacement or cross-volume copy flags.
+  Flush the destination file on both `created` and `exists`; Windows file
+  flushes include cached file metadata. There is no equivalent straightforward
+  directory barrier, so ancestor-namespace power-loss persistence is not
+  claimed. Native Windows and macOS execution are separate acceptance checks.
+- **Configuration:** `atomic_replace` reuses the same temp/sync/cleanup core,
+  with replacement explicitly enabled. The configuration module contains no
+  platform-specific file publication code.
 - Temp files are named `.<name>.<random>.tmp` and ignored by every reader.
   Only a crash leaves one behind; those are removed when older than a day.
 
@@ -361,8 +400,11 @@ different agent IDs and so different folders. `tl inbox --all` and
 
 ### 5.4 `worker.py`
 
-The generic worker loop from spec §6.1, as a library. A profile supplies two
-objects:
+The generic worker loop from spec §6.1, as a library. The library refuses
+topics ending in `/error` before polling, just as
+`tl worker` does (§5.5). Operators handle error topics manually; a
+non-operator doing so needs explicit create grants for its Consume targets.
+A profile supplies two objects:
 
 ```python
 class Capacity(Protocol):
@@ -395,9 +437,16 @@ for the FluxShot worker design. The library supports both shapes.
 
 **Stopping.** A worker stops the same way on every OS: a stop request finishes
 the current task, then exits. A stop request is `SIGHUP` or `SIGTERM` on
-POSIX, or a stop file (`<state dir>/workers/<label>.stop`) on any OS, which
+POSIX, or a stop file (`<state dir>/workers/<h(label)>.stop`) on any OS, which
 is also what the Windows service wrapper uses. A second signal stops at once,
 and the task's lease brings it back for another worker.
+The hash uses the store's first 32 lowercase hexadecimal SHA-256 characters,
+so case-sensitive labels, Windows device names and long labels are portable.
+`tl worker stop --worker <label>` creates the file without needing credentials.
+The empty marker is transient: exclusive creation publishes the entire signal,
+and the watcher removes it. It does not use immutable durable publication,
+because removal can race a publisher's final flush. On Windows a sharing
+violation while the creating handle is still open is retried by the watcher.
 
 ### 5.5 `tl`
 
@@ -448,11 +497,19 @@ unless `--port` is given. It serves:
   the local store, for every agent folder on the machine (§5.3). The result
   is kept for 25 seconds.
 
+`tl monitor --domain D` fixes service snapshots to that permitted identity
+domain. Without the flag it shows every permitted domain, independently of
+the configuration's default domain. Local records still span this machine's
+agents because reply records are not indexed by domain.
+
 It refuses any request whose `Host` header is not `127.0.0.1:<port>` or
 `localhost:<port>` (403). That keeps a web page from another site from
 reading the snapshot by pointing its own domain at `127.0.0.1` (DNS
 rebinding). Everything is `GET` and read-only. Nothing from the browser
 reaches the service except the choice of `hours`.
+Local store views use `Store(..., initialize=False)` so reading never
+publishes metadata or runs retention cleanup. One cached hours selection and
+a shared refresh lock bound retained cache data and coalesce parallel tabs.
 
 **Dashboard** (`monitor/`): Svelte 5 with Vite, built to static files (plain
 Vite, no SvelteKit, since there is one page and no routing). It fetches
@@ -471,8 +528,8 @@ and a stale warning when a refresh fails. Sections:
 ### 5.8 Packaging and releases
 
 - **Build backend:** `hatchling`, with a custom build hook
-  (`hatch_build.py`) that runs `npm ci && npm run build` in `../monitor/` and
-  copies the output to `tasklease/monitor/static/`. Both the wheel and the
+  (`hatch_build.py`) that uses the root npm workspace lockfile and builds
+  `monitor/`, copying output to `tasklease/monitor/static/`. Both the wheel and the
   sdist contain the built dashboard, so installing either never needs Node.
 - **The Worker bundle.** The same hook runs `wrangler deploy --dry-run
   --outdir` in `../service/`, which bundles the Worker and its npm
@@ -486,6 +543,9 @@ and a stale warning when a refresh fails. Sections:
   with. All three go to `tasklease/service_bundle/`. So a user who installed
   from PyPI deploys with no checkout and no `npm install` (§8.2), and the
   service they deploy always matches their client.
+- **Worker version:** build and development wrappers derive it from the
+  Python project's version and inject it through a temporary Wrangler config;
+  they do not rewrite source files or maintain an independent service version.
 - **Shipping build output.** Hatchling leaves out of the sdist and wheel
   every path that git ignores, even one the build hook has just created. So
   `pyproject.toml` lists both build outputs under `artifacts` in
@@ -608,6 +668,10 @@ migrations, keeping existing secrets, the `workers.dev` address, and sign-in.
 - **Which wrangler:** always the exact version recorded in the bundle's
   `manifest.json`, run as `npx --yes wrangler@<version>`, so every deploy
   uses the wrangler the release was tested with. No global install.
+- **Target isolation:** discard inherited `CLOUDFLARE_ENV` and
+  `WRANGLER_CI_OVERRIDE_NAME` when launching Wrangler. The selected account,
+  name and top-level config determine the target; another project's shell
+  environment cannot rename this deployment.
 - **What it deploys:** the Worker bundled in the installed package (§5.8),
   from a temporary project folder holding that bundle and a `wrangler.jsonc`
   filled in from the template. `no_bundle: true`, so wrangler uploads the
@@ -666,11 +730,20 @@ deploy.
    **The URL:** `tl` sets `WRANGLER_OUTPUT_FILE_PATH` to a temporary file,
    where wrangler appends one JSON line per event. `tl` reads it line by line
    and selects the `deploy` entry, whose `targets` lists the deployment's
-   URLs (wrangler source, `packages/workers-utils/src/output.ts`). It takes
-   the single target ending in `.workers.dev`. It does not parse other
+   addresses (wrangler source, `packages/workers-utils/src/output.ts`). It takes
+   the single target ending in `.workers.dev`, accepting a bare hostname or
+   an HTTPS origin and normalizing it to HTTPS. It does not parse other
    entries or wrangler's terminal output, whose wording can change. If there
    is no such target, the deploy stops with exit code 4 and asks for the URL
    with `--url`, which is then saved like any other input.
+   After a successful upload and URL resolution, save these nonsecret target
+   coordinates to the selected config, marked unverified in command output.
+   Expected setup stops can then resume the same custom account/name/bucket.
+   Credentials and unrelated client settings are never replaced by this save.
+   When an R2 key pair is being updated, this checkpoint also sets
+   `cloudflare.r2_credentials_pending = true`. Retries require a pair while
+   this flag is set, even when saved target coordinates already match. Clear
+   it only after the secret bulk command succeeds.
 5. **Existing secrets:** `wrangler secret list --name <name>`. The Worker
    exists now, so this succeeds; a failure is a real failure. Which secrets
    are missing is decided from this list.
@@ -687,13 +760,11 @@ deploy.
    *existing* in `secret list` proves nothing about its *value*: after a
    failed rotation, the old token still exists and still works.
    - It works: print "confirmed". The printed token is the admin token.
-   - `unauthenticated`: print that the printed token is **not** in effect
-     and must be discarded. On a rotation, the previous token still holds;
-     run `--rotate-admin-token` again. On a first deploy, the next run finds
-     no `ADMIN_TOKEN` and generates a new one.
-   - The service cannot be reached: print that the token's status is
-     unknown, and stop. The next run with `TL_ADMIN_TOKEN` set to the
-     printed token confirms it (step 9 uses it); if that fails, rotate.
+   - The deadline passes with `unauthenticated` or transport failures: print
+     that the token is **unconfirmed**, and stop. Propagation may still be in
+     progress; do not infer that the candidate was permanently rejected or
+     that the old token still works. Keep the candidate and retry with
+     `TL_ADMIN_TOKEN` set to it, or explicitly rotate again.
 7. **R2 credentials:** if `R2_ACCESS_KEY_ID` or `R2_SECRET_ACCESS_KEY` is
    still missing, stop here with exit code 4 and print the dashboard steps
    for creating them (help text, step 3), naming the bucket. The message
@@ -720,7 +791,8 @@ deploy.
    download. Without an admin token (an upgrade with no `TL_ADMIN_TOKEN`),
    this step is skipped with a warning that the deploy was not verified.
    The probe blob expires with the lifecycle rule.
-10. **Write the config** with the URL and the saved inputs, then print the
+10. **Finish the config checkpoint** with the URL and saved inputs, preserving
+    unrelated settings, and report the verification result. Then print the
     next steps: `tl identity add` for each machine, and `tl topic declare`.
 
 Between steps 4 and 6 of a first deploy, the Worker runs for a few seconds
@@ -808,8 +880,8 @@ On the first deploy, this command prints the ADMIN TOKEN once, just
 before setting it, and then confirms it by using it. Store it in a
 password manager: it is needed for "tl identity add" (as
 TL_ADMIN_TOKEN) and is not saved anywhere. If the command says the
-printed token is not in effect, discard it and run the command again
-(after a rotation, add --rotate-admin-token). If the token is lost, run
+printed token is unconfirmed, keep it: propagation may still be in progress.
+Retry with TL_ADMIN_TOKEN set to it, or explicitly rotate again. If the token is lost, run
 "tl service deploy --rotate-admin-token" to replace it.
 
 At the end, the command checks the whole service: it adds a temporary
@@ -835,11 +907,14 @@ differs.
 
 ### 8.5 Running workers
 
-`deploy/` holds templates; `tl worker install` fills them in later:
+`deploy/` documents the packaged templates. `tl worker template --platform`
+prints one for editing before installation; automated `tl worker install`
+remains a future convenience:
 
 - **Linux:** a systemd user unit (`Restart=on-failure`, `KillSignal=SIGHUP`
   for a graceful stop).
-- **macOS:** a launchd agent plist (`KeepAlive`).
+- **macOS:** a launchd agent plist (restart on unsuccessful exit). Graceful
+  stop uses the stop command; unloading or logout has a bounded stop timeout.
 - **Windows:** a scheduled task that runs at logon and restarts on failure.
   It stops a worker by writing its stop file (§5.4).
 
@@ -868,10 +943,11 @@ Settled: the cursor format is spec §4.8's base64url of
 (`WHERE (created_at, id) > (?, ?) ORDER BY created_at, id`), which does not
 need the cursor's own task to still exist.
 
-1. **Content-Length in presigned PUTs** (§4.5): the `allHeaders: true`
-   configuration is to be checked in M1.
-2. **A `tl worker install` command**, or are the templates in `deploy/`
+Settled: **Content-Length in presigned PUTs** (§4.5) is enforced by R2 with
+the validated `allHeaders: true` configuration and live rejection test.
+
+1. **A `tl worker install` command**, or are the templates in `deploy/`
    enough?
-3. **Cloudflare's own metrics** (requests, errors, Durable Object running
+2. **Cloudflare's own metrics** (requests, errors, Durable Object running
    time, cost) on the dashboard. They need a Cloudflare API token on the
    machine running `tl monitor`; left out of the first version.

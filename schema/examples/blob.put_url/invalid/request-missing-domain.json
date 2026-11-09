@@ -1,0 +1,8 @@
+{
+  "kind": "request",
+  "body": {
+    "name": "report.json",
+    "size": 42,
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}
