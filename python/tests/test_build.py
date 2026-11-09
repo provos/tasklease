@@ -8,6 +8,7 @@ import sys
 import tarfile
 import venv
 import zipfile
+from email.parser import BytesParser
 from pathlib import Path
 from typing import cast
 
@@ -84,6 +85,31 @@ def test_wheel_contains_deployable_assets(artifacts: Path) -> None:
         main = template["main"]
         assert isinstance(main, str) and main.endswith(".js")
         assert prefix + main in files
+        notices = wheel.read(prefix + "THIRD_PARTY_NOTICES.md").decode()
+        dashboard_notices = wheel.read(
+            "tasklease/monitor/static/THIRD_PARTY_NOTICES.md"
+        ).decode()
+        for name, license_file in (
+            ("ajv", "LICENSE"),
+            ("aws4fetch", "LICENSE"),
+            ("svelte", "LICENSE.md"),
+            ("vite", "LICENSE.md"),
+        ):
+            upstream = PYTHON_ROOT.parent / "node_modules" / name / license_file
+            assert upstream.read_text().strip() in notices
+        assert "Svelte Contributors" in dashboard_notices
+        metadata = BytesParser().parsebytes(
+            wheel.read(f"tasklease-{__version__}.dist-info/METADATA")
+        )
+        assert metadata["License-Expression"] == "Apache-2.0"
+        assert metadata["Description-Content-Type"] == "text/markdown"
+        assert (PYTHON_ROOT / "README.md").read_text() in metadata.get_payload()
+        license_text = (PYTHON_ROOT / "LICENSE").read_bytes()
+        assert license_text == (PYTHON_ROOT.parent / "LICENSE").read_bytes()
+        assert (
+            wheel.read(f"tasklease-{__version__}.dist-info/licenses/LICENSE")
+            == license_text
+        )
         assert f'var version = "{__version__}"'.encode() in wheel.read(prefix + main)
         assert not any(
             name.endswith(".ts") for name in files if name.startswith(prefix)
@@ -100,6 +126,10 @@ def test_sdist_builds_without_node_and_installs_cleanly(
     artifacts: Path, tmp_path: Path
 ) -> None:
     source = unpack_sdist(artifacts, tmp_path / "unpacked")
+    assert (source / "LICENSE").read_bytes() == (PYTHON_ROOT / "LICENSE").read_bytes()
+    assert (source / "README.md").read_bytes() == (
+        PYTHON_ROOT / "README.md"
+    ).read_bytes()
     output = tmp_path / "wheel"
     result = run_build(source, output, no_node=True)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -175,6 +205,17 @@ def test_sdist_builds_without_node_and_installs_cleanly(
     )
     assert command.returncode == 0, command.stderr
     assert command.stdout.strip() == f"tl {__version__}"
+
+
+@pytest.mark.parametrize("directory", ["monitor/static", "service_bundle"])
+def test_sdist_without_third_party_notices_fails(
+    artifacts: Path, tmp_path: Path, directory: str
+) -> None:
+    source = unpack_sdist(artifacts, tmp_path / "unpacked")
+    (source / "src/tasklease" / directory / "THIRD_PARTY_NOTICES.md").unlink()
+    result = run_build(source, tmp_path / "wheel", no_node=True)
+    assert result.returncode != 0
+    assert "bundled third-party notices are missing" in result.stdout + result.stderr
 
 
 def test_incomplete_sdist_fails_clearly(artifacts: Path, tmp_path: Path) -> None:

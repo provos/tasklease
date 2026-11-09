@@ -50,6 +50,12 @@ class CustomBuildHook(BuildHookInterface[BuilderConfig]):
         try:
             if not (package / "monitor/static/index.html").is_file():
                 raise ValueError("dashboard index.html is missing")
+            for notices in (
+                package / "monitor/static/THIRD_PARTY_NOTICES.md",
+                bundle / "THIRD_PARTY_NOTICES.md",
+            ):
+                if not notices.is_file() or not notices.read_text().strip():
+                    raise ValueError("bundled third-party notices are missing")
             manifest: object = json.loads((bundle / "manifest.json").read_text())
             template: object = json.loads(
                 (bundle / "wrangler.template.jsonc").read_text()

@@ -24,7 +24,7 @@ Initial release candidate; PyPI publication is pending.
 - Bundled dashboard, Worker and startup templates for Linux, macOS and Windows;
   wheel and sdist installation and normal runtime use do not require Node.js.
 - Apache-2.0 licensing and package metadata with installation and deployment
-  instructions.
+  instructions, plus third-party license notices for the bundled assets.
 
 ### Compatibility and deployment
 

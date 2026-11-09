@@ -50,3 +50,6 @@ compatibility and deployment notes. Repository access may be required.
 ## License
 
 Apache-2.0. The distribution includes the license text in `LICENSE`.
+Bundled third-party components retain their own licenses; their full notices
+ship in `tasklease/service_bundle/THIRD_PARTY_NOTICES.md` and
+`tasklease/monitor/static/THIRD_PARTY_NOTICES.md`.

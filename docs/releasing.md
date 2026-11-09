@@ -11,13 +11,18 @@ and opening the monitor do not need Node.
 Complete these once, then use the checklist below for the first release and
 every later release:
 
-- [ ] Confirm the initial version. The checkout currently uses `0.1.0`; keep
+- [x] Confirm the initial version. The checkout currently uses `0.1.0`; keep
   it for the first release unless there is a reason to choose another version.
   There is no need to increment an unpublished version just to publish it.
-- [ ] Review the public metadata in `python/pyproject.toml` and the package
+- [x] Review the public metadata in `python/pyproject.toml` and the package
   description in `python/README.md`. Confirm the Apache-2.0 license text in
   `LICENSE` and `python/LICENSE` matches, and verify the metadata and license
-  appear in both built distributions.
+  appear in both built distributions. Check that the bundled
+  `service_bundle/THIRD_PARTY_NOTICES.md` contains the full licenses for the
+  Worker, generated validators and dashboard dependencies, and that the
+  dashboard ships its own `THIRD_PARTY_NOTICES.md`. Review these notices when
+  changing bundled dependencies. All three first-party npm workspace manifests
+  declare `Apache-2.0`; vendored dependencies keep their upstream licenses.
 - [ ] Confirm the PyPI account's pending publisher matches project
   `tasklease`, owner `provos`, repository `tasklease`, workflow `workflow.yml`
   and no required GitHub environment. The repository records this setup, but

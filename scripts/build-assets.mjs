@@ -93,6 +93,30 @@ try {
     resolve(bundle, "manifest.json"),
     `${JSON.stringify({ service_version: serviceVersion(), wrangler_version: wrangler.version }, null, 2)}\n`,
   );
+  // Ajv's runtime is embedded in generated validators; aws4fetch is bundled
+  // by Wrangler. Vite also injects its module-preload runtime helper.
+  const notices = [
+    "# Third-party notices\n\n" +
+      "The bundled Worker and dashboard include the following third-party code.\n" +
+      "These components retain their own licenses.\n",
+    ...[
+      ["ajv", "LICENSE"],
+      ["aws4fetch", "LICENSE"],
+      ["vite", "LICENSE.md"],
+    ].map(([name, licenseFile]) => {
+      const directory = resolve(root, "node_modules", name);
+      const { version, license } = JSON.parse(
+        readFileSync(resolve(directory, "package.json"), "utf8"),
+      );
+      return (
+        `## ${name} ${version} (${license})\n\n` +
+        readFileSync(resolve(directory, licenseFile), "utf8").trim() +
+        "\n"
+      );
+    }),
+    readFileSync(resolve(dashboard, "THIRD_PARTY_NOTICES.md"), "utf8"),
+  ];
+  writeFileSync(resolve(bundle, "THIRD_PARTY_NOTICES.md"), notices.join("\n"));
   for (const [source, destination] of [
     [dashboard, resolve(output, "monitor/static")],
     [bundle, resolve(output, "service_bundle")],
