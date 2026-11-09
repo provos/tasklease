@@ -6,13 +6,6 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
-### Changed
-
-- `tl worker` and `WorkerLoop` now Consume a successful task into whatever
-  successors the handler's `reply` returns, even when the task has no
-  `reply_topic`, so a handler can run a pipeline stage. A failure on a task
-  without a `reply_topic` goes to the topic's error topic, as before.
-
 ## [0.1.0] - 2026-11-08
 
 Initial release candidate; PyPI publication is pending.
@@ -25,7 +18,9 @@ Initial release candidate; PyPI publication is pending.
 - Typed Python client and durable requester with local request/reply storage,
   explicit resend and inbox management.
 - Python worker runtime with capacity reservation, lease renewal, deadlines,
-  failure replies and graceful shutdown.
+  failure replies and graceful shutdown. A handler replies to a request or
+  posts a pipeline's next stages; `reply_topic` is an optional field of the
+  task data, and a failure without one goes to the topic's error topic.
 - `tl` CLI for service deployment, upgrades, identity and task administration,
   requesters, workers and a local Svelte dashboard.
 - Bundled dashboard, Worker and startup templates for Linux, macOS and Windows;

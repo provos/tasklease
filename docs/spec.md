@@ -521,9 +521,11 @@ state still need synchronization. A deadline watchdog marks the task lost
 even while a network call is blocked, and a late Renew response cannot revive
 a locally lost task.
 
-A successful handler decides what comes next: a request/reply handler
-returns one task for the request's reply topic, and a pipeline stage returns
-the next stages' tasks, which need no reply topic. A failure (a rejection, an
+`reply_topic` is not part of the protocol: the service treats task data as
+opaque JSON. It is an optional field of the data that requesters using the
+supplied tooling set (§6.2). A successful handler decides what comes next: a
+request/reply handler returns one task for the request's reply topic, and a
+pipeline stage returns the next stages' tasks, which need no reply topic. A failure (a rejection, an
 exception, too many Owns) goes to the task's reply topic when it has one, so
 the requester learns of it, and otherwise to the error topic.
 
