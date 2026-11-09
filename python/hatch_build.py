@@ -9,6 +9,22 @@ from typing import cast
 
 from hatchling.builders.config import BuilderConfig
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+from hatchling.metadata.plugin.interface import MetadataHookInterface
+
+
+class CustomMetadataHook(MetadataHookInterface):
+    def update(self, metadata: dict[str, object]) -> None:
+        python_root = Path(self.root)
+        checkout = python_root.parent
+        readme = (
+            checkout / "README.md"
+            if (checkout / "scripts/build-assets.mjs").is_file()
+            else python_root / "README.md"
+        )
+        metadata["readme"] = {
+            "text": readme.read_text(encoding="utf-8"),
+            "content-type": "text/markdown",
+        }
 
 
 class CustomBuildHook(BuildHookInterface[BuilderConfig]):
@@ -25,6 +41,9 @@ class CustomBuildHook(BuildHookInterface[BuilderConfig]):
             checkout / "package-lock.json",
         )
         if all(path.is_file() for path in source_files):
+            if self.target_name == "sdist":
+                force_include = cast(dict[str, str], build_data["force_include"])
+                force_include[str(checkout / "README.md")] = "README.md"
             if shutil.which("node") is None or shutil.which("npm") is None:
                 raise RuntimeError(
                     "Building tasklease from a checkout requires Node.js and npm"

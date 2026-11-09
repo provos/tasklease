@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "tasklease"
 version = "0.1.0"
 description = "A leased task board for coordinating agents and workers"
-readme = "README.md"
+dynamic = ["readme"]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
@@ -43,6 +43,9 @@ artifacts = [
 ]
 
 [tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
+[tool.hatch.metadata.hooks.custom]
 path = "hatch_build.py"
 
 [tool.hatch.build.targets.wheel]

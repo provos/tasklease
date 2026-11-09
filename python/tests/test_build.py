@@ -103,7 +103,12 @@ def test_wheel_contains_deployable_assets(artifacts: Path) -> None:
         )
         assert metadata["License-Expression"] == "Apache-2.0"
         assert metadata["Description-Content-Type"] == "text/markdown"
-        assert (PYTHON_ROOT / "README.md").read_text() in metadata.get_payload()
+        description = metadata.get_payload(decode=True)
+        assert isinstance(description, bytes)
+        assert (
+            description.rstrip()
+            == (PYTHON_ROOT.parent / "README.md").read_bytes().rstrip()
+        )
         license_text = (PYTHON_ROOT / "LICENSE").read_bytes()
         assert license_text == (PYTHON_ROOT.parent / "LICENSE").read_bytes()
         assert (
@@ -128,7 +133,7 @@ def test_sdist_builds_without_node_and_installs_cleanly(
     source = unpack_sdist(artifacts, tmp_path / "unpacked")
     assert (source / "LICENSE").read_bytes() == (PYTHON_ROOT / "LICENSE").read_bytes()
     assert (source / "README.md").read_bytes() == (
-        PYTHON_ROOT / "README.md"
+        PYTHON_ROOT.parent / "README.md"
     ).read_bytes()
     output = tmp_path / "wheel"
     result = run_build(source, output, no_node=True)

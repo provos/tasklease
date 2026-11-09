@@ -15,7 +15,9 @@ every later release:
   it for the first release unless there is a reason to choose another version.
   There is no need to increment an unpublished version just to publish it.
 - [x] Review the public metadata in `python/pyproject.toml` and the package
-  description in `python/README.md`. Confirm the Apache-2.0 license text in
+  description in the root `README.md`. The metadata hook reads that file in
+  a checkout, and the sdist includes its snapshot for builds away from the
+  checkout. Confirm the Apache-2.0 license text in
   `LICENSE` and `python/LICENSE` matches, and verify the metadata and license
   appear in both built distributions. Check that the bundled
   `service_bundle/THIRD_PARTY_NOTICES.md` contains the full licenses for the
