@@ -346,19 +346,24 @@ class WorkerLoop[Request, Outcome]:
     ) -> None:
         if lease.remaining() <= 0:
             return
-        if _reply_topic(task) is None:
-            self._fallback(task, outcome, "Missing or invalid reply_topic", lease)
-            return
+        reply_topic = _reply_topic(task)
         try:
-            if failed:
-                replies: list[p.NewTask] = [
+            if not failed:
+                # A pipeline stage's successors need no reply topic.
+                replies = self.handler.reply(task, cast(Outcome, outcome))
+            elif reply_topic is None:
+                # No one asked for a reply: the error topic shows the failure.
+                self._fallback(
+                    task, outcome, "Failed, and the task has no reply_topic", lease
+                )
+                return
+            else:
+                replies = [
                     {
-                        "topic": cast(str, _reply_topic(task)),
+                        "topic": reply_topic,
                         "data": {**_correlation(task), **cast(p.Data, outcome)},
                     }
                 ]
-            else:
-                replies = self.handler.reply(task, cast(Outcome, outcome))
             if not isinstance(replies, list) or len(replies) > 16:
                 raise Invalid("Handler reply must contain at most 16 tasks")
             for reply in replies:
