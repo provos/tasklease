@@ -9,6 +9,47 @@ Own rotates a task's ID, fencing previous owners. Consume atomically retires
 that ID and posts up to 16 successors, including replies. Renew preserves the
 ID. The requester saves replies locally before acknowledging the server copy.
 
+## Example use case
+
+A coding agent on macOS needs to verify a commit on Linux. It posts the
+repository, commit ID, and reply topic to `verify/linux`. A Linux worker
+checks out the commit, runs the tests and uploads the log to R2. One Consume
+operation retires the task and posts a result with the log's blob key. The
+requesting agent saves the reply locally.
+
+Outbound HTTPS lets the Linux worker run behind a home or office router.
+The project supplies the verification handler; tasklease supplies the leases
+and reply handling.
+
+## Choosing tasklease
+
+tasklease suits a small pool of agents and workers exchanging discrete jobs:
+platform builds, verification runs, GPU work, or requests for advice. It runs
+in your Cloudflare account and includes a Python worker runtime, a requester
+that saves replies locally, and a dashboard. Your application defines each
+job's payload, handler, and next step. Workers can reserve local capacity,
+such as a build slot or GPU, before claiming work.
+
+| Alternative | What it provides | When to prefer it over tasklease |
+| --- | --- | --- |
+| Temporal | Recovers workflow state by [replaying deterministic code](https://docs.temporal.io/workflow-execution#replays) against recorded history. Durable [timers](https://docs.temporal.io/workflow-execution/timers-delays) and Activity [retry policies](https://docs.temporal.io/encyclopedia/retry-policies) coordinate work across steps. | Processes that must preserve progress across dependent steps, long waits, or worker failures. |
+| Celery | Python tasks dispatched through a broker such as RabbitMQ or Redis, with task groups, chains, scheduling, and optional result backends. See the [Celery overview](https://docs.celeryq.dev/en/stable/getting-started/introduction.html). | Python applications that need task composition or scheduling, especially with a broker already in place. |
+| Amazon SQS | A managed message queue with [visibility timeouts](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html), redelivery, and deletion after processing. | AWS applications that already supply worker execution, reply correlation, and result storage. |
+| Cloudflare Queues | A managed queue with Workers push consumers and [HTTP pull consumers](https://developers.cloudflare.com/queues/configuration/pull-consumers/) for external machines. | Message processing in Workers, or external consumers with their own request/reply conventions and result storage. |
+
+The first version targets tens of queued tasks per topic. Each domain uses
+one SQLite Durable Object. Idle workers poll every 30 seconds by default,
+with jitter, so pickup delay should suit the workload. Workflow state,
+scheduling, and cooperative cancellation of running jobs belong in
+application code.
+
+Lease expiry makes a task available for another attempt. The supplied worker
+turns handler exceptions into failure replies. Application code decides
+whether to retry failed work. ID rotation rejects an old owner's completion
+after another worker claims the task. Consume commits task removal and up to
+16 successors together within one domain. External effects, such as publishing
+an artifact, still need idempotence: a crash can cause a job to run again.
+
 ## Install
 
 Python 3.12 or newer is required. Install a built release wheel:
