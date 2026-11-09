@@ -180,7 +180,10 @@ storage, with the tables in spec §7.2.
   `lease_until <= now`, then delete it and insert the copy with a new ID,
   `owned_count + 1`, the new owner, `owned_at = now` and
   `lease_until = now + hold`. Upsert the poller row in the same transaction,
-  also on `empty`.
+  also on `empty`. The index orders by `(topic, created_at, id)` and includes
+  `lease_until` so lease filtering can use index entries before fetching a
+  task's payload. Topic aggregates use the same index and supply the live
+  topic names for both listing and monitor snapshots.
 - **Statistics:** every operation that counts (spec §4.15) upserts its
   topic's row in `stats_hourly` inside its own transaction, with
   `INSERT … ON CONFLICT(topic, hour) DO UPDATE SET created = created + 1, …`.

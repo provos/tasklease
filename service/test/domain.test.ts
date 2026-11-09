@@ -44,6 +44,65 @@ function error(result: Result<{ ok: true }>, code: string) {
 }
 
 describe("DomainObject task transactions", () => {
+  it("claims by creation time and ID while skipping held tasks with different expiry order", async () => {
+    const { domain, stub } = fixture("claim-order");
+    const topic = "work/linux";
+    const now = Date.now();
+    const rows = [
+      { id: newTaskId(1000), created: now - 4000, lease: now + DAY },
+      { id: newTaskId(1001), created: now - 3000, lease: now - 1 },
+      { id: newTaskId(1002), created: now - 3000, lease: now - 1000 },
+      { id: newTaskId(1003), created: now - 2000, lease: now - 2000 },
+    ];
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.transactionSync(() => {
+        for (const row of rows) {
+          state.storage.sql.exec(
+            `INSERT INTO tasks (id, topic, created_at, lease_until, owned_count, creator,
+             owner_identity, owner_worker, owned_at, data)
+             VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+            row.id,
+            topic,
+            row.created,
+            row.lease,
+            creator.identity,
+            worker.identity,
+            worker.worker,
+            row.created,
+            JSON.stringify({ original: row.id }),
+          );
+        }
+      });
+    });
+    expect(success(await stub.topicsList({ domain }, creator)).topics).toEqual([
+      {
+        topic,
+        available: 3,
+        held: 1,
+        oldest_available_at: now - 3000,
+        declared: false,
+      },
+    ]);
+    for (const expected of rows.slice(1)) {
+      const task = success(
+        await stub.own({ domain, topic, hold_seconds: 60 }, worker),
+      ).task;
+      expect(task.data).toEqual({ original: expected.id });
+      expect(task.created_at).toBe(expected.created);
+      expect(task.id).not.toBe(expected.id);
+    }
+    error(await stub.own({ domain, topic, hold_seconds: 60 }, worker), "empty");
+    expect(success(await stub.topicsList({ domain }, creator)).topics).toEqual([
+      {
+        topic,
+        available: 0,
+        held: 4,
+        oldest_available_at: null,
+        declared: false,
+      },
+    ]);
+  });
+
   it("checks a prune cutoff atomically after Renew keeps the task ID", async () => {
     const { domain, stub } = fixture("conditional-delete");
     const topic = "work/linux";
@@ -561,6 +620,16 @@ describe("DomainObject task transactions", () => {
     success(
       await stub.create({ domain, topic: "secret/topic", data: {} }, creator),
     );
+    const taskOnlyTopic = "work/task-only";
+    const taskOnlyId = success(
+      await stub.create({ domain, topic: taskOnlyTopic, data: {} }, creator),
+    ).id;
+    const taskOnly = success(
+      await stub.read(
+        { domain, topic: taskOnlyTopic, id: taskOnlyId },
+        creator,
+      ),
+    ).task;
     error(
       await stub.own({ domain, topic: "poller/only", hold_seconds: 1 }, worker),
       "empty",
@@ -577,6 +646,7 @@ describe("DomainObject task transactions", () => {
       "declared/empty",
       "poller/only",
       "work/linux",
+      taskOnlyTopic,
     ]);
     expect(topics[0]).toEqual({
       topic: "declared/empty",
@@ -585,11 +655,18 @@ describe("DomainObject task transactions", () => {
       oldest_available_at: null,
       declared: true,
     });
+    expect(topics[3]).toEqual({
+      topic: taskOnlyTopic,
+      available: 1,
+      held: 0,
+      oldest_available_at: taskOnly.created_at,
+      declared: false,
+    });
     expect(
       success(
         await stub.topicsList({ domain, glob: "work/*" }, reader),
       ).topics.map((row) => row.topic),
-    ).toEqual([topic]);
+    ).toEqual([topic, taskOnlyTopic]);
     expect(
       success(
         await stub.topicsList(
@@ -600,7 +677,7 @@ describe("DomainObject task transactions", () => {
     ).toEqual([]);
     expect(
       success(await stub.topicsList({ domain }, operator)).topics,
-    ).toHaveLength(4);
+    ).toHaveLength(5);
     success(
       await stub.topicDeclare(
         { domain, topic: "declared/empty", declared: false },
@@ -611,6 +688,17 @@ describe("DomainObject task transactions", () => {
       success(await stub.topicsList({ domain, glob: "declared/**" }, operator))
         .topics,
     ).toEqual([]);
+    success(
+      await stub.delete(
+        { domain, topic: taskOnlyTopic, id: taskOnlyId },
+        creator,
+      ),
+    );
+    expect(
+      success(
+        await stub.topicsList({ domain, glob: "work/**" }, reader),
+      ).topics.map((row) => row.topic),
+    ).toEqual([topic]);
   });
 
   it("records exact hourly counters and first-wait/current-run durations", async () => {

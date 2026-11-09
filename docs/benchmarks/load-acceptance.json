@@ -1,0 +1,283 @@
+{
+  "method": "scripts/load_pollers.py against the acceptance deployment (tasklease-acceptance-90d25ae, Workers Paid) from one Linux client, 2026-11-08. Each run used a fresh domain and one topic; a producer created tasks that workers owned, held for 2 s and consumed. Latency is client-observed and includes the network path (about 45 ms at light load).",
+  "same_domain_probe": "Own on another topic of the loaded domain, timed once a second from a separate process, distinguishes queueing in the domain from queueing in the load client.",
+  "runs": [
+    {
+      "label": "1,000 workers, own tokens, 30 s polls, one client process",
+      "config": {
+        "workers": 1000,
+        "identities": 1000,
+        "poll_seconds": 30.0,
+        "duration": 240.0,
+        "create_rate": 2.0,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 200
+      },
+      "offered_idle_polls_per_s": 33.3,
+      "achieved_requests_per_s": 38.6,
+      "operations": {
+        "consume": {
+          "requests": 480,
+          "per_second": 1.99,
+          "outcomes": {
+            "200": 480
+          },
+          "p50_ms": 136.3,
+          "p95_ms": 634.7,
+          "p99_ms": 1277.1,
+          "max_ms": 1691.6
+        },
+        "create": {
+          "requests": 480,
+          "per_second": 1.99,
+          "outcomes": {
+            "200": 480
+          },
+          "p50_ms": 84.4,
+          "p95_ms": 563.0,
+          "p99_ms": 1209.4,
+          "max_ms": 1789.6
+        },
+        "own": {
+          "requests": 8383,
+          "per_second": 34.67,
+          "outcomes": {
+            "404 empty": 7903,
+            "200": 480
+          },
+          "p50_ms": 139.6,
+          "p95_ms": 608.5,
+          "p99_ms": 1266.3,
+          "max_ms": 2019.9
+        }
+      },
+      "errors": 0,
+      "same_domain_probe_ms": null
+    },
+    {
+      "label": "1,000 workers, 10 shared tokens, 30 s polls",
+      "config": {
+        "workers": 1000,
+        "identities": 10,
+        "poll_seconds": 30.0,
+        "duration": 150.0,
+        "create_rate": 2.0,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 200
+      },
+      "offered_idle_polls_per_s": 33.3,
+      "achieved_requests_per_s": 38.8,
+      "operations": {
+        "consume": {
+          "requests": 300,
+          "per_second": 1.98,
+          "outcomes": {
+            "200": 300
+          },
+          "p50_ms": 44.5,
+          "p95_ms": 62.8,
+          "p99_ms": 118.6,
+          "max_ms": 150.6
+        },
+        "create": {
+          "requests": 300,
+          "per_second": 1.98,
+          "outcomes": {
+            "200": 300
+          },
+          "p50_ms": 44.7,
+          "p95_ms": 94.9,
+          "p99_ms": 127.3,
+          "max_ms": 325.1
+        },
+        "own": {
+          "requests": 5286,
+          "per_second": 34.86,
+          "outcomes": {
+            "404 empty": 4986,
+            "200": 300
+          },
+          "p50_ms": 44.8,
+          "p95_ms": 72.3,
+          "p99_ms": 129.0,
+          "max_ms": 328.5
+        }
+      },
+      "errors": 0,
+      "same_domain_probe_ms": null
+    },
+    {
+      "label": "5,000 workers, own tokens, 30 s polls",
+      "config": {
+        "workers": 5000,
+        "identities": 5000,
+        "poll_seconds": 30.0,
+        "duration": 180.0,
+        "create_rate": 5.0,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 100,
+        "processes": 4
+      },
+      "offered_idle_polls_per_s": 166.7,
+      "achieved_requests_per_s": 181.0,
+      "operations": {
+        "consume": {
+          "requests": 910,
+          "per_second": 5.0,
+          "outcomes": {
+            "200": 910
+          },
+          "p50_ms": 134.9,
+          "p95_ms": 195.9,
+          "p99_ms": 254.9,
+          "max_ms": 480.6
+        },
+        "create": {
+          "requests": 910,
+          "per_second": 5.0,
+          "outcomes": {
+            "200": 910
+          },
+          "p50_ms": 79.4,
+          "p95_ms": 174.4,
+          "p99_ms": 253.3,
+          "max_ms": 570.8
+        },
+        "own": {
+          "requests": 31144,
+          "per_second": 171.04,
+          "outcomes": {
+            "404 empty": 30234,
+            "200": 910
+          },
+          "p50_ms": 137.2,
+          "p95_ms": 204.7,
+          "p99_ms": 280.1,
+          "max_ms": 1009.5
+        }
+      },
+      "errors": 0,
+      "same_domain_probe_ms": null
+    },
+    {
+      "label": "1,000 workers, 10 shared tokens, 3 s polls",
+      "config": {
+        "workers": 1000,
+        "identities": 10,
+        "poll_seconds": 3.0,
+        "duration": 120.0,
+        "create_rate": 10.0,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 100,
+        "processes": 6
+      },
+      "offered_idle_polls_per_s": 333.3,
+      "achieved_requests_per_s": 347.0,
+      "operations": {
+        "consume": {
+          "requests": 1220,
+          "per_second": 9.99,
+          "outcomes": {
+            "200": 1220
+          },
+          "p50_ms": 67.6,
+          "p95_ms": 167.7,
+          "p99_ms": 285.0,
+          "max_ms": 475.5
+        },
+        "create": {
+          "requests": 1220,
+          "per_second": 9.99,
+          "outcomes": {
+            "200": 1220
+          },
+          "p50_ms": 67.5,
+          "p95_ms": 184.5,
+          "p99_ms": 311.4,
+          "max_ms": 504.5
+        },
+        "own": {
+          "requests": 39925,
+          "per_second": 326.94,
+          "outcomes": {
+            "200": 1220,
+            "404 empty": 38705
+          },
+          "p50_ms": 67.9,
+          "p95_ms": 176.6,
+          "p99_ms": 313.8,
+          "max_ms": 642.7
+        }
+      },
+      "errors": 0,
+      "same_domain_probe_ms": {
+        "p50_ms": 69,
+        "p95_ms": 160,
+        "max_ms": 192
+      }
+    },
+    {
+      "label": "1,000 workers, 10 shared tokens, 1 s polls (domain saturated)",
+      "config": {
+        "workers": 1000,
+        "identities": 10,
+        "poll_seconds": 1.0,
+        "duration": 120.0,
+        "create_rate": 20.0,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 100,
+        "processes": 16
+      },
+      "offered_idle_polls_per_s": 1000.0,
+      "achieved_requests_per_s": 547.4,
+      "operations": {
+        "consume": {
+          "requests": 2439,
+          "per_second": 19.84,
+          "outcomes": {
+            "200": 2439
+          },
+          "p50_ms": 108.8,
+          "p95_ms": 957.7,
+          "p99_ms": 1377.1,
+          "max_ms": 1795.9
+        },
+        "create": {
+          "requests": 2440,
+          "per_second": 19.85,
+          "outcomes": {
+            "200": 2440
+          },
+          "p50_ms": 354.1,
+          "p95_ms": 1284.6,
+          "p99_ms": 1782.7,
+          "max_ms": 2880.7
+        },
+        "own": {
+          "requests": 62402,
+          "per_second": 507.68,
+          "outcomes": {
+            "404 empty": 59963,
+            "200": 2439
+          },
+          "p50_ms": 925.7,
+          "p95_ms": 1427.3,
+          "p99_ms": 2169.8,
+          "max_ms": 4147.9
+        }
+      },
+      "errors": 0,
+      "same_domain_probe_ms": {
+        "p50_ms": 907,
+        "p95_ms": 1317,
+        "max_ms": 1342
+      },
+      "same_domain_probe_note": "probe timed during an identical repeat run"
+    }
+  ]
+}

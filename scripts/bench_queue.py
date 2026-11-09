@@ -23,6 +23,7 @@ import statistics
 import tempfile
 import time
 from collections.abc import Callable
+from contextlib import closing
 from pathlib import Path
 
 
@@ -31,6 +32,21 @@ def extract(pattern: str, source: str) -> str:
     if match is None:
         raise ValueError(f"Cannot find production SQL: {pattern}")
     return match.group(1)
+
+
+def load_sql(repo: Path) -> tuple[str, dict[str, str]]:
+    source = (repo / "service/src/domain_do.ts").read_text()
+    sql = {
+        "schema": extract(r"const migrations = \[\s*`([^`]+)`", source),
+        "pick": extract(r"async own\(.*?`(SELECT \* FROM tasks[^`]+)`", source),
+        "insert": extract(r"private insertRow\(.*?`(INSERT INTO tasks[^`]+)`", source),
+        "poller": extract(r"async own\(.*?`(INSERT INTO pollers[^`]+)`", source),
+        "stats": extract(
+            r"private recordStats\(.*?`(INSERT INTO stats_hourly[^`]+)`", source
+        ),
+        "topics": extract(r"const topicQuery = `([^`]+)`", source),
+    }
+    return source, sql
 
 
 def measure(action: Callable[[], object], samples: int) -> dict[str, int | float]:
@@ -57,9 +73,12 @@ def run_size(
     now = 1_800_000_000_000
     future = now + 600_000
     hour = now // 3_600_000 * 3_600_000
-    with tempfile.TemporaryDirectory(prefix="tasklease-queue-bench-") as directory:
-        path = Path(directory) / "tasks.sqlite"
-        db = sqlite3.connect(path, isolation_level=None)
+    with (
+        tempfile.TemporaryDirectory(prefix="tasklease-queue-bench-") as directory,
+        closing(
+            sqlite3.connect(Path(directory) / "tasks.sqlite", isolation_level=None)
+        ) as db,
+    ):
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("PRAGMA synchronous=FULL")
@@ -217,13 +236,14 @@ def run_size(
             args.samples,
         )
         print(f"  topics.list p95={topics_metrics['p95_ms']:.4f}ms", flush=True)
-        db.close()
         return result
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--repo", type=Path, default=Path(__file__).resolve().parents[1]
+    )
     parser.add_argument(
         "--sizes", type=int, nargs="+", default=[100, 10_000, 100_000, 1_000_000]
     )
@@ -240,17 +260,7 @@ def main() -> None:
     ):
         parser.error("sizes/samples must be positive, payload >= 12, held prefix >= 0")
     source_path = args.repo / "service/src/domain_do.ts"
-    source = source_path.read_text()
-    sql = {
-        "schema": extract(r"const migrations = \[\s*`([^`]+)`", source),
-        "pick": extract(r"async own\(.*?`(SELECT \* FROM tasks[^`]+)`", source),
-        "insert": extract(r"private insertRow\(.*?`(INSERT INTO tasks[^`]+)`", source),
-        "poller": extract(r"async own\(.*?`(INSERT INTO pollers[^`]+)`", source),
-        "stats": extract(
-            r"private recordStats\(.*?`(INSERT INTO stats_hourly[^`]+)`", source
-        ),
-        "topics": extract(r"const topicQuery = `([^`]+)`", source),
-    }
+    source, sql = load_sql(args.repo)
     payload = json.dumps(
         {"value": "x" * (args.payload_bytes - 12)}, separators=(",", ":")
     )

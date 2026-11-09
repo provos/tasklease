@@ -82,8 +82,9 @@ type Snapshot = { id: string; expiresAt: number; chunks: number };
 const pollerQuery = `SELECT identity, worker, last_polled_at, last_owned_at FROM pollers
   WHERE topic = ? AND last_polled_at >= ? ORDER BY identity, worker`;
 
+// Reuse the task aggregate for live topic names instead of scanning tasks twice.
 const topicQuery = `WITH topics AS (
-  SELECT topic FROM tasks UNION SELECT topic FROM pollers WHERE last_polled_at >= ?
+  SELECT topic FROM counts UNION SELECT topic FROM pollers WHERE last_polled_at >= ?
   UNION SELECT topic FROM declared_topics
 ), counts AS (
   SELECT topic, SUM(lease_until <= ?) AS available, SUM(lease_until > ?) AS held,
@@ -150,7 +151,7 @@ const migrations = [
     owner_identity TEXT, owner_worker TEXT, owned_at INTEGER,
     data TEXT NOT NULL
   );
-  CREATE INDEX tasks_pick ON tasks (topic, created_at, id);
+  CREATE INDEX tasks_pick ON tasks (topic, created_at, id, lease_until);
   CREATE TABLE pollers (
     topic TEXT NOT NULL, identity TEXT NOT NULL, worker TEXT NOT NULL,
     last_polled_at INTEGER NOT NULL, last_owned_at INTEGER,

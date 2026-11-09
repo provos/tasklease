@@ -716,7 +716,7 @@ CREATE TABLE tasks (
   owner_identity TEXT, owner_worker TEXT, owned_at INTEGER,
   data TEXT NOT NULL
 );
-CREATE INDEX tasks_pick ON tasks (topic, created_at, id);
+CREATE INDEX tasks_pick ON tasks (topic, created_at, id, lease_until);
 CREATE TABLE pollers (
   topic TEXT, identity TEXT, worker TEXT,
   last_polled_at INTEGER, last_owned_at INTEGER,
@@ -738,9 +738,11 @@ CREATE TABLE stats_hourly (
 `topics.list` is one query over the first three tables in one database, and
 `monitor.snapshot` reads all four.
 
-Own scans `tasks_pick` for the first row with `lease_until <= now`. The claim
-may examine many held tasks before finding available work. Topics List
-aggregates every task in the domain. See the README's
+Own scans `tasks_pick` for the first row with `lease_until <= now`. The index
+includes the lease expiry so held tasks can be filtered before fetching task
+payloads. The claim may examine many held entries before finding available
+work. Topics List aggregates every task in the domain using the same index
+and reuses that aggregate for live topic names. See the README's
 [scale guidance](../README.md#scale-guidance) for local measurements and
 capacity planning.
 
