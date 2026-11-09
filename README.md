@@ -71,9 +71,23 @@ replicated durability.
 
 | Tasks in the domain | Claim lookup after 32 held tasks | Poll with all tasks held | Topic counts |
 | ---: | ---: | ---: | ---: |
-| 10,000 | 0.009 ms | 1.1 ms | 2.6 ms |
-| 100,000 | 0.009 ms | 63 ms | 74 ms |
-| 1,000,000 | 0.018 ms | 611 ms | 768 ms |
+| 10,000 | 0.015 ms | 0.58 ms | 1.2 ms |
+| 100,000 | 0.007 ms | 5.3 ms | 11 ms |
+| 1,000,000 | 0.007 ms | 70 ms | 121 ms |
+
+Both benchmark programs are preserved under `scripts/`. Run the workload
+benchmark against the current service schema, or compare index choices and
+topic aggregation with [bench_queue_indexes.py](scripts/bench_queue_indexes.py):
+
+```sh
+python3 scripts/bench_queue.py --output /tmp/tasklease-queue.json
+python3 scripts/bench_queue_indexes.py --output /tmp/tasklease-indexes.json
+```
+
+Each creates and removes temporary databases, then writes a JSON report.
+Use `--sizes 10000 --samples 15` for a shorter run. The comparison program
+also offers `--maintained-totals` to measure an experimental counter query;
+that option excludes the cost of maintaining the counters.
 
 A million tasks can form a backlog, but calls that scan many held tasks or
 count every task take longer and share the domain's capacity with other

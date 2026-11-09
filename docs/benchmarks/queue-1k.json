@@ -6,21 +6,109 @@
   "machine": "Linux-6.18.40.1-microsoft-standard-WSL2-x86_64-with-glibc2.35",
   "logical_cpus": 64,
   "source": "service/src/domain_do.ts",
-  "source_sha256": "5a686b84fc807649d03b5fcbf5143a20672ccd53d7b197c6464c5a6d82768fc4",
+  "source_sha256": "a808f3a4e920954dc311e886b96986d01a370fae4aefb4b1ebd8d59086247387",
   "sql": {
-    "schema": "CREATE TABLE tasks (\n    id TEXT PRIMARY KEY, topic TEXT NOT NULL,\n    created_at INTEGER NOT NULL, lease_until INTEGER NOT NULL,\n    owned_count INTEGER NOT NULL, creator TEXT NOT NULL,\n    owner_identity TEXT, owner_worker TEXT, owned_at INTEGER,\n    data TEXT NOT NULL\n  );\n  CREATE INDEX tasks_pick ON tasks (topic, created_at, id);\n  CREATE TABLE pollers (\n    topic TEXT NOT NULL, identity TEXT NOT NULL, worker TEXT NOT NULL,\n    last_polled_at INTEGER NOT NULL, last_owned_at INTEGER,\n    PRIMARY KEY (topic, identity, worker)\n  );\n  CREATE INDEX pollers_expiry ON pollers (last_polled_at);\n  CREATE TABLE declared_topics (\n    topic TEXT PRIMARY KEY, declared_by TEXT NOT NULL, declared_at INTEGER NOT NULL\n  );\n  CREATE TABLE stats_hourly (\n    topic TEXT NOT NULL, hour INTEGER NOT NULL,\n    created INTEGER NOT NULL DEFAULT 0, owned INTEGER NOT NULL DEFAULT 0,\n    reowned INTEGER NOT NULL DEFAULT 0, empty_polls INTEGER NOT NULL DEFAULT 0,\n    consumed INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0,\n    wait_ms_sum INTEGER NOT NULL DEFAULT 0, wait_ms_max INTEGER NOT NULL DEFAULT 0,\n    wait_count INTEGER NOT NULL DEFAULT 0,\n    run_ms_sum INTEGER NOT NULL DEFAULT 0, run_ms_max INTEGER NOT NULL DEFAULT 0,\n    run_count INTEGER NOT NULL DEFAULT 0,\n    PRIMARY KEY (topic, hour)\n  );\n  CREATE INDEX stats_expiry ON stats_hourly (hour);",
+    "schema": "CREATE TABLE tasks (\n    id TEXT PRIMARY KEY, topic TEXT NOT NULL,\n    created_at INTEGER NOT NULL, lease_until INTEGER NOT NULL,\n    owned_count INTEGER NOT NULL, creator TEXT NOT NULL,\n    owner_identity TEXT, owner_worker TEXT, owned_at INTEGER,\n    data TEXT NOT NULL\n  );\n  CREATE INDEX tasks_pick ON tasks (topic, created_at, id, lease_until);\n  CREATE TABLE pollers (\n    topic TEXT NOT NULL, identity TEXT NOT NULL, worker TEXT NOT NULL,\n    last_polled_at INTEGER NOT NULL, last_owned_at INTEGER,\n    PRIMARY KEY (topic, identity, worker)\n  );\n  CREATE INDEX pollers_expiry ON pollers (last_polled_at);\n  CREATE TABLE declared_topics (\n    topic TEXT PRIMARY KEY, declared_by TEXT NOT NULL, declared_at INTEGER NOT NULL\n  );\n  CREATE TABLE stats_hourly (\n    topic TEXT NOT NULL, hour INTEGER NOT NULL,\n    created INTEGER NOT NULL DEFAULT 0, owned INTEGER NOT NULL DEFAULT 0,\n    reowned INTEGER NOT NULL DEFAULT 0, empty_polls INTEGER NOT NULL DEFAULT 0,\n    consumed INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0,\n    wait_ms_sum INTEGER NOT NULL DEFAULT 0, wait_ms_max INTEGER NOT NULL DEFAULT 0,\n    wait_count INTEGER NOT NULL DEFAULT 0,\n    run_ms_sum INTEGER NOT NULL DEFAULT 0, run_ms_max INTEGER NOT NULL DEFAULT 0,\n    run_count INTEGER NOT NULL DEFAULT 0,\n    PRIMARY KEY (topic, hour)\n  );\n  CREATE INDEX stats_expiry ON stats_hourly (hour);",
     "pick": "SELECT * FROM tasks WHERE topic = ? AND lease_until <= ?\n           ORDER BY created_at, id LIMIT 1",
     "insert": "INSERT INTO tasks (id, topic, created_at, lease_until, owned_count, creator,\n       owner_identity, owner_worker, owned_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     "poller": "INSERT INTO pollers (topic, identity, worker, last_polled_at, last_owned_at)\n         VALUES (?, ?, ?, ?, ?) ON CONFLICT(topic, identity, worker) DO UPDATE SET\n         last_polled_at = excluded.last_polled_at,\n         last_owned_at = COALESCE(excluded.last_owned_at, pollers.last_owned_at)",
     "stats": "INSERT INTO stats_hourly (\n        topic, hour, created, owned, reowned, empty_polls, consumed, deleted,\n        wait_ms_sum, wait_ms_max, wait_count, run_ms_sum, run_ms_max, run_count\n      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n      ON CONFLICT(topic, hour) DO UPDATE SET\n        created = created + excluded.created, owned = owned + excluded.owned,\n        reowned = reowned + excluded.reowned, empty_polls = empty_polls + excluded.empty_polls,\n        consumed = consumed + excluded.consumed, deleted = deleted + excluded.deleted,\n        wait_ms_sum = wait_ms_sum + excluded.wait_ms_sum,\n        wait_ms_max = MAX(wait_ms_max, excluded.wait_ms_max), wait_count = wait_count + excluded.wait_count,\n        run_ms_sum = run_ms_sum + excluded.run_ms_sum,\n        run_ms_max = MAX(run_ms_max, excluded.run_ms_max), run_count = run_count + excluded.run_count",
-    "topics": "WITH topics AS (\n  SELECT topic FROM tasks UNION SELECT topic FROM pollers WHERE last_polled_at >= ?\n  UNION SELECT topic FROM declared_topics\n), counts AS (\n  SELECT topic, SUM(lease_until <= ?) AS available, SUM(lease_until > ?) AS held,\n    MIN(CASE WHEN lease_until <= ? THEN created_at END) AS oldest_available_at\n  FROM tasks GROUP BY topic\n)\nSELECT topics.topic, COALESCE(available, 0) AS available, COALESCE(held, 0) AS held,\n  oldest_available_at, declared_topics.topic IS NOT NULL AS declared\nFROM topics LEFT JOIN counts ON counts.topic = topics.topic\nLEFT JOIN declared_topics ON declared_topics.topic = topics.topic ORDER BY topics.topic"
+    "topics": "WITH topics AS (\n  SELECT topic FROM counts UNION SELECT topic FROM pollers WHERE last_polled_at >= ?\n  UNION SELECT topic FROM declared_topics\n), counts AS (\n  SELECT topic, SUM(lease_until <= ?) AS available, SUM(lease_until > ?) AS held,\n    MIN(CASE WHEN lease_until <= ? THEN created_at END) AS oldest_available_at\n  FROM tasks GROUP BY topic\n)\nSELECT topics.topic, COALESCE(available, 0) AS available, COALESCE(held, 0) AS held,\n  oldest_available_at, declared_topics.topic IS NOT NULL AS declared\nFROM topics LEFT JOIN counts ON counts.topic = topics.topic\nLEFT JOIN declared_topics ON declared_topics.topic = topics.topic ORDER BY topics.topic"
   },
   "results": [
     {
       "tasks": 100,
       "payload_bytes": 1024,
       "database_mib": 0.19,
-      "seed_seconds": 0.05,
+      "seed_seconds": 0.015,
+      "query_plan": [
+        [
+          5,
+          0,
+          0,
+          "SEARCH tasks USING INDEX tasks_pick (topic=?)"
+        ]
+      ],
+      "cases": {
+        "available_head": {
+          "held_rows_before_candidate": 0,
+          "pick": {
+            "samples": 31,
+            "p50_ms": 0.0044,
+            "p95_ms": 0.0052,
+            "max_ms": 0.0052
+          },
+          "own_sql_transaction": {
+            "samples": 31,
+            "p50_ms": 6.8049,
+            "p95_ms": 9.3641,
+            "max_ms": 86.9827
+          }
+        },
+        "held_prefix": {
+          "held_rows_before_candidate": 32,
+          "pick": {
+            "samples": 31,
+            "p50_ms": 0.0082,
+            "p95_ms": 0.009,
+            "max_ms": 0.0094
+          },
+          "own_sql_transaction": {
+            "samples": 31,
+            "p50_ms": 5.2528,
+            "p95_ms": 11.5941,
+            "max_ms": 13.8265
+          }
+        },
+        "available_tail": {
+          "held_rows_before_candidate": 99,
+          "pick": {
+            "samples": 31,
+            "p50_ms": 0.0093,
+            "p95_ms": 0.0204,
+            "max_ms": 0.021
+          },
+          "own_sql_transaction": {
+            "samples": 31,
+            "p50_ms": 5.8745,
+            "p95_ms": 45.7973,
+            "max_ms": 57.8183
+          }
+        },
+        "all_held": {
+          "held_rows_before_candidate": 100,
+          "pick": {
+            "samples": 31,
+            "p50_ms": 0.0077,
+            "p95_ms": 0.0123,
+            "max_ms": 0.013
+          },
+          "own_sql_transaction": {
+            "samples": 31,
+            "p50_ms": 5.7305,
+            "p95_ms": 18.9566,
+            "max_ms": 42.4526
+          }
+        }
+      },
+      "topics_list": {
+        "samples": 31,
+        "p50_ms": 0.0822,
+        "p95_ms": 0.1272,
+        "max_ms": 0.1994
+      },
+      "empty_topic_pick": {
+        "samples": 31,
+        "p50_ms": 0.0033,
+        "p95_ms": 0.0038,
+        "max_ms": 0.0039
+      }
+    },
+    {
+      "tasks": 10000,
+      "payload_bytes": 1024,
+      "database_mib": 14.1,
+      "seed_seconds": 0.348,
       "query_plan": [
         [
           5,
@@ -35,168 +123,80 @@
           "pick": {
             "samples": 31,
             "p50_ms": 0.0046,
-            "p95_ms": 0.0077,
-            "max_ms": 0.0136
+            "p95_ms": 0.0056,
+            "max_ms": 0.0058
           },
           "own_sql_transaction": {
             "samples": 31,
-            "p50_ms": 7.083,
-            "p95_ms": 9.5991,
-            "max_ms": 10.9922
+            "p50_ms": 5.0927,
+            "p95_ms": 8.4978,
+            "max_ms": 57.481
           }
         },
         "held_prefix": {
           "held_rows_before_candidate": 32,
           "pick": {
             "samples": 31,
-            "p50_ms": 0.0072,
-            "p95_ms": 0.008,
-            "max_ms": 0.0082
+            "p50_ms": 0.0061,
+            "p95_ms": 0.0153,
+            "max_ms": 0.016
           },
           "own_sql_transaction": {
             "samples": 31,
-            "p50_ms": 6.5438,
-            "p95_ms": 13.6185,
-            "max_ms": 16.1191
-          }
-        },
-        "available_tail": {
-          "held_rows_before_candidate": 99,
-          "pick": {
-            "samples": 31,
-            "p50_ms": 0.0103,
-            "p95_ms": 0.0138,
-            "max_ms": 0.0294
-          },
-          "own_sql_transaction": {
-            "samples": 31,
-            "p50_ms": 6.5906,
-            "p95_ms": 17.2664,
-            "max_ms": 78.2828
-          }
-        },
-        "all_held": {
-          "held_rows_before_candidate": 100,
-          "pick": {
-            "samples": 31,
-            "p50_ms": 0.0092,
-            "p95_ms": 0.0101,
-            "max_ms": 0.0106
-          },
-          "own_sql_transaction": {
-            "samples": 31,
-            "p50_ms": 7.0234,
-            "p95_ms": 17.7215,
-            "max_ms": 43.3522
-          }
-        }
-      },
-      "topics_list": {
-        "samples": 31,
-        "p50_ms": 0.112,
-        "p95_ms": 0.2237,
-        "max_ms": 0.2792
-      },
-      "empty_topic_pick": {
-        "samples": 31,
-        "p50_ms": 0.0042,
-        "p95_ms": 0.0046,
-        "max_ms": 0.0046
-      }
-    },
-    {
-      "tasks": 10000,
-      "payload_bytes": 1024,
-      "database_mib": 14.09,
-      "seed_seconds": 0.333,
-      "query_plan": [
-        [
-          5,
-          0,
-          0,
-          "SEARCH tasks USING INDEX tasks_pick (topic=?)"
-        ]
-      ],
-      "cases": {
-        "available_head": {
-          "held_rows_before_candidate": 0,
-          "pick": {
-            "samples": 31,
-            "p50_ms": 0.0058,
-            "p95_ms": 0.0109,
-            "max_ms": 0.0224
-          },
-          "own_sql_transaction": {
-            "samples": 31,
-            "p50_ms": 6.7464,
-            "p95_ms": 17.436,
-            "max_ms": 48.3447
-          }
-        },
-        "held_prefix": {
-          "held_rows_before_candidate": 32,
-          "pick": {
-            "samples": 31,
-            "p50_ms": 0.0082,
-            "p95_ms": 0.009,
-            "max_ms": 0.0093
-          },
-          "own_sql_transaction": {
-            "samples": 31,
-            "p50_ms": 6.9849,
-            "p95_ms": 17.4922,
-            "max_ms": 78.283
+            "p50_ms": 4.9711,
+            "p95_ms": 11.8378,
+            "max_ms": 67.3611
           }
         },
         "available_tail": {
           "held_rows_before_candidate": 9999,
           "pick": {
             "samples": 31,
-            "p50_ms": 0.8179,
-            "p95_ms": 1.7814,
-            "max_ms": 1.974
+            "p50_ms": 0.4733,
+            "p95_ms": 0.7111,
+            "max_ms": 0.7402
           },
           "own_sql_transaction": {
             "samples": 31,
-            "p50_ms": 8.874,
-            "p95_ms": 19.915,
-            "max_ms": 48.1569
+            "p50_ms": 7.0427,
+            "p95_ms": 17.7431,
+            "max_ms": 52.6656
           }
         },
         "all_held": {
           "held_rows_before_candidate": 10000,
           "pick": {
             "samples": 31,
-            "p50_ms": 0.6624,
-            "p95_ms": 1.0895,
-            "max_ms": 1.2973
+            "p50_ms": 0.4748,
+            "p95_ms": 0.5803,
+            "max_ms": 0.823
           },
           "own_sql_transaction": {
             "samples": 31,
-            "p50_ms": 8.3488,
-            "p95_ms": 11.8817,
-            "max_ms": 46.4046
+            "p50_ms": 7.1596,
+            "p95_ms": 9.5396,
+            "max_ms": 17.6636
           }
         }
       },
       "topics_list": {
         "samples": 31,
-        "p50_ms": 1.9544,
-        "p95_ms": 2.6019,
-        "max_ms": 2.8835
+        "p50_ms": 1.0125,
+        "p95_ms": 1.2105,
+        "max_ms": 1.2448
       },
       "empty_topic_pick": {
         "samples": 31,
-        "p50_ms": 0.0047,
-        "p95_ms": 0.0065,
-        "max_ms": 0.0463
+        "p50_ms": 0.0035,
+        "p95_ms": 0.004,
+        "max_ms": 0.0041
       }
     },
     {
       "tasks": 100000,
       "payload_bytes": 1024,
-      "database_mib": 140.57,
-      "seed_seconds": 2.701,
+      "database_mib": 140.66,
+      "seed_seconds": 2.442,
       "query_plan": [
         [
           5,
@@ -210,81 +210,81 @@
           "held_rows_before_candidate": 0,
           "pick": {
             "samples": 31,
-            "p50_ms": 0.006,
-            "p95_ms": 0.0069,
-            "max_ms": 0.0071
+            "p50_ms": 0.0047,
+            "p95_ms": 0.0052,
+            "max_ms": 0.0056
           },
           "own_sql_transaction": {
             "samples": 31,
-            "p50_ms": 5.8884,
-            "p95_ms": 10.2166,
-            "max_ms": 45.4362
+            "p50_ms": 5.3985,
+            "p95_ms": 8.7844,
+            "max_ms": 17.7718
           }
         },
         "held_prefix": {
           "held_rows_before_candidate": 32,
           "pick": {
             "samples": 31,
-            "p50_ms": 0.0084,
-            "p95_ms": 0.0092,
-            "max_ms": 0.0097
+            "p50_ms": 0.0061,
+            "p95_ms": 0.0068,
+            "max_ms": 0.0072
           },
           "own_sql_transaction": {
             "samples": 31,
-            "p50_ms": 5.415,
-            "p95_ms": 26.4043,
-            "max_ms": 60.7256
+            "p50_ms": 5.5769,
+            "p95_ms": 17.8442,
+            "max_ms": 78.324
           }
         },
         "available_tail": {
           "held_rows_before_candidate": 99999,
           "pick": {
             "samples": 31,
-            "p50_ms": 56.1731,
-            "p95_ms": 57.9402,
-            "max_ms": 64.0867
+            "p50_ms": 5.3655,
+            "p95_ms": 7.0314,
+            "max_ms": 7.4295
           },
           "own_sql_transaction": {
             "samples": 31,
-            "p50_ms": 63.7476,
-            "p95_ms": 71.0961,
-            "max_ms": 102.7987
+            "p50_ms": 12.0433,
+            "p95_ms": 20.3169,
+            "max_ms": 52.0637
           }
         },
         "all_held": {
           "held_rows_before_candidate": 100000,
           "pick": {
             "samples": 31,
-            "p50_ms": 57.1696,
-            "p95_ms": 62.6007,
-            "max_ms": 66.7913
+            "p50_ms": 4.724,
+            "p95_ms": 5.3479,
+            "max_ms": 5.43
           },
           "own_sql_transaction": {
             "samples": 31,
-            "p50_ms": 63.6091,
-            "p95_ms": 69.912,
-            "max_ms": 73.8661
+            "p50_ms": 10.8718,
+            "p95_ms": 13.204,
+            "max_ms": 13.2332
           }
         }
       },
       "topics_list": {
         "samples": 31,
-        "p50_ms": 71.2508,
-        "p95_ms": 73.7471,
-        "max_ms": 73.816
+        "p50_ms": 10.1728,
+        "p95_ms": 11.3387,
+        "max_ms": 11.3762
       },
       "empty_topic_pick": {
         "samples": 31,
-        "p50_ms": 0.0036,
-        "p95_ms": 0.004,
-        "max_ms": 0.0043
+        "p50_ms": 0.0035,
+        "p95_ms": 0.0038,
+        "max_ms": 0.0045
       }
     },
     {
       "tasks": 1000000,
       "payload_bytes": 1024,
-      "database_mib": 1405.83,
-      "seed_seconds": 26.538,
+      "database_mib": 1406.77,
+      "seed_seconds": 26.812,
       "query_plan": [
         [
           5,
@@ -298,74 +298,74 @@
           "held_rows_before_candidate": 0,
           "pick": {
             "samples": 31,
-            "p50_ms": 0.0069,
-            "p95_ms": 0.0108,
-            "max_ms": 0.0111
+            "p50_ms": 0.0053,
+            "p95_ms": 0.0058,
+            "max_ms": 0.006
           },
           "own_sql_transaction": {
             "samples": 31,
-            "p50_ms": 4.9158,
-            "p95_ms": 108.4825,
-            "max_ms": 207.6048
+            "p50_ms": 6.3723,
+            "p95_ms": 8.3814,
+            "max_ms": 9.4432
           }
         },
         "held_prefix": {
           "held_rows_before_candidate": 32,
           "pick": {
             "samples": 31,
-            "p50_ms": 0.0169,
-            "p95_ms": 0.018,
-            "max_ms": 0.0184
+            "p50_ms": 0.0062,
+            "p95_ms": 0.0068,
+            "max_ms": 0.0074
           },
           "own_sql_transaction": {
             "samples": 31,
-            "p50_ms": 6.6539,
-            "p95_ms": 13.934,
-            "max_ms": 74.7581
+            "p50_ms": 7.0243,
+            "p95_ms": 12.828,
+            "max_ms": 14.5423
           }
         },
         "available_tail": {
           "held_rows_before_candidate": 999999,
           "pick": {
             "samples": 31,
-            "p50_ms": 578.0349,
-            "p95_ms": 614.3883,
-            "max_ms": 658.4984
+            "p50_ms": 61.2732,
+            "p95_ms": 65.5131,
+            "max_ms": 72.2369
           },
           "own_sql_transaction": {
             "samples": 31,
-            "p50_ms": 586.9094,
-            "p95_ms": 831.7562,
-            "max_ms": 1212.1851
+            "p50_ms": 70.1768,
+            "p95_ms": 115.7236,
+            "max_ms": 129.5892
           }
         },
         "all_held": {
           "held_rows_before_candidate": 1000000,
           "pick": {
             "samples": 31,
-            "p50_ms": 570.0747,
-            "p95_ms": 610.9573,
-            "max_ms": 617.2927
+            "p50_ms": 64.9218,
+            "p95_ms": 70.1227,
+            "max_ms": 71.6943
           },
           "own_sql_transaction": {
             "samples": 31,
-            "p50_ms": 569.5032,
-            "p95_ms": 602.0384,
-            "max_ms": 608.7818
+            "p50_ms": 73.3062,
+            "p95_ms": 147.2034,
+            "max_ms": 154.7608
           }
         }
       },
       "topics_list": {
         "samples": 31,
-        "p50_ms": 694.9425,
-        "p95_ms": 768.0473,
-        "max_ms": 770.0964
+        "p50_ms": 113.1764,
+        "p95_ms": 121.1778,
+        "max_ms": 123.6074
       },
       "empty_topic_pick": {
         "samples": 31,
-        "p50_ms": 0.0035,
-        "p95_ms": 0.0039,
-        "max_ms": 0.0045
+        "p50_ms": 0.0038,
+        "p95_ms": 0.0077,
+        "max_ms": 0.0096
       }
     }
   ]
