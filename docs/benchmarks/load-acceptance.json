@@ -1,5 +1,5 @@
 {
-  "method": "scripts/load_pollers.py against the acceptance deployment (tasklease-acceptance-90d25ae, Workers Paid) from one Linux client, 2026-11-08. Each run used a fresh domain and one topic; a producer created tasks that workers owned, held for 2 s and consumed. Latency is client-observed and includes the network path (about 45 ms at light load).",
+  "method": "scripts/load_pollers.py against the acceptance deployment (tasklease-acceptance-90d25ae, Workers Paid) from one Linux client, 2026-11-08 and 2026-11-09. Each run used a fresh domain and one topic; a producer created tasks that workers owned, held for 2 s and consumed. Latency is client-observed and includes the network path (about 45 ms at light load).",
   "same_domain_probe": "Own on another topic of the loaded domain, timed once a second from a separate process, distinguishes queueing in the domain from queueing in the load client.",
   "runs": [
     {
@@ -53,7 +53,8 @@
         }
       },
       "errors": 0,
-      "same_domain_probe_ms": null
+      "same_domain_probe_ms": null,
+      "service": "before 16f618a: every empty Own wrote its poller and statistics rows and read the alarm; every token lookup wrote last_seen_at"
     },
     {
       "label": "1,000 workers, 10 shared tokens, 30 s polls",
@@ -106,7 +107,8 @@
         }
       },
       "errors": 0,
-      "same_domain_probe_ms": null
+      "same_domain_probe_ms": null,
+      "service": "before 16f618a: every empty Own wrote its poller and statistics rows and read the alarm; every token lookup wrote last_seen_at"
     },
     {
       "label": "5,000 workers, own tokens, 30 s polls",
@@ -160,7 +162,8 @@
         }
       },
       "errors": 0,
-      "same_domain_probe_ms": null
+      "same_domain_probe_ms": null,
+      "service": "before 16f618a: every empty Own wrote its poller and statistics rows and read the alarm; every token lookup wrote last_seen_at"
     },
     {
       "label": "1,000 workers, 10 shared tokens, 3 s polls",
@@ -218,7 +221,8 @@
         "p50_ms": 69,
         "p95_ms": 160,
         "max_ms": 192
-      }
+      },
+      "service": "before 16f618a: every empty Own wrote its poller and statistics rows and read the alarm; every token lookup wrote last_seen_at"
     },
     {
       "label": "1,000 workers, 10 shared tokens, 1 s polls (domain saturated)",
@@ -277,7 +281,122 @@
         "p95_ms": 1317,
         "max_ms": 1342
       },
-      "same_domain_probe_note": "probe timed during an identical repeat run"
+      "same_domain_probe_note": "probe timed during an identical repeat run",
+      "service": "before 16f618a: every empty Own wrote its poller and statistics rows and read the alarm; every token lookup wrote last_seen_at"
+    },
+    {
+      "label": "5,000 workers, own tokens, 30 s polls",
+      "service": "16f618a: empty Owns usually write nothing; token lookups usually only read",
+      "config": {
+        "workers": 5000,
+        "identities": 5000,
+        "poll_seconds": 30.0,
+        "duration": 180.0,
+        "create_rate": 5.0,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 100,
+        "processes": 4
+      },
+      "offered_idle_polls_per_s": 166.7,
+      "achieved_requests_per_s": 180.8,
+      "operations": {
+        "consume": {
+          "requests": 910,
+          "per_second": 5.0,
+          "outcomes": {
+            "200": 910
+          },
+          "p50_ms": 108.3,
+          "p95_ms": 156.3,
+          "p99_ms": 247.4,
+          "max_ms": 341.8
+        },
+        "create": {
+          "requests": 910,
+          "per_second": 5.0,
+          "outcomes": {
+            "200": 910
+          },
+          "p50_ms": 73.7,
+          "p95_ms": 133.9,
+          "p99_ms": 194.8,
+          "max_ms": 692.1
+        },
+        "own": {
+          "requests": 31083,
+          "per_second": 170.74,
+          "outcomes": {
+            "404 empty": 30173,
+            "200": 910
+          },
+          "p50_ms": 111.2,
+          "p95_ms": 164.7,
+          "p99_ms": 253.1,
+          "max_ms": 833.4
+        }
+      },
+      "errors": 0,
+      "same_domain_probe_ms": null
+    },
+    {
+      "label": "1,000 workers, 10 shared tokens, 0.5 s polls (about 2,040 offered)",
+      "service": "16f618a: empty Owns usually write nothing; token lookups usually only read",
+      "config": {
+        "workers": 1000,
+        "identities": 10,
+        "poll_seconds": 0.5,
+        "duration": 120.0,
+        "create_rate": 20.0,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 100,
+        "processes": 32
+      },
+      "offered_idle_polls_per_s": 2000.0,
+      "achieved_requests_per_s": 1012.5,
+      "operations": {
+        "consume": {
+          "requests": 2440,
+          "per_second": 19.91,
+          "outcomes": {
+            "200": 2440
+          },
+          "p50_ms": 209.9,
+          "p95_ms": 663.8,
+          "p99_ms": 805.6,
+          "max_ms": 1060.7
+        },
+        "create": {
+          "requests": 2440,
+          "per_second": 19.91,
+          "outcomes": {
+            "200": 2440
+          },
+          "p50_ms": 244.4,
+          "p95_ms": 719.8,
+          "p99_ms": 916.1,
+          "max_ms": 1550.1
+        },
+        "own": {
+          "requests": 119151,
+          "per_second": 972.38,
+          "outcomes": {
+            "404 empty": 116711,
+            "200": 2440
+          },
+          "p50_ms": 480.4,
+          "p95_ms": 775.3,
+          "p99_ms": 1038.4,
+          "max_ms": 1514.2
+        }
+      },
+      "errors": 0,
+      "same_domain_probe_ms": {
+        "p50_ms": 117,
+        "p95_ms": 728,
+        "max_ms": 787
+      }
     }
   ]
 }
