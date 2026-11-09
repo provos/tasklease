@@ -23,79 +23,56 @@ and reply handling.
 
 ## Choosing tasklease
 
-tasklease suits a small pool of agents and workers exchanging discrete jobs:
-platform builds, verification runs, GPU work, or requests for advice. It runs
-in your Cloudflare account and includes a Python worker runtime, a requester
-that saves replies locally, and a dashboard. Your application defines each
-job's payload, handler, and next step. Workers can reserve local capacity,
-such as a build slot or GPU, before claiming work.
+**Use tasklease** when a handful of agents and machines exchange discrete
+jobs and you want nothing to operate:
 
-| Alternative | What it provides | When to prefer it over tasklease |
-| --- | --- | --- |
-| Temporal | Recovers workflow state by [replaying deterministic code](https://docs.temporal.io/workflow-execution#replays) against recorded history. Durable [timers](https://docs.temporal.io/workflow-execution/timers-delays) and Activity [retry policies](https://docs.temporal.io/encyclopedia/retry-policies) coordinate work across steps. | Processes that must preserve progress across dependent steps, long waits, or worker failures. |
-| Celery | Python tasks dispatched through a broker such as RabbitMQ or Redis, with task groups, chains, scheduling, and optional result backends. See the [Celery overview](https://docs.celeryq.dev/en/stable/getting-started/introduction.html). | Python applications that need task composition or scheduling, especially with a broker already in place. |
-| Amazon SQS | A managed message queue with [visibility timeouts](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html), redelivery, and deletion after processing. [Standard queues](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues.html) support high message throughput. | AWS applications with sustained high message rates and their own worker execution, reply correlation, and result storage. |
-| Cloudflare Queues | A managed queue with [automatic scaling of Workers consumers](https://developers.cloudflare.com/queues/configuration/consumer-concurrency/) and [HTTP pull consumers](https://developers.cloudflare.com/queues/configuration/pull-consumers/) for external machines. | Workloads that need automatic scaling of consumer Workers to absorb traffic bursts, or external HTTP consumers with their own request/reply conventions and result storage. Automatic consumer scaling applies to Workers consumers. |
+- **Jobs:** platform builds, verification runs, GPU work or requests for
+  advice, each a request that ends in a reply after seconds to hours. Idle
+  workers poll every 30 seconds, so that pickup delay must be acceptable.
+- **Machines:** laptops, desktops and home or office servers on macOS, Linux
+  and Windows. Workers need only outbound HTTPS, so they run behind NAT
+  without a VPN, open ports or a broker to expose.
+- **Scale:** dozens of workers and up to about 10,000–100,000 outstanding
+  tasks per domain (see [Scale guidance](#scale-guidance)).
+- **Operations:** one `tl service deploy` provisions everything in your own
+  Cloudflare account, and rerunning it upgrades the service. There are no
+  servers, brokers or databases to patch, back up or monitor.
 
-Choose by workflow requirements, sustained traffic, and deployment needs as
-well as queue depth. Temporal's workflow recovery and Celery's task composition
-serve needs that arise even with few queued jobs. Idle tasklease workers poll
-every 30 seconds by default, with jitter, so pickup delay should suit the
-workload. Workflow state, scheduling, and cooperative cancellation belong in
-application code.
+Request/reply is built in: reply topics, a requester that saves replies
+locally before acknowledging them, request IDs with explicit resend, a
+dashboard, and a Python worker runtime with lease renewal. Workers can
+reserve local capacity, such as a build slot or GPU, before claiming work.
+Your application defines each job's payload, handler and next step.
+
+**Use something else** when:
+
+- a process spans several dependent steps, long waits or compensation, and
+  must resume where it left off after a crash (**Temporal**);
+- Python services in one network already share a broker and need task
+  chains, groups or schedules (**Celery**);
+- throughput is high (thousands of messages a second), pickup must be
+  sub-second, or consumers should scale automatically (**Amazon SQS**,
+  **Cloudflare Queues**);
+- you cannot use Cloudflare.
+
+### What each option takes to run
+
+| Option | You provision | You maintain | Worker networking | Prefer it for |
+| --- | --- | --- | --- | --- |
+| tasklease | A Cloudflare account. `tl service deploy` creates the Worker, its Durable Objects, an R2 bucket with a seven-day lifecycle rule and the secrets; `tl identity add` issues one token per machine. | Rerun `tl service deploy` to upgrade; rotate or revoke machine tokens. Workers run as `tl worker` under the [startup templates](deploy/README.md). | Outbound HTTPS only. | Request/reply jobs among a few machines and agents. |
+| Temporal | Temporal Cloud, or a self-hosted Temporal Server with its persistence database (PostgreSQL, MySQL or Cassandra). | Self-hosted: server and schema upgrades, database operations. Either way: workflow code must stay [deterministic](https://docs.temporal.io/workflow-execution#replays) and be versioned when it changes. | Workers connect to the Temporal frontend; self-hosted, it must be reachable from every worker. | Multi-step processes that recover their state, with durable [timers](https://docs.temporal.io/workflow-execution/timers-delays) and [retry policies](https://docs.temporal.io/encyclopedia/retry-policies). |
+| Celery | A broker such as RabbitMQ or Redis, an optional result backend, and the worker processes. See the [Celery overview](https://docs.celeryq.dev/en/stable/getting-started/introduction.html). | Broker upgrades, persistence and monitoring, and result-backend cleanup. | Every worker must reach the broker: expose it with TLS or use a VPN. | Python task composition and scheduling where a broker already runs. |
+| Amazon SQS | An AWS account, queues and per-machine IAM credentials, plus your own reply queues and result storage. | Managed queues; you build the worker loop, [visibility-timeout](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html) extension, reply matching and dashboards. | Outbound HTTPS. | Sustained high message rates on AWS. |
+| Cloudflare Queues | Queues and consumers in a Cloudflare account; API tokens for [HTTP pull consumers](https://developers.cloudflare.com/queues/configuration/pull-consumers/). | Managed queues; you build request/reply conventions, result storage and monitoring. | Outbound HTTPS for pull consumers. | Bursty traffic absorbed by [automatically scaled Workers consumers](https://developers.cloudflare.com/queues/configuration/consumer-concurrency/). |
 
 Lease expiry makes a task available for another attempt. The supplied worker
-turns handler exceptions into failure replies. Application code decides
+turns handler exceptions into failure replies; application code decides
 whether to retry failed work. ID rotation rejects an old owner's completion
 after another worker claims the task. Consume commits task removal and up to
-16 successors together within one domain. External effects, such as publishing
-an artifact, still need idempotence: a crash can cause a job to run again.
-
-### Scale guidance
-
-On a paid Workers plan, with task payloads around 1–16 KiB, a few dozen active
-workers, and modest request traffic, **10,000–100,000 outstanding tasks per
-domain** is a reasonable initial planning range. This estimate comes from
-local SQLite benchmarks.
-Each domain uses one Durable Object and one database, so count tasks across
-all its topics, including work, replies, and errors.
-
-The [benchmark](scripts/bench_queue.py) reads the service's schema and SQL.
-These p95 query times used 1 KiB payloads, one topic, 31 measured runs after
-warmup, and a 64 MiB SQLite page cache on a local Linux machine with SQLite
-3.37.2. The [1 KiB results](docs/benchmarks/queue-1k.json) and
-[16 KiB results](docs/benchmarks/queue-16k.json) record the measurements and
-method. Service latency and throughput require measurements in your deployment;
-the benchmark excludes HTTP, authentication, concurrent requests, and
-replicated durability.
-
-| Tasks in the domain | Claim lookup after 32 held tasks | Poll with all tasks held | Topic counts |
-| ---: | ---: | ---: | ---: |
-| 10,000 | 0.015 ms | 0.58 ms | 1.2 ms |
-| 100,000 | 0.007 ms | 5.3 ms | 11 ms |
-| 1,000,000 | 0.007 ms | 70 ms | 121 ms |
-
-Both benchmark programs are preserved under `scripts/`. Run the workload
-benchmark against the current service schema, or compare index choices and
-topic aggregation with [bench_queue_indexes.py](scripts/bench_queue_indexes.py):
-
-```sh
-python3 scripts/bench_queue.py --output /tmp/tasklease-queue.json
-python3 scripts/bench_queue_indexes.py --output /tmp/tasklease-indexes.json
-```
-
-Each creates and removes temporary databases, then writes a JSON report.
-Use `--sizes 10000 --samples 15` for a shorter run. The comparison program
-also offers `--maintained-totals` to measure an experimental counter query;
-that option excludes the cost of maintaining the counters.
-
-A million tasks can form a backlog, but calls that scan many held tasks or
-count every task take longer and share the domain's capacity with other
-requests. Measure those calls under load before adopting that scale. Keep
-large outputs in R2 and budget task storage: one million 16 KiB payloads
-alone exceed the paid plan's [10 GB storage limit per Durable Object](https://developers.cloudflare.com/durable-objects/platform/limits/).
-Use separate domains for independent workloads; Consume operates within one
-domain.
+16 successors together within one domain. Workflow state, scheduling and
+cooperative cancellation belong in application code. External effects, such
+as publishing an artifact, still need idempotence: a crash can cause a job
+to run again.
 
 ## Install
 
@@ -253,6 +230,52 @@ Configuration supports `TL_CONFIG`, `TL_URL`, `TL_DOMAIN`, `TL_AGENT_ID`,
 `TL_WORKER` and `TL_TOKEN`; admin commands use environment-only `TL_ADMIN_TOKEN`.
 Domain names `.` and `..` are prohibited. Domains otherwise follow the grammar
 in the [protocol specification](docs/spec.md).
+
+## Scale guidance
+
+On a paid Workers plan, with task payloads around 1–16 KiB, a few dozen active
+workers, and modest request traffic, **10,000–100,000 outstanding tasks per
+domain** is a reasonable initial planning range. This estimate comes from
+local SQLite benchmarks.
+Each domain uses one Durable Object and one database, so count tasks across
+all its topics, including work, replies, and errors.
+
+A million tasks can form a backlog, but calls that scan many held tasks or
+count every task take longer and share the domain's capacity with other
+requests. Measure those calls under load before adopting that scale. Keep
+large outputs in R2 and budget task storage: one million 16 KiB payloads
+alone exceed the paid plan's [10 GB storage limit per Durable Object](https://developers.cloudflare.com/durable-objects/platform/limits/).
+Use separate domains for independent workloads; Consume operates within one
+domain.
+
+The [benchmark](scripts/bench_queue.py) reads the service's schema and SQL.
+These p95 query times used 1 KiB payloads, one topic, 31 measured runs after
+warmup, and a 64 MiB SQLite page cache on a local Linux machine with SQLite
+3.37.2. The [1 KiB results](docs/benchmarks/queue-1k.json) and
+[16 KiB results](docs/benchmarks/queue-16k.json) record the measurements and
+method. Service latency and throughput require measurements in your deployment;
+the benchmark excludes HTTP, authentication, concurrent requests, and
+replicated durability.
+
+| Tasks in the domain | Claim lookup after 32 held tasks | Poll with all tasks held | Topic counts |
+| ---: | ---: | ---: | ---: |
+| 10,000 | 0.015 ms | 0.58 ms | 1.2 ms |
+| 100,000 | 0.007 ms | 5.3 ms | 11 ms |
+| 1,000,000 | 0.007 ms | 70 ms | 121 ms |
+
+Both benchmark programs are preserved under `scripts/`. Run the workload
+benchmark against the current service schema, or compare index choices and
+topic aggregation with [bench_queue_indexes.py](scripts/bench_queue_indexes.py):
+
+```sh
+python3 scripts/bench_queue.py --output /tmp/tasklease-queue.json
+python3 scripts/bench_queue_indexes.py --output /tmp/tasklease-indexes.json
+```
+
+Each creates and removes temporary databases, then writes a JSON report.
+Use `--sizes 10000 --samples 15` for a shorter run. The comparison program
+also offers `--maintained-totals` to measure an experimental counter query;
+that option excludes the cost of maintaining the counters.
 
 ## Reference and acceptance
 
