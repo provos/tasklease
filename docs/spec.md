@@ -316,7 +316,9 @@ One entry per (identity, worker label) that has called Own on the topic in
 the last 7 days. This answers "is anyone serving `verify/windows`?" without a
 registration step. A worker that waits for local capacity before polling
 (§6.1) only shows up while it is able to take work. `tl request` uses it to
-warn when no worker is serving the topic.
+warn when no worker is serving the topic. `last_polled_at` is accurate to
+about a minute: an empty Own refreshes it only once it is a minute old, so
+idle polls usually write nothing. `last_owned_at` is exact.
 
 ### 4.10 Blob Put URL
 
@@ -384,8 +386,8 @@ the identity owns keep their leases and come back when those expire.
 one, on the same 60-second terms.
 
 `identity.list {}` → `[{name, domains, scopes, operator, created_at, last_seen_at}]`.
-Never returns tokens or hashes. `last_seen_at` is accurate to about 60
-seconds (§7.1).
+Never returns tokens or hashes. `last_seen_at` is accurate to about two
+minutes (§7.1).
 
 Errors: `invalid`, `unauthenticated`, `exists`, `not_found`.
 
@@ -427,7 +429,6 @@ they are exact, and kept for 30 days.
 | `created` | tasks posted to the topic, by Create or by a Consume |
 | `owned` | successful Owns |
 | `reowned` | Owns of a task that had been owned before (`owned_count` ≥ 1): a lease ran out |
-| `empty_polls` | Owns that returned `empty` |
 | `consumed`, `deleted` | lineages ended in the topic, by Consume or by Delete |
 | `wait_ms_sum`, `wait_ms_max`, `wait_count` | for each first Own: `now − created_at`, how long a task waited for a worker |
 | `run_ms_sum`, `run_ms_max`, `run_count` | for each Consume of an owned task: `now − owned_at`, how long the work took |
@@ -702,9 +703,11 @@ Delete.
   working for up to 60 seconds (§4.13). An unknown token is not cached, so a
   newly added identity works at once.
 - **`last_seen_at`.** A cache miss already calls the registry, so that same
-  lookup sets the identity's `last_seen_at`. No other request touches the
+  lookup sets the identity's `last_seen_at`, but only when the stored value
+  is more than a minute old: most lookups only read, so the registry answers
+  without waiting for a storage commit. No other request touches the
   registry. For an identity in active use, `last_seen_at` is accurate to
-  about 60 seconds.
+  about two minutes (the token cache's minute plus the write interval).
 
 ### 7.2 Storage
 
@@ -727,7 +730,7 @@ CREATE TABLE declared_topics (
 );
 CREATE TABLE stats_hourly (
   topic TEXT, hour INTEGER,
-  created INTEGER, owned INTEGER, reowned INTEGER, empty_polls INTEGER,
+  created INTEGER, owned INTEGER, reowned INTEGER,
   consumed INTEGER, deleted INTEGER,
   wait_ms_sum INTEGER, wait_ms_max INTEGER, wait_count INTEGER,
   run_ms_sum INTEGER, run_ms_max INTEGER, run_count INTEGER,

@@ -435,6 +435,40 @@ describe("registry HTTP and persistence", () => {
     ).toBe(1);
   });
 
+  it("writes last_seen_at at most once a minute per identity", async () => {
+    const added = await add();
+    const hash = await hashToken(added.token);
+    const registry = env.REGISTRY.getByName("registry");
+    await runInDurableObject(registry, (instance, state) => {
+      const base = 1_800_000_000_000;
+      const clock = vi.spyOn(Date, "now").mockReturnValue(base);
+      const seen = () =>
+        state.storage.sql
+          .exec<{ last_seen_at: number | null }>(
+            "SELECT last_seen_at FROM identities WHERE name = ?",
+            added.name,
+          )
+          .one().last_seen_at;
+      try {
+        state.storage.sql.exec(
+          "UPDATE identities SET last_seen_at = NULL WHERE name = ?",
+          added.name,
+        );
+        expect(instance.lookup(hash)?.name).toBe(added.name);
+        expect(seen()).toBe(base);
+        clock.mockReturnValue(base + 59_999);
+        expect(instance.lookup(hash)?.name).toBe(added.name);
+        expect(seen()).toBe(base);
+        clock.mockReturnValue(base + 60_000);
+        expect(instance.lookup(hash)?.name).toBe(added.name);
+        expect(seen()).toBe(base + 60_000);
+        expect(instance.lookup("0".repeat(64))).toBeNull();
+      } finally {
+        clock.mockRestore();
+      }
+    });
+  });
+
   it("revokes and rotates at the registry immediately and cached tokens within 60 seconds", async () => {
     const added = await add();
     let now = 0;

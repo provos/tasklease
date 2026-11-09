@@ -196,7 +196,6 @@ export interface HourlyStats {
   created: number;
   owned: number;
   reowned: number;
-  empty_polls: number;
   consumed: number;
   deleted: number;
   wait_ms_sum: number;

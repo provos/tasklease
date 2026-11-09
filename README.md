@@ -34,8 +34,8 @@ jobs and you want nothing to operate:
   without a VPN, open ports or a broker to expose.
 - **Scale:** thousands of workers per domain. In a load test against a
   deployed service, 5,000 workers, each with its own token, polled one domain
-  with no errors; a domain started queueing requests at about 550 a second,
-  roughly 15,000 idle workers' worth of polling. Plan for 10,000–100,000
+  with no errors, and one domain served about 1,000 requests a second,
+  roughly 30,000 idle workers' worth of polling. Plan for 10,000–100,000
   outstanding tasks per domain (see [Scale guidance](#scale-guidance)).
 - **Operations:** one `tl service deploy` provisions everything in your own
   Cloudflare account, and rerunning it upgrades the service. There are no
@@ -243,12 +243,13 @@ including work, replies, and errors.
 **Workers.** An idle worker polls every 30 seconds, so 1,000 idle workers
 send about 33 requests a second to their domain. A load test against a
 deployed service (below) handled 5,000 workers without errors, and a single
-domain served about 550 requests a second before requests queued: roughly
-15,000 idle workers, less the requests their actual work adds. Workers with
-their own tokens added about 90 ms per request compared with shared tokens:
-each Worker instance caches a token's identity for a minute, and with many
-tokens most requests miss that cache and wait for the shared identity
-registry. Split independent workloads into separate domains to add
+domain served about 1,000 requests a second, Cloudflare's documented soft
+limit for one Durable Object: roughly 30,000 idle workers, less the requests
+their actual work adds. An idle poll usually writes nothing, which keeps it
+cheap. Workers with their own tokens added about 65 ms per request compared
+with shared tokens: each Worker instance caches a token's identity for a
+minute, and with many tokens most requests miss that cache and ask the
+shared identity registry. Split independent workloads into separate domains to add
 capacity.
 
 **Tasks.** On a paid Workers plan, with task payloads around 1–16 KiB,
@@ -298,22 +299,22 @@ that option excludes the cost of maintaining the counters.
 deployed service: each worker polls one topic with Own at the real worker's
 jittered interval, and a producer creates tasks that workers own, hold for
 two seconds and consume. These runs used the acceptance deployment from one
-Linux client on 2026-11-08; latency is measured at the client and includes
+Linux client on 2026-11-08 and 2026-11-09; latency is measured at the client and includes
 about 45 ms of network path. The
 [results](docs/benchmarks/load-acceptance.json) record each run.
 
 | Simulated load | Requests/s | Own p50 / p95 / p99 | Errors |
 | --- | ---: | ---: | ---: |
 | 1,000 workers, 10 shared tokens, 30 s polls | 39 | 45 / 72 / 129 ms | 0 |
-| 5,000 workers, own tokens, 30 s polls | 181 | 137 / 205 / 280 ms | 0 |
+| 5,000 workers, own tokens, 30 s polls | 181 | 111 / 165 / 253 ms | 0 |
 | 1,000 workers, 10 shared tokens, 3 s polls | 347 | 68 / 177 / 314 ms | 0 |
-| 1,000 workers, 10 shared tokens, 1 s polls | 547 (of ~1,040 offered) | 926 / 1,427 / 2,170 ms | 0 |
+| 1,000 workers, 10 shared tokens, 0.5 s polls | 1,012 (of ~2,040 offered) | 480 / 775 / 1,038 ms | 0 |
 
-At about 550 requests a second the domain queued requests rather than
-failing them: a probe on another topic of the same domain waited about
-900 ms too. Each Own writes a poller row and an hourly statistics row, even
-when no task is waiting; that per-poll work, not task lookup, sets the
-domain's limit.
+The last row is the domain's ceiling: requests queued rather than failed,
+and a probe on another topic of the same domain, timed from a separate
+process, waited 117 ms at the median and 728 ms at p95. The first and third
+rows predate the change that stopped idle polls from writing; then a domain
+queued from about 550 requests a second, and the results file records both.
 
 ```sh
 TL_ADMIN_TOKEN=... uv run --project python python scripts/load_pollers.py \

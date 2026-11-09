@@ -79,6 +79,9 @@ type TopicRow = {
 
 type Snapshot = { id: string; expiresAt: number; chunks: number };
 
+/** How stale a poller row's last_polled_at may get before an empty poll writes it. */
+const POLLER_REFRESH_MS = 60_000;
+
 const pollerQuery = `SELECT identity, worker, last_polled_at, last_owned_at FROM pollers
   WHERE topic = ? AND last_polled_at >= ? ORDER BY identity, worker`;
 
@@ -164,7 +167,7 @@ const migrations = [
   CREATE TABLE stats_hourly (
     topic TEXT NOT NULL, hour INTEGER NOT NULL,
     created INTEGER NOT NULL DEFAULT 0, owned INTEGER NOT NULL DEFAULT 0,
-    reowned INTEGER NOT NULL DEFAULT 0, empty_polls INTEGER NOT NULL DEFAULT 0,
+    reowned INTEGER NOT NULL DEFAULT 0,
     consumed INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0,
     wait_ms_sum INTEGER NOT NULL DEFAULT 0, wait_ms_max INTEGER NOT NULL DEFAULT 0,
     wait_count INTEGER NOT NULL DEFAULT 0,
@@ -184,6 +187,9 @@ const migrations = [
 ];
 
 export class DomainObject extends DurableObject<Env> {
+  // The cleanup alarm reschedules itself and is never deleted, so once seen
+  // it stays set for this object's lifetime.
+  private alarmSet = false;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     void ctx.blockConcurrencyWhile(async () => {
@@ -241,21 +247,23 @@ export class DomainObject extends DurableObject<Env> {
           now,
         )
         .toArray()[0];
+      // An empty poll writes nothing unless the poller row is a minute old, so
+      // idle workers do not commit storage on every poll.
       this.ctx.storage.sql.exec(
         `INSERT INTO pollers (topic, identity, worker, last_polled_at, last_owned_at)
          VALUES (?, ?, ?, ?, ?) ON CONFLICT(topic, identity, worker) DO UPDATE SET
          last_polled_at = excluded.last_polled_at,
-         last_owned_at = COALESCE(excluded.last_owned_at, pollers.last_owned_at)`,
+         last_owned_at = COALESCE(excluded.last_owned_at, pollers.last_owned_at)
+         WHERE excluded.last_owned_at IS NOT NULL
+           OR pollers.last_polled_at <= excluded.last_polled_at - ?`,
         request.topic,
         caller.identity,
         caller.worker,
         now,
         row ? now : null,
+        POLLER_REFRESH_MS,
       );
-      if (!row) {
-        this.recordStats(request.topic, now, { empty_polls: 1 });
-        return failure("empty");
-      }
+      if (!row) return failure("empty");
       const next: TaskRow = {
         ...row,
         id: newTaskId(now),
@@ -698,10 +706,11 @@ export class DomainObject extends DurableObject<Env> {
     const result = this.ctx.storage.transactionSync(() => body(now));
     // Alarms use the asynchronous storage API, after the operation commits.
     // Refusals leave storage unchanged; empty Own still records activity.
-    if (result.ok || result.error.code === "empty") {
+    if (!this.alarmSet && (result.ok || result.error.code === "empty")) {
       if ((await this.ctx.storage.getAlarm()) === null) {
         await this.ctx.storage.setAlarm(now + DAY);
       }
+      this.alarmSet = true;
     }
     return result;
   }
@@ -763,12 +772,12 @@ export class DomainObject extends DurableObject<Env> {
   ): void {
     this.ctx.storage.sql.exec(
       `INSERT INTO stats_hourly (
-        topic, hour, created, owned, reowned, empty_polls, consumed, deleted,
+        topic, hour, created, owned, reowned, consumed, deleted,
         wait_ms_sum, wait_ms_max, wait_count, run_ms_sum, run_ms_max, run_count
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(topic, hour) DO UPDATE SET
         created = created + excluded.created, owned = owned + excluded.owned,
-        reowned = reowned + excluded.reowned, empty_polls = empty_polls + excluded.empty_polls,
+        reowned = reowned + excluded.reowned,
         consumed = consumed + excluded.consumed, deleted = deleted + excluded.deleted,
         wait_ms_sum = wait_ms_sum + excluded.wait_ms_sum,
         wait_ms_max = MAX(wait_ms_max, excluded.wait_ms_max), wait_count = wait_count + excluded.wait_count,
@@ -779,7 +788,6 @@ export class DomainObject extends DurableObject<Env> {
       increment.created ?? 0,
       increment.owned ?? 0,
       increment.reowned ?? 0,
-      increment.empty_polls ?? 0,
       increment.consumed ?? 0,
       increment.deleted ?? 0,
       increment.wait_ms_sum ?? 0,

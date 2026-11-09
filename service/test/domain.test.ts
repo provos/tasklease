@@ -228,13 +228,12 @@ describe("DomainObject task transactions", () => {
     await runInDurableObject(stub, (_instance, state) => {
       const [stats] = state.storage.sql
         .exec(
-          "SELECT SUM(created) AS created, SUM(owned) AS owned, SUM(empty_polls) AS empty_polls, SUM(wait_count) AS wait_count FROM stats_hourly",
+          "SELECT SUM(created) AS created, SUM(owned) AS owned, SUM(wait_count) AS wait_count FROM stats_hourly",
         )
         .toArray();
       expect(stats).toEqual({
         created: 12,
         owned: 12,
-        empty_polls: 24,
         wait_count: 12,
       });
     });
@@ -783,7 +782,6 @@ describe("DomainObject task transactions", () => {
             created: 2,
             owned: 0,
             reowned: 0,
-            empty_polls: 0,
             consumed: 0,
             deleted: 0,
             wait_ms_sum: 0,
@@ -799,7 +797,6 @@ describe("DomainObject task transactions", () => {
             created: 3,
             owned: 3,
             reowned: 1,
-            empty_polls: 1,
             consumed: 2,
             deleted: 1,
             wait_ms_sum: 5000,
@@ -815,19 +812,104 @@ describe("DomainObject task transactions", () => {
           await instance.own({ domain, topic, hold_seconds: 1 }, worker),
           "empty",
         );
+        // Empty polls are not counted, so a new hour gets no row of its own.
         expect(
           state.storage.sql
             .exec(
-              "SELECT hour, empty_polls FROM stats_hourly WHERE topic = ? ORDER BY hour",
+              "SELECT hour FROM stats_hourly WHERE topic = ? ORDER BY hour",
               topic,
             )
             .toArray(),
-        ).toEqual([
-          { hour: base, empty_polls: 1 },
-          { hour: base + HOUR, empty_polls: 1 },
-        ]);
+        ).toEqual([{ hour: base }]);
       } finally {
         clock.mockRestore();
+      }
+    });
+  });
+
+  it("refreshes an idle poller's row at most once a minute", async () => {
+    const { domain, stub } = fixture("poller-refresh");
+    const topic = "work/linux";
+    await runInDurableObject(stub, async (instance: DomainObject, state) => {
+      const base = 1_800_000_000_000;
+      const clock = vi.spyOn(Date, "now").mockReturnValue(base);
+      const poller = () =>
+        state.storage.sql
+          .exec(
+            "SELECT last_polled_at, last_owned_at FROM pollers WHERE topic = ?",
+            topic,
+          )
+          .toArray();
+      const poll = () =>
+        instance.own({ domain, topic, hold_seconds: 60 }, worker);
+      try {
+        error(await poll(), "empty");
+        expect(poller()).toEqual([
+          { last_polled_at: base, last_owned_at: null },
+        ]);
+        clock.mockReturnValue(base + 59_999);
+        error(await poll(), "empty");
+        expect(poller()).toEqual([
+          { last_polled_at: base, last_owned_at: null },
+        ]);
+        clock.mockReturnValue(base + 60_000);
+        error(await poll(), "empty");
+        expect(poller()).toEqual([
+          { last_polled_at: base + 60_000, last_owned_at: null },
+        ]);
+        // Taking a task always records the poll and the Own.
+        clock.mockReturnValue(base + 60_001);
+        success(await instance.create({ domain, topic, data: {} }, creator));
+        success(await poll());
+        expect(poller()).toEqual([
+          { last_polled_at: base + 60_001, last_owned_at: base + 60_001 },
+        ]);
+        expect(
+          state.storage.sql
+            .exec("SELECT COUNT(*) AS rows FROM stats_hourly")
+            .one(),
+        ).toEqual({ rows: 1 });
+      } finally {
+        clock.mockRestore();
+      }
+    });
+  });
+
+  it("checks for the cleanup alarm only on an object's first operation", async () => {
+    const { domain, stub } = fixture("alarm-once");
+    const topic = "work/linux";
+    await runInDurableObject(stub, async (instance: DomainObject, state) => {
+      const getAlarm = vi.spyOn(state.storage, "getAlarm");
+      try {
+        error(
+          await instance.own({ domain, topic, hold_seconds: 1 }, worker),
+          "empty",
+        );
+        error(
+          await instance.own({ domain, topic, hold_seconds: 1 }, worker),
+          "empty",
+        );
+        success(await instance.create({ domain, topic, data: {} }, creator));
+        expect(getAlarm).toHaveBeenCalledTimes(1);
+        expect(await state.storage.getAlarm()).not.toBeNull();
+      } finally {
+        getAlarm.mockRestore();
+      }
+    });
+    await evictDurableObject(stub);
+    await runInDurableObject(stub, async (instance: DomainObject, state) => {
+      const getAlarm = vi.spyOn(state.storage, "getAlarm");
+      try {
+        error(
+          await instance.own(
+            { domain, topic: "work/other", hold_seconds: 1 },
+            worker,
+          ),
+          "empty",
+        );
+        expect(getAlarm).toHaveBeenCalledTimes(1);
+      } finally {
+        getAlarm.mockRestore();
       }
     });
   });

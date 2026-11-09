@@ -20,6 +20,8 @@ const MAX_GLOB_LENGTH = 256;
 // lists of 256 globs, each at most 256 characters), so a page stays near
 // 17 MB, well below the 32 MiB RPC message limit.
 const LIST_PAGE_IDENTITIES = 64;
+/** How stale last_seen_at may get before a lookup writes it. */
+const SEEN_REFRESH_MS = 60_000;
 
 type IdentityRow = {
   name: string;
@@ -85,15 +87,27 @@ export class RegistryObject extends DurableObject<Env> {
 
   lookup(tokenHash: string): Identity | null {
     return this.ctx.storage.transactionSync(() => {
-      const row = this.ctx.storage.sql
+      const sql = this.ctx.storage.sql;
+      const row = sql
         .exec<IdentityRow>(
-          `UPDATE identities SET last_seen_at = ? WHERE token_hash = ?
-         RETURNING name, domains, scopes, operator, created_at, last_seen_at`,
-          Date.now(),
+          `SELECT name, domains, scopes, operator, created_at, last_seen_at
+           FROM identities WHERE token_hash = ?`,
           tokenHash,
         )
         .toArray()[0];
       if (!row) return null;
+      // Most lookups only read: writing last_seen_at at most once a minute
+      // keeps responses from waiting on a storage commit.
+      const now = Date.now();
+      if (
+        row.last_seen_at === null ||
+        row.last_seen_at <= now - SEEN_REFRESH_MS
+      )
+        sql.exec(
+          "UPDATE identities SET last_seen_at = ? WHERE token_hash = ?",
+          now,
+          tokenHash,
+        );
       const { name, domains, scopes, operator } = publicIdentity(row);
       return { name, domains, scopes, operator };
     });

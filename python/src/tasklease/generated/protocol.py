@@ -120,7 +120,6 @@ class HourlyStats(TypedDict):
     created: int
     owned: int
     reowned: int
-    empty_polls: int
     consumed: int
     deleted: int
     wait_ms_sum: int
