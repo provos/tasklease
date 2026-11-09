@@ -103,6 +103,10 @@ Artifacts are written under `python/dist/`. `make check` runs generated-contract
 drift checks, Workers-runtime tests, Svelte component/model checks, Python
 tests and cross-language conformance against an isolated local Worker.
 
+See [the release guide](docs/releasing.md) for first-release setup and the
+checklist for every release, and [the changelog](CHANGELOG.md) for user-visible
+changes and deployment notes.
+
 To work on the dashboard without a service, serve it with mock data:
 
 ```sh
