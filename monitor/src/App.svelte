@@ -763,9 +763,7 @@
                     ><tr
                       ><th>Hour</th><th>Created</th><th>Consumed</th><th
                         >Re-owns</th
-                      ><th>Empty polls</th><th>Avg / max wait</th><th
-                        >Avg / max run</th
-                      ></tr
+                      ><th>Avg / max wait</th><th>Avg / max run</th></tr
                     ></thead
                   ><tbody
                     >{#each reverseHourly as row}<tr
@@ -774,8 +772,6 @@
                         ><td>{count(row.created)}</td><td
                           >{count(row.consumed)}</td
                         ><td>{count(row.reowned)}</td><td
-                          >{count(row.empty_polls)}</td
-                        ><td
                           >{duration(
                             row.wait_count
                               ? row.wait_ms_sum / row.wait_count

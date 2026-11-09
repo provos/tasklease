@@ -494,10 +494,6 @@
           "type": "integer",
           "minimum": 0
         },
-        "empty_polls": {
-          "type": "integer",
-          "minimum": 0
-        },
         "consumed": {
           "type": "integer",
           "minimum": 0
@@ -537,7 +533,6 @@
         "created",
         "owned",
         "reowned",
-        "empty_polls",
         "consumed",
         "deleted",
         "wait_ms_sum",

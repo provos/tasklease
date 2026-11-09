@@ -124,7 +124,6 @@ export function hourBuckets(
         created: 0,
         owned: 0,
         reowned: 0,
-        empty_polls: 0,
         consumed: 0,
         deleted: 0,
         wait_ms_sum: 0,

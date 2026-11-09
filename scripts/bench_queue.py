@@ -136,7 +136,8 @@ def run_size(
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(sql["pick"], (topic, now)).fetchone()
             db.execute(
-                sql["poller"], (topic, "worker", "worker-1", now, now if row else None)
+                sql["poller"],
+                (topic, "worker", "worker-1", now, now if row else None, 60_000),
             )
             if row:
                 db.execute("DELETE FROM tasks WHERE id = ?", (row["id"],))
@@ -157,10 +158,8 @@ def run_size(
                 )
                 first = row["owned_count"] == 0
                 wait = now - row["created_at"] if first else 0
-                stats = (0, 1, int(not first), 0, 0, 0, wait, wait, int(first), 0, 0, 0)
-            else:
-                stats = (0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0)
-            db.execute(sql["stats"], (topic, hour, *stats))
+                stats = (0, 1, int(not first), 0, 0, wait, wait, int(first), 0, 0, 0)
+                db.execute(sql["stats"], (topic, hour, *stats))
             db.execute("COMMIT")
             elapsed = (time.perf_counter_ns() - started) / 1_000_000
             if row:

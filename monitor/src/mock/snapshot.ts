@@ -160,7 +160,6 @@ class Builder {
         created,
         owned,
         reowned: this.chance(0.06) ? 1 : 0,
-        empty_polls: this.integer(20, 60),
         consumed,
         deleted: this.chance(0.03) ? 1 : 0,
         wait_ms_sum: Math.round(owned * wait),

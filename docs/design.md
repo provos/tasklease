@@ -168,8 +168,8 @@ storage, with the tables in spec §7.2.
   report an outcome: each returns a result union from inside the transaction
   (`{ok: true, …} | {ok: false, code}`), the transaction commits, and only
   then does the Worker turn the result into a response. This matters for
-  Own: an `empty` result must still commit its poller row and its
-  `empty_polls` count. A refusal (`forbidden`, `not_found`) commits a
+  Own: an `empty` result must still commit its poller row when that row is
+  due a refresh. A refusal (`forbidden`, `not_found`) commits a
   transaction that wrote nothing, which has the same effect as a rollback. An
   exception thrown inside means a bug, and the rollback is then the right
   outcome.
@@ -180,7 +180,11 @@ storage, with the tables in spec §7.2.
   `lease_until <= now`, then delete it and insert the copy with a new ID,
   `owned_count + 1`, the new owner, `owned_at = now` and
   `lease_until = now + hold`. Upsert the poller row in the same transaction,
-  also on `empty`. The index orders by `(topic, created_at, id)` and includes
+  also on `empty`, but on `empty` only when its `last_polled_at` is at least
+  a minute old (spec §4.9). An empty poll then usually writes nothing, and a
+  request that writes nothing does not wait for a storage commit: idle
+  polling, the bulk of a domain's traffic, stays cheap. Empty polls are not
+  counted in the statistics for the same reason. The index orders by `(topic, created_at, id)` and includes
   `lease_until` so lease filtering can use index entries before fetching a
   task's payload. Topic aggregates use the same index and supply the live
   topic names for both listing and monitor snapshots.
@@ -205,7 +209,9 @@ storage, with the tables in spec §7.2.
 - **Consume:** delete, then insert each new task, in one transaction.
 - **Alarm:** once a day, delete poller rows older than 7 days and statistics
   rows older than 30 days, then set the next alarm. It is set on first use,
-  so an idle domain has no alarm.
+  so an idle domain has no alarm. The alarm always reschedules itself, so
+  each in-memory object checks for it only on its first operation instead
+  of awaiting a storage read on every request.
 - **Sizes:** `data` is stored as JSON text, after the Worker checked its
   serialized size.
 
