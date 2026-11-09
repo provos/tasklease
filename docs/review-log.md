@@ -670,3 +670,29 @@ Status: accepted after corrections, independent reviews and native qualification
   redacted live deployment results and cleanup evidence are preserved under
   `/tmp/tasklease-release-010.KeK43m/`. This evidence-only documentation update
   does not change the qualified package, build inputs or tests.
+
+### Main README revision
+
+- Per user direction, removed the separately maintained `python/README.md`.
+  The custom metadata hook now reads the repository's main `README.md`; the
+  sdist build includes that exact snapshot as `README.md`, and metadata uses
+  the packaged snapshot when building outside the checkout. Tests verify
+  exact description bytes and successful no-Node sdist rebuilding/install.
+- Repeated the complete `make check` and `make build` successfully, with the
+  same final counts above. Repeated native acceptance on the rebuilt wheel:
+  Linux/macOS each passed 708 tests/three expected skips and Windows passed
+  705/six expected skips, including native Task Scheduler parsing. All three
+  verified the same clean source snapshot at
+  `cbb5299a899daec7707742ec812cf69a4fdfb614` and the same candidate hashes.
+- These final distribution identities supersede the earlier candidate:
+  - acceptance ZIP: `392bb7fc5c298f7a8a9a2262b2eb520a0c7e52ed803aad8a763e0915bde8a3de`;
+  - source tree: `f2916b0f2b7de0054477b1eab97eb162b8d17230565ae52b87e420746c6d3bf2`;
+  - wheel: `3d3b4acdf0800810bd0844ab92afb0fc34bd0892bc4090a01a60c4b9b7d8d03b`;
+  - sdist: `be9d222522e0233616489968ef11d41e0d567b3061efa6d55764d7ba4ed2c309`.
+- Python and executable dashboard/Worker bytes match the live-qualified
+  candidate exactly. Besides distribution metadata, only Wrangler's generated
+  build-timestamp README and debug source map differ. The live Cloudflare/R2
+  results therefore cover the same Worker JavaScript. Final reports, full
+  check/build logs and byte-comparison evidence are under
+  `/tmp/tasklease-release-010.KeK43m/readme/`. PyPI still returned 404 for
+  `tasklease/0.1.0` during preparation; the GitHub release remains a draft.
