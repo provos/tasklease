@@ -17,26 +17,26 @@
       ? [
           {
             name: "Created",
-            color: "#3859d6",
+            color: "var(--series-1)",
             values: rows.map((r) => r.created),
           },
           {
             name: "Consumed",
-            color: "#168071",
+            color: "var(--series-2)",
             values: rows.map((r) => r.consumed),
           },
         ]
       : [
           {
             name: "Average wait",
-            color: "#3859d6",
+            color: "var(--series-1)",
             values: rows.map((r) =>
               r.wait_count ? r.wait_ms_sum / r.wait_count : 0,
             ),
           },
           {
             name: "Average run",
-            color: "#168071",
+            color: "var(--series-2)",
             values: rows.map((r) =>
               r.run_count ? r.run_ms_sum / r.run_count : 0,
             ),
@@ -84,7 +84,7 @@
         x2={width - right}
         y1={y(maximum * fraction)}
         y2={y(maximum * fraction)}
-        stroke="#e6eaf1"
+        style="stroke: var(--chart-grid)"
       />
       <text x={left - 8} y={y(maximum * fraction) + 4} text-anchor="end"
         >{kind === "latency"
@@ -96,7 +96,7 @@
       <polyline
         points={points(item.values)}
         fill="none"
-        stroke={item.color}
+        style={`stroke: ${item.color}`}
         stroke-width="2.5"
         stroke-linejoin="round"
         vector-effect="non-scaling-stroke"
@@ -106,7 +106,7 @@
           cx={x(0)}
           cy={y(item.values[0] ?? 0)}
           r="3.5"
-          fill={item.color}
+          style={`fill: ${item.color}`}
         />
       {/if}
     {/each}
@@ -141,7 +141,7 @@
     overflow: visible;
   }
   text {
-    fill: #6d778d;
+    fill: var(--muted);
     font:
       10px system-ui,
       sans-serif;
@@ -150,7 +150,7 @@
     display: flex;
     justify-content: center;
     gap: 1.4rem;
-    color: #59657c;
+    color: var(--text-3);
     font-size: 0.75rem;
   }
   .legend span {
