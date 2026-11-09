@@ -567,10 +567,12 @@ and a stale warning when a refresh fails. Sections:
 - **Versions:** `MAJOR.MINOR.PATCH` in `pyproject.toml`, with the protocol
   version (`/v1/`) independent of it. A release that needs a service change
   says so in the changelog, and the service is deployed first.
-- **Releasing:** `make release` runs the checks, `uv build`, and
-  `uv publish` with a project-scoped PyPI API token kept on the release
-  machine. No CI job is needed; trusted publishing can be added if a cheap
-  Linux-only release workflow is ever wanted.
+- **Releasing:** routine checks remain local. The optional Linux-only
+  `.github/workflows/workflow.yml` runs manually for an existing version tag
+  on `main`, checks/builds it, and publishes only with an explicit input.
+  Its separate publishing job uses PyPI Trusted Publishing via OIDC, without
+  a stored PyPI token. `make release` remains a local token-based alternative.
+  See [releasing.md](releasing.md) for setup and exact commands.
 - **Public code:** a PyPI release makes the package's source public, even
   while the GitHub repository stays private. Nothing secret belongs in the
   package; tokens and URLs come from configuration.
@@ -638,7 +640,9 @@ names (`CON`), which must land in separate files. The dashboard
 gets `svelte-check` and a few component tests (Vitest) that render a
 snapshot fixture taken from `schema/examples/`.
 
-GitHub Actions is too expensive to use here, so the test runs are split:
+Routine GitHub Actions testing is avoided for cost; the optional manual
+Linux-only publishing workflow also runs the local checks before uploading.
+The routine test runs are split:
 
 - `make check` on any machine runs the service tests, the Python tests and
   the conformance suite against `wrangler dev`.
