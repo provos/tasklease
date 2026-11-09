@@ -13,6 +13,7 @@ import {
   validateOwnResponse,
   validateIdentityListResponse,
 } from "../src/generated/validators.js";
+import { version } from "../src/version";
 
 const missingId = "t_00000000000000000000000000";
 
@@ -80,7 +81,7 @@ describe("HTTP routing and validation", () => {
       "https://tasklease/v1/version",
     );
     expect(await response.json()).toEqual({
-      service_version: "0.1.0",
+      service_version: version,
       protocol: "v1",
     });
     await expectError(

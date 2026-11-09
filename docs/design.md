@@ -425,7 +425,7 @@ class Handler(Protocol):
     def reply(self, task: Task, outcome: Outcome) -> list[NewTask]: ...
 ```
 
-`WorkerLoop(client, topic, capacity, handler, lease, renew_every,
+`WorkerLoop(client, domain, topic, capacity, handler, lease, renew_every,
 max_owned).run()` owns the rest: polling with jitter, the renewer thread,
 the `lost` event, `finish` with the fallback to `<topic>/error`, and the
 `too_large` truncation.

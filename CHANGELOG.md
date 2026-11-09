@@ -6,6 +6,33 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+### Added
+
+- Public typed `tasklease.testing.FakeBoard`: a thread-safe, single-domain
+  in-process service with scoped identities, injectable time, real clients,
+  lease controls, state snapshots and offline blob transfers. Shared
+  conformance tests run against both this board and the local Worker.
+- `tasklease.blobs.upload_file` and `download_file`, with streaming SHA-256,
+  separate transfer clients, size checks and partial-download cleanup.
+  `UploadedBlob` carries the key, size and digest; `BlobTransferError` covers
+  signing, transfer, integrity and filesystem failures.
+- Public `tasklease.names.is_request_id` and `topic_matches` predicates for
+  requester-compatible IDs and the Worker's scope glob semantics.
+
+### Fixed
+
+- Correct the documented `WorkerLoop` constructor to include its domain.
+
+### Compatibility and deployment
+
+- The `0.2.0` candidate adds compatible Python APIs and retains protocol
+  `/v1/`. Existing `0.1.0` services work with these APIs; no service upgrade
+  is required. The bundled service reports the package's new version.
+- The testing service and transfer helpers ship in the main wheel with no
+  additional runtime dependencies. Offline fake-only tests need no Node.js,
+  Wrangler, credentials or network access. Real presigned R2 transfers still
+  require deployed-service acceptance.
+
 ## [0.1.0] - 2026-11-08
 
 Initial release.

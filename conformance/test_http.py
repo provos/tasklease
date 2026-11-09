@@ -1,16 +1,14 @@
-"""Cross-language checks against the actual bundled Worker and Python client."""
+"""Protocol checks shared by the packaged Worker and in-process board."""
 
 import json
-import uuid
 from pathlib import Path
 from typing import cast
 from urllib.parse import quote
 
-import httpx
 import pytest
 
+from conformance.support import ADMIN_TOKEN, LostResponse, ServiceTarget
 from tasklease import __version__
-from tasklease.client import Client
 from tasklease.errors import Empty, Forbidden, NotFound, TransportError, Unauthenticated
 from tasklease.generated.protocol import ConsumeRequest
 
@@ -18,31 +16,16 @@ ROOT = Path(__file__).resolve().parents[1]
 INVALID_REQUESTS = sorted((ROOT / "schema/examples").glob("*/invalid/request*.json"))
 
 
-def test_packaged_version(admin: Client) -> None:
-    assert admin.version() == {"service_version": __version__, "protocol": "v1"}
+def test_packaged_version(target: ServiceTarget) -> None:
+    with target.client("unused") as client:
+        assert client.version() == {"service_version": __version__, "protocol": "v1"}
 
 
-def test_client_task_and_identity_flow(service_url: str, admin: Client) -> None:
-    domain = "conformance/" + uuid.uuid4().hex
-    name = "client-" + uuid.uuid4().hex
-    issued = admin.identity_add(
-        {
-            "name": name,
-            "domains": [domain],
-            "scopes": {"create": ["**"], "own": ["**"], "read": ["**"]},
-            "operator": True,
-        }
-    )
-    token = issued["token"]
-    with Client(service_url, token, "worker-1") as client:
+def test_client_task_flow(target: ServiceTarget) -> None:
+    domain = target.domain
+    name, token = target.identity()
+    with target.client(token, "worker-1") as client:
         assert client.identity_whoami({})["name"] == name
-        assert any(
-            identity["name"] == name
-            for identity in admin.identity_list({})["identities"]
-        )
-        assert client.topic_declare(
-            {"domain": domain, "topic": "work", "declared": True}
-        ) == {"ok": True}
         created = client.create(
             {
                 "domain": domain,
@@ -108,61 +91,71 @@ def test_client_task_and_identity_flow(service_url: str, admin: Client) -> None:
             {"domain": domain, "name": "report.json", "size": 42, "sha256": "a" * 64}
         )
         assert signed["key"].startswith(quote(domain, safe="") + "/")
+        assert signed["url"].startswith("https://")
         assert "X-Amz-Signature=" in signed["url"]
+        assert signed["expires_at"] > 0
         # The local bucket has no uploaded object; signed HTTP upload/download
         # remains a separate external acceptance check.
         with pytest.raises(NotFound):
             client.blob_get_url({"domain": domain, "key": signed["key"]})
         with pytest.raises(Forbidden):
             client.topics_list({"domain": "another-domain"})
-    rotated = admin.identity_rotate({"name": name})["token"]
-    assert rotated != token
-    with Client(service_url, rotated) as replacement:
-        assert replacement.identity_whoami({})["name"] == name
-    admin.identity_revoke({"name": name})
-    assert all(
-        identity["name"] != name for identity in admin.identity_list({})["identities"]
-    )
-    # Cached credentials may remain valid for 60 seconds. Revoke a second,
-    # never-authenticated credential to exercise rejection without waiting.
-    unused_name = "unused-" + uuid.uuid4().hex
-    unused = admin.identity_add(
-        {
-            "name": unused_name,
-            "domains": [domain],
-            "scopes": {"create": [], "own": [], "read": []},
-            "operator": False,
-        }
-    )["token"]
-    admin.identity_revoke({"name": unused_name})
-    with Client(service_url, unused) as revoked:
-        with pytest.raises(Unauthenticated):
-            revoked.identity_whoami({})
+
+
+def test_identity_admin_and_operator_flow(target: ServiceTarget) -> None:
+    target.require("identity.add")
+    name, token = target.identity(operator=True, create=(), own=(), read=())
+    with target.client(ADMIN_TOKEN) as admin:
+        assert any(
+            identity["name"] == name
+            for identity in admin.identity_list({})["identities"]
+        )
+        with target.client(token, "operator") as client:
+            assert client.topic_declare(
+                {"domain": target.domain, "topic": "work", "declared": True}
+            ) == {"ok": True}
+            client.create({"domain": target.domain, "topic": "work", "data": {}})
+            assert client.monitor_snapshot({"domain": target.domain})["topics"]
+        rotated = admin.identity_rotate({"name": name})["token"]
+        assert rotated != token
+        with target.client(rotated) as replacement:
+            assert replacement.identity_whoami({})["name"] == name
+        admin.identity_revoke({"name": name})
+        assert all(
+            identity["name"] != name
+            for identity in admin.identity_list({})["identities"]
+        )
+        # Cached credentials may remain valid for 60 seconds. Revoke a
+        # never-authenticated credential to test rejection without waiting.
+        unused_name, unused = target.identity(create=(), own=(), read=())
+        admin.identity_revoke({"name": unused_name})
+        with target.client(unused) as revoked:
+            with pytest.raises(Unauthenticated):
+                revoked.identity_whoami({})
 
 
 @pytest.mark.parametrize(
     "path", INVALID_REQUESTS, ids=lambda path: str(path.relative_to(ROOT))
 )
 def test_invalid_request_corpus(
-    service_url: str, corpus_token: str, path: Path
+    corpus_target: ServiceTarget, corpus_token: str, path: Path
 ) -> None:
     operation = path.parents[1].name
+    corpus_target.require(operation)
     example: object = json.loads(path.read_text())
     assert isinstance(example, dict)
     body = cast(dict[str, object], example)["body"]
     token = (
-        "conformance-admin-fake-secret"
+        ADMIN_TOKEN
         if operation.startswith("identity.") and operation != "identity.whoami"
         else corpus_token
     )
-    response = httpx.post(
-        service_url + "/v1/" + operation,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "X-Worker": "corpus",
-        },
-        json=body,
-    )
+    with corpus_target.http() as http:
+        response = http.post(
+            corpus_target.url + "/v1/" + operation,
+            headers={"Authorization": f"Bearer {token}", "X-Worker": "corpus"},
+            json=body,
+        )
     assert response.status_code in (400, 413), response.text
     value: object = response.json()
     assert isinstance(value, dict)
@@ -172,41 +165,11 @@ def test_invalid_request_corpus(
     assert isinstance(error, dict) and error["code"] in ("invalid", "too_large")
 
 
-class DropResponse(httpx.BaseTransport):
-    """Forward one chosen mutation fully, then simulate a lost response."""
-
-    def __init__(self, operation: str) -> None:
-        self.inner = httpx.HTTPTransport()
-        self.operation = operation
-        self.dropped = False
-
-    def handle_request(self, request: httpx.Request) -> httpx.Response:
-        response = self.inner.handle_request(request)
-        if request.url.path == "/v1/" + self.operation and not self.dropped:
-            response.read()
-            response.close()
-            self.dropped = True
-            raise httpx.ReadError("Simulated lost response", request=request)
-        return response
-
-    def close(self) -> None:
-        self.inner.close()
-
-
-def test_lost_create_and_consume_are_not_retried(
-    service_url: str, admin: Client
-) -> None:
-    domain = "lost/" + uuid.uuid4().hex
-    issued = admin.identity_add(
-        {
-            "name": "lost-" + uuid.uuid4().hex,
-            "domains": [domain],
-            "scopes": {"create": ["**"], "own": ["**"], "read": ["**"]},
-            "operator": False,
-        }
-    )
-    with Client(
-        service_url, issued["token"], "lost-worker", transport=DropResponse("create")
+def test_lost_create_and_consume_are_not_retried(target: ServiceTarget) -> None:
+    domain = target.domain
+    _, token = target.identity()
+    with target.client(
+        token, "lost-worker", transport=LostResponse(target.transport(), "create")
     ) as client:
         with pytest.raises(TransportError):
             client.create(
@@ -217,8 +180,8 @@ def test_lost_create_and_consume_are_not_retried(
         held = client.own({"domain": domain, "topic": "work", "hold_seconds": 60})[
             "task"
         ]
-    with Client(
-        service_url, issued["token"], "lost-worker", transport=DropResponse("consume")
+    with target.client(
+        token, "lost-worker", transport=LostResponse(target.transport(), "consume")
     ) as client:
         consume: ConsumeRequest = {
             "domain": domain,

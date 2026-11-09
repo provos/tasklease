@@ -2,6 +2,7 @@ import { env, exports } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { validateCreateRequest } from "../src/generated/validators.js";
+import { version } from "../src/version";
 
 describe("runtime foundations", () => {
   it("runs the generated standalone validators inside Workers", () => {
@@ -21,7 +22,7 @@ describe("runtime foundations", () => {
     const response = await exports.default.fetch("http://tasklease/v1/version");
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      service_version: "0.1.0",
+      service_version: version,
       protocol: "v1",
     });
   });

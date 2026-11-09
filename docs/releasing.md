@@ -147,10 +147,11 @@ configuration, outside this checkout's lockfile.
 
 The gates cover generated contract drift, shared examples, strict TypeScript
 and Python checks, Workers tests, Svelte component/model tests, Python tests
-and real local Worker conformance. The packaging tests build a wheel from an
-sdist with Node absent, install it away from the checkout and verify the
-dashboard, Worker bundle and startup templates. Artifacts are written to
-`python/dist/`.
+and shared conformance against both the in-process fake and real local Worker.
+The packaging tests build a wheel from an sdist with Node absent, install it
+away from the checkout and verify the dashboard, Worker bundle, offline
+testing/transfer APIs and startup templates. The installed offline API probe
+disables sockets and runs without Node. Artifacts are written to `python/dist/`.
 
 Keep only the intended version's wheel and sdist when reviewing publication.
 

@@ -747,3 +747,51 @@ Status: accepted after corrections, independent reviews and native qualification
   first-release setup/publication acceptance complete, and finalized the
   changelog. This documentation follow-up does not modify the published tag
   or distributions.
+
+## 0.2.0 candidate: offline service and blob helpers (2026-11-09)
+
+- Prepared an uncommitted candidate based on
+  `f2c22dc174957adf90ab26a9124ece2eed2e6569`. Added typed `FakeBoard`, streaming
+  blob transfer helpers and public request-ID/scope predicates, with usage
+  documentation and shared fake/Worker conformance. Optional runtime behavior
+  changes from the handoff remain separate; corrected the documented
+  `WorkerLoop` domain argument. No service upgrade is required for these APIs.
+- Three implementation agents owned disjoint files. Three review-only
+  simplify passes found no worthwhile reuse, quality or efficiency changes.
+  Two independent `gpt-6-astra` high-effort reviews each reproduced nested-JSON
+  drift against the actual Worker. Fixed validation and serialization with
+  iterative traversal, removed redundant recursive data copying, and made
+  snapshots stack-safe. Shared 500-level array/object lifecycle regressions
+  now pass on both targets. Both reviewers rechecked the fix independently
+  and reported no remaining material findings.
+- Integration also checked JavaScript number formatting at data-size limits,
+  upload mutation detection, raw-byte download verification, and blob-date
+  boundary behavior. A seeded differential probe of 99,946 finite IEEE754
+  values found no number-rendering mismatches with `JSON.stringify`.
+- `make install`, `make check` and `make build` passed on macOS with Node
+  `26.7.0`, Python `3.12.12` and uv `0.9.15`. The full check included 191
+  Worker tests, 32 dashboard tests, 916 Python/tooling tests with three native
+  Windows skips, and 386 conformance tests with 36 explicit capability skips.
+  Conformance skips are 35 unsupported fake admin/operator/declaration/monitor
+  cases and one local-Worker signed-transfer case. Dependency policy checked
+  302 locked registry versions, the installed tree matched, and audit found
+  zero vulnerabilities. Formatting, generation, schema, lint and strict type
+  checks passed.
+- Installed-wheel acceptance rebuilt the sdist without Node, installed away
+  from the checkout, blocked socket connections and completed real-client task
+  and blob-helper round trips. Two existing tests now use the injected package
+  version rather than `0.1.0`; temporary test environments use POSIX symlinks
+  so uv's macOS shared-library interpreter remains usable.
+- Inspected both distributions: the new modules and `py.typed` are present,
+  public module bytes match the working source, the bundled service reports
+  `0.2.0`, and runtime dependencies are unchanged. The private handoff remains
+  untracked and is absent from both artifacts. Artifact identities:
+  - wheel: `f29e5e1eca7a38f4109953ac893895f7c7fb8f5aa25290760a12fc6c01bfcb85`;
+  - sdist: `1fbe86a63778e4c941390157de8aa8864a7c720032238921c66168ea13d37119`.
+- Local logs and artifact inspection are preserved at
+  `/tmp/tasklease-020-check.log`, `/tmp/tasklease-020-build.log` and
+  `/tmp/tasklease-020-artifacts.json`. This is a candidate, not a published
+  release: native Linux/Windows acceptance, deployed R2 transfer/upgrade
+  acceptance and the remaining clean-commit/tag/publishing steps from the
+  release guide are outstanding. No FluxShot repository, deployment, release
+  tag or published package was changed.

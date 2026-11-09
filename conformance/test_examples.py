@@ -5,10 +5,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
-import httpx
 import pytest
 from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
+
+from conformance.support import ADMIN_TOKEN, ServiceTarget
 
 SCHEMA = Path(__file__).resolve().parents[1] / "schema"
 VALID_REQUESTS = sorted((SCHEMA / "examples").glob("*/valid/request*.json"))
@@ -37,23 +38,28 @@ def registry() -> Registry[Schema]:
     "path", VALID_REQUESTS, ids=lambda path: str(path.relative_to(SCHEMA))
 )
 def test_valid_request_corpus(
-    service_url: str, corpus_token: str, registry: Registry[Schema], path: Path
+    corpus_target: ServiceTarget,
+    corpus_token: str,
+    registry: Registry[Schema],
+    path: Path,
 ) -> None:
     operation = path.parents[1].name
+    corpus_target.require(operation)
     token = (
-        "conformance-admin-fake-secret"
+        ADMIN_TOKEN
         if operation.startswith("identity.") and operation != "identity.whoami"
         else corpus_token
     )
-    response = (
-        httpx.get(service_url + "/v1/version")
-        if operation == "version"
-        else httpx.post(
-            service_url + "/v1/" + operation,
-            headers={"Authorization": f"Bearer {token}", "X-Worker": "corpus"},
-            json=read_object(path)["body"],
+    with corpus_target.http() as http:
+        response = (
+            http.get(corpus_target.url + "/v1/version")
+            if operation == "version"
+            else http.post(
+                corpus_target.url + "/v1/" + operation,
+                headers={"Authorization": f"Bearer {token}", "X-Worker": "corpus"},
+                json=read_object(path)["body"],
+            )
         )
-    )
     # State-dependent refusals are legitimate; syntax and authentication must
     # agree with the examples, including the unauthenticated version GET.
     assert response.status_code in (200, 403, 404, 409), response.text

@@ -24,7 +24,7 @@ from tasklease import fsio
 from tasklease.client import Client
 from tasklease.errors import Empty, NotFound, StoreError, TransportError
 from tasklease.generated import protocol as p
-from tasklease.names import is_domain, is_segment, is_topic
+from tasklease.names import is_domain, is_request_id, is_segment, is_topic
 
 type RequestState = Literal["submission_unknown", "pending", "answered"]
 type CancelResult = Literal["cancelled", "not_found", "submission_unknown"]
@@ -49,9 +49,8 @@ def hash_id(value: str) -> str:
 
 
 def _request_id(value: object) -> str:
-    if not isinstance(value, str) or not 1 <= len(value) <= 128:
-        raise StoreError("request_id must contain 1 to 128 characters")
-    hash_id(value)
+    if not is_request_id(value):
+        raise StoreError("request_id must contain 1 to 128 valid UTF-8 characters")
     return value
 
 

@@ -55,6 +55,67 @@ def is_bearer_token(value: object) -> TypeGuard[str]:
     )
 
 
+def is_request_id(value: object) -> TypeGuard[str]:
+    """Whether the requester store can correlate this UTF-8 identifier.
+
+    IDs contain 1 to 128 Unicode characters. They are opaque identifiers,
+    rather than domain/topic names or filenames.
+    """
+    if not isinstance(value, str) or not 1 <= len(value) <= 128:
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeError:
+        return False
+    return True
+
+
+def _segment_matches(pattern: str, value: str) -> bool:
+    position = index = 0
+    star = -1
+    restart = 0
+    while index < len(value):
+        if position < len(pattern) and pattern[position] == "*":
+            star = position
+            position += 1
+            restart = index
+        elif position < len(pattern) and pattern[position] == value[index]:
+            position += 1
+            index += 1
+        elif star >= 0:
+            position = star + 1
+            restart += 1
+            index = restart
+        else:
+            return False
+    return all(character == "*" for character in pattern[position:])
+
+
+def topic_matches(glob: str, topic: str) -> bool:
+    """Match a whole topic using the Worker's spec §3 scope glob rule.
+
+    ``*`` matches within one segment; a whole ``**`` segment consumes one or
+    more topic segments. Empty segments and embedded ``**`` never match.
+    Name/length validation is separate from matching, as in the Worker.
+    """
+    segments = topic.split("/")
+    if not all(segments):
+        return False
+    previous = [True] + [False] * len(segments)
+    for pattern in glob.split("/"):
+        if not pattern or (pattern != "**" and "**" in pattern):
+            return False
+        current = [False] * (len(segments) + 1)
+        for index, segment in enumerate(segments, 1):
+            current[index] = (
+                previous[index - 1] or current[index - 1]
+                if pattern == "**"
+                else previous[index - 1] and _segment_matches(pattern, segment)
+            )
+        previous = current
+    return previous[-1]
+
+
 def error_topic(topic: str) -> str:
     """Spec §2: a topic already ending in `/error` is its own error topic."""
     return topic if topic.endswith(_ERROR) else topic + _ERROR

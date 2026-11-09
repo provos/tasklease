@@ -132,11 +132,18 @@ make build
 
 Artifacts are written under `python/dist/`. `make check` runs generated-contract
 drift checks, Workers-runtime tests, Svelte component/model checks, Python
-tests and cross-language conformance against an isolated local Worker.
+tests and conformance against both an isolated local Worker and the in-process
+fake service.
 
 See [the release guide](docs/releasing.md) for first-release setup and the
 checklist for every release, and [the changelog](CHANGELOG.md) for user-visible
 changes and deployment notes.
+
+For offline tests, `tasklease.testing.FakeBoard` provides real clients over
+in-memory HTTP transports, controlled time, scoped identities and blob
+transfers. `tasklease.blobs` supplies streaming file upload and verified
+download helpers for tests and production. See [offline testing and blob
+transfers](docs/testing.md) for examples and public validation helpers.
 
 To work on the dashboard without a service, serve it with mock data:
 
