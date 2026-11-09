@@ -6,7 +6,9 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
-Planned initial release: `0.1.0`. This version has not been published yet.
+## [0.1.0] - 2026-11-08
+
+Initial release candidate; PyPI publication is pending.
 
 ### Added
 
@@ -21,6 +23,8 @@ Planned initial release: `0.1.0`. This version has not been published yet.
   requesters, workers and a local Svelte dashboard.
 - Bundled dashboard, Worker and startup templates for Linux, macOS and Windows;
   wheel and sdist installation and normal runtime use do not require Node.js.
+- Apache-2.0 licensing and package metadata with installation and deployment
+  instructions.
 
 ### Compatibility and deployment
 

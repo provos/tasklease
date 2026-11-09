@@ -14,10 +14,10 @@ every later release:
 - [ ] Confirm the initial version. The checkout currently uses `0.1.0`; keep
   it for the first release unless there is a reason to choose another version.
   There is no need to increment an unpublished version just to publish it.
-- [ ] Review the public package metadata and intended license. The initial
-  `python/pyproject.toml` has no license, long description or project URLs.
-  Decide what to include and add the intended metadata and files before
-  publishing; verify they appear in the built distributions.
+- [ ] Review the public metadata in `python/pyproject.toml` and the package
+  description in `python/README.md`. Confirm the Apache-2.0 license text in
+  `LICENSE` and `python/LICENSE` matches, and verify the metadata and license
+  appear in both built distributions.
 - [ ] Confirm the PyPI account's pending publisher matches project
   `tasklease`, owner `provos`, repository `tasklease`, workflow `workflow.yml`
   and no required GitHub environment. The repository records this setup, but

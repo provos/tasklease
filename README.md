@@ -5,6 +5,8 @@ Cloudflare Workers and SQLite Durable Objects hold tasks; R2 holds large
 files. The Python package includes a typed client, durable requester, generic
 worker, operator CLI, local dashboard and the prebuilt service bundle.
 
+Licensed under [Apache-2.0](LICENSE).
+
 Own rotates a task's ID, fencing previous owners. Consume atomically retires
 that ID and posts up to 16 successors, including replies. Renew preserves the
 ID. The requester saves replies locally before acknowledging the server copy.
