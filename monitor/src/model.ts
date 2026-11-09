@@ -4,7 +4,7 @@ import type {
   MonitorSnapshotResponse,
   Poller,
   SnapshotTopic,
-} from "../../service/src/generated/protocol";
+} from "../../service/src/generated/protocol.ts";
 
 export type { HourlyStats };
 

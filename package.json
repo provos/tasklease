@@ -21,7 +21,9 @@
     "test:monitor": "npm run test --workspace monitor",
     "format": "prettier --write package.json eslint.config.mjs .prettierrc.json service monitor schema scripts",
     "format:check": "prettier --check package.json eslint.config.mjs .prettierrc.json service monitor schema scripts",
-    "lint": "eslint service/src service/test service/vitest.config.ts"
+    "lint": "eslint service/src service/test service/vitest.config.ts",
+    "monitor:mock": "npm run mock --workspace monitor --",
+    "monitor:mock:preview": "npm run mock:preview --workspace monitor --"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

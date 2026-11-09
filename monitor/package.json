@@ -6,7 +6,9 @@
   "scripts": {
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "mock": "vite --mode mock",
+    "mock:preview": "vite build && vite preview --mode mock"
   },
   "dependencies": {
     "svelte": "5.57.3"

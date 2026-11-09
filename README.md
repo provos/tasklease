@@ -76,6 +76,20 @@ Artifacts are written under `python/dist/`. `make check` runs generated-contract
 drift checks, Workers-runtime tests, Svelte component/model checks, Python
 tests and cross-language conformance against an isolated local Worker.
 
+To work on the dashboard without a service, serve it with mock data:
+
+```sh
+npm run monitor:mock                      # dev server with hot reload
+npm run monitor:mock:preview              # the production build
+npm run monitor:mock -- --port 5180       # Vite options go after --
+```
+
+Pick a scenario in the page URL, for example `/?scenario=empty&delay=3000`:
+`busy` (default), `empty`, `degraded` (some sources unavailable), `large`
+(many domains and topics, a truncated queue, long names, inbox paging) or
+`unreachable` (HTTP 502). `TL_MOCK_SCENARIO` sets the default. Scenarios live
+in `monitor/src/mock/` and are tested against the service schema.
+
 ## Deploy the service
 
 Choose fresh Worker and bucket names for a new service. Follow the CLI's
