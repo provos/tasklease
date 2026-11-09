@@ -91,16 +91,20 @@ each job's payload, handler and next step.
 
 Lease expiry makes a task available for another attempt. The supplied worker
 turns handler exceptions into failure replies; application code decides
-whether to retry failed work. ID rotation rejects an old owner's completion
-after another worker claims the task. Consume commits task removal and up to
-16 successors together within one domain, so a pipeline lives in one domain.
-Fan-out is atomic; fan-in is not built in: a step that must wait for several
-results keeps track of what has arrived itself, for example in the row it
-writes. A pipeline exists only as the tasks its handlers post, so carry an ID
-in the task data to follow or cancel one run. Workflow state, scheduling and
-cooperative cancellation belong in application code. External effects, such
-as writing a finding or publishing an artifact, still need idempotence: a
-crash can cause a step to run again.
+whether to retry failed work. Every Own gives the task a new ID, and Consume
+only works with the current one. So if a worker's lease runs out and another
+worker claims the task, the old worker's Consume fails and its reply or
+downstream tasks are never posted. A queue's visibility timeout does not stop
+a timed-out consumer from sending its output. Consume commits task removal
+and up to 16 successors together within one domain, so a pipeline lives in
+one domain. Fan-out is atomic; fan-in is not built in: a step that must wait
+for several results keeps track of what has arrived itself, for example in
+the row it writes. A pipeline exists only as the tasks its handlers post, so
+carry an ID in the task data to follow or cancel one run. Workflow state,
+scheduling and cooperative cancellation belong in application code. Fencing
+covers what tasklease posts; external effects, such as writing a finding or
+publishing an artifact, still need idempotence, because a crash can cause a
+step to run again.
 
 ## Install
 
