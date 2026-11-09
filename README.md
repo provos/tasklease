@@ -9,48 +9,69 @@ Own rotates a task's ID, fencing previous owners. Consume atomically retires
 that ID and posts up to 16 successors, including replies. Renew preserves the
 ID. The requester saves replies locally before acknowledging the server copy.
 
-## Example use case
+## Example use cases
 
-A coding agent on macOS needs to verify a commit on Linux. It posts the
-repository, commit ID, and reply topic to `verify/linux`. A Linux worker
-checks out the commit, runs the tests, and uploads the log to R2. One Consume
-operation retires the task and posts a result with the log's blob key. The
-requesting agent saves the reply locally.
+**Request and reply.** A coding agent on macOS needs to verify a commit on
+Linux. It posts the repository, commit ID, and reply topic to `verify/linux`.
+A Linux worker checks out the commit, runs the tests, and uploads the log to
+R2. One Consume operation retires the task and posts a result with the log's
+blob key. The requesting agent saves the reply locally. Outbound HTTPS lets
+the Linux worker run behind a home or office router. The project supplies
+the verification handler; tasklease supplies the leases and reply handling.
 
-Outbound HTTPS lets the Linux worker run behind a home or office router.
-The project supplies the verification handler; tasklease supplies the leases
-and reply handling.
+**A pipeline.** A crawler posts a URL to `check/url`. A worker fetches the
+page, stores it in R2, and in one Consume retires its task and posts a pointer
+to the content to both `classify/content` and `classify/security`. Workers on
+those topics each post their finding to `assemble`, whose worker writes each
+finding to its own column of the URL's row. Every handoff is atomic: a
+worker's task is retired exactly when its successors exist, so a crash can
+make a stage run again but never loses or duplicates a handoff. The topics
+are the graph's stages, and the dashboard shows each one's backlog and
+latency.
 
 ## Choosing tasklease
 
-**Use tasklease** when a handful of agents and machines exchange discrete
-jobs and you want nothing to operate:
+**Use tasklease** when agents and machines exchange discrete jobs, either as
+requests that end in a reply or as pipelines whose stages hand work forward,
+and you want no servers to operate:
 
-- **Jobs:** platform builds, verification runs, GPU work or requests for
-  advice, each a request that ends in a reply after seconds to hours. Idle
-  workers poll every 30 seconds, so that pickup delay must be acceptable.
+- **Jobs:** platform builds, verification runs, GPU work, classification
+  stages or requests for advice, taking seconds to hours. A worker holds a
+  task for up to 24 hours per Own or Renew and keeps renewing while it works.
+  Idle workers poll every 30 seconds by default, so that pickup delay must be
+  acceptable.
 - **Machines:** laptops, desktops and home or office servers on macOS, Linux
-  and Windows. Workers need only outbound HTTPS, so they run behind NAT
-  without a VPN, open ports or a broker to expose.
-- **Scale:** thousands of workers per domain. In a load test against a
-  deployed service, 5,000 workers, each with its own token, polled one domain
-  with no errors, and one domain served about 1,000 requests a second,
-  roughly 30,000 idle workers' worth of polling. Plan for 10,000–100,000
-  outstanding tasks per domain (see [Scale guidance](#scale-guidance)).
-- **Operations:** one `tl service deploy` provisions everything in your own
-  Cloudflare account, and rerunning it upgrades the service. There are no
-  servers, brokers or databases to patch, back up or monitor.
+  and Windows. Workers need only outbound HTTPS, including R2 uploads through
+  presigned URLs, so they run behind NAT without a VPN, open ports or a
+  broker to expose.
+- **Scale:** thousands of workers. In a load test against a deployed service,
+  5,000 workers, each with its own token, polled one domain with no errors,
+  and one domain served about 1,000 requests a second. All domains share one
+  identity registry, which has not been tested beyond 5,000 tokens. Plan for
+  10,000–100,000 outstanding tasks per domain (see
+  [Scale guidance](#scale-guidance)).
+- **Operations:** after you create R2 access keys in the Cloudflare
+  dashboard, one `tl service deploy` provisions the Worker, its storage, the
+  bucket and the secrets in your own Cloudflare account; deploying needs
+  Node.js and a Wrangler sign-in. Rerunning it upgrades the service; until the
+  first release, a schema change may mean recreating the service instead.
+  There are no servers, brokers or databases to patch or back up:
+  Cloudflare's durability is the backup. Requests are billed, idle polls
+  included, so the scale figures assume a paid Workers plan.
 
 Request/reply is built in: reply topics, a requester that saves replies
 locally before acknowledging them, request IDs with explicit resend, a
-dashboard, and a Python worker runtime with lease renewal. Workers can
-reserve local capacity, such as a build slot or GPU, before claiming work.
-Your application defines each job's payload, handler and next step.
+dashboard, and a Python worker runtime with lease renewal. Pipelines need no
+extra machinery: a handler's Consume posts up to 16 successors to any topics
+its identity may create in the domain. Workers can reserve local capacity,
+such as a build slot or GPU, before claiming work. Your application defines
+each job's payload, handler and next step.
 
 **Use something else** when:
 
-- a process spans several dependent steps, long waits or compensation, and
-  must resume where it left off after a crash (**Temporal**);
+- a process needs a central record of its state: steps that wait for several
+  results before continuing, durable timers, compensation, or querying and
+  cancelling a whole run (**Temporal**);
 - Python services in one network already share a broker and need task
   chains, groups or schedules (**Celery**);
 - throughput is high (thousands of messages a second), pickup must be
@@ -62,8 +83,8 @@ Your application defines each job's payload, handler and next step.
 
 | Option | You provision | You maintain | Worker networking | Prefer it for |
 | --- | --- | --- | --- | --- |
-| tasklease | A Cloudflare account. `tl service deploy` creates the Worker, its Durable Objects, an R2 bucket with a seven-day lifecycle rule and the secrets; `tl identity add` issues one token per machine. | Rerun `tl service deploy` to upgrade; rotate or revoke machine tokens. Workers run as `tl worker` under the [startup templates](deploy/README.md). | Outbound HTTPS only. | Request/reply jobs among a few machines and agents. |
-| Temporal | Temporal Cloud, or a self-hosted Temporal Server with its persistence database (PostgreSQL, MySQL or Cassandra). | Self-hosted: server and schema upgrades, database operations. Either way: workflow code must stay [deterministic](https://docs.temporal.io/workflow-execution#replays) and be versioned when it changes. | Workers connect to the Temporal frontend; self-hosted, it must be reachable from every worker. | Multi-step processes that recover their state, with durable [timers](https://docs.temporal.io/workflow-execution/timers-delays) and [retry policies](https://docs.temporal.io/encyclopedia/retry-policies). |
+| tasklease | A Cloudflare account and R2 access keys created in its dashboard. `tl service deploy`, run with Node.js and a Wrangler sign-in, creates the Worker, its Durable Objects, an R2 bucket with a seven-day lifecycle rule and the secrets; `tl identity add` issues one token per machine. | Rerun `tl service deploy` to upgrade; rotate or revoke machine tokens. Workers run as `tl worker` under the [startup templates](deploy/README.md). | Outbound HTTPS only. | Request/reply jobs and handoff pipelines across machines and agents. |
+| Temporal | Temporal Cloud, or a self-hosted Temporal Server with its persistence database (PostgreSQL, MySQL or Cassandra). | Self-hosted: server and schema upgrades, database operations. Either way: workflow code must stay [deterministic](https://docs.temporal.io/workflow-execution#replays) and be versioned when it changes. | Workers connect to the Temporal frontend; self-hosted, it must be reachable from every worker. | Multi-step processes with a central record of their state: joins, durable [timers](https://docs.temporal.io/workflow-execution/timers-delays), [retry policies](https://docs.temporal.io/encyclopedia/retry-policies) and compensation. |
 | Celery | A broker such as RabbitMQ or Redis, an optional result backend, and the worker processes. See the [Celery overview](https://docs.celeryq.dev/en/stable/getting-started/introduction.html). | Broker upgrades, persistence and monitoring, and result-backend cleanup. | Every worker must reach the broker: expose it with TLS or use a VPN. | Python task composition and scheduling where a broker already runs. |
 | Amazon SQS | An AWS account, queues and per-machine IAM credentials, plus your own reply queues and result storage. | Managed queues; you build the worker loop, [visibility-timeout](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html) extension, reply matching and dashboards. | Outbound HTTPS. | Sustained high message rates on AWS. |
 | Cloudflare Queues | Queues and consumers in a Cloudflare account; API tokens for [HTTP pull consumers](https://developers.cloudflare.com/queues/configuration/pull-consumers/). | Managed queues; you build request/reply conventions, result storage and monitoring. | Outbound HTTPS for pull consumers. | Bursty traffic absorbed by [automatically scaled Workers consumers](https://developers.cloudflare.com/queues/configuration/consumer-concurrency/). |
@@ -72,10 +93,14 @@ Lease expiry makes a task available for another attempt. The supplied worker
 turns handler exceptions into failure replies; application code decides
 whether to retry failed work. ID rotation rejects an old owner's completion
 after another worker claims the task. Consume commits task removal and up to
-16 successors together within one domain. Workflow state, scheduling and
+16 successors together within one domain, so a pipeline lives in one domain.
+Fan-out is atomic; fan-in is not built in: a step that must wait for several
+results keeps track of what has arrived itself, for example in the row it
+writes. A pipeline exists only as the tasks its handlers post, so carry an ID
+in the task data to follow or cancel one run. Workflow state, scheduling and
 cooperative cancellation belong in application code. External effects, such
-as publishing an artifact, still need idempotence: a crash can cause a job
-to run again.
+as writing a finding or publishing an artifact, still need idempotence: a
+crash can cause a step to run again.
 
 ## Install
 
