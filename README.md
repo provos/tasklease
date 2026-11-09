@@ -32,8 +32,11 @@ jobs and you want nothing to operate:
 - **Machines:** laptops, desktops and home or office servers on macOS, Linux
   and Windows. Workers need only outbound HTTPS, so they run behind NAT
   without a VPN, open ports or a broker to expose.
-- **Scale:** dozens of workers and up to about 10,000–100,000 outstanding
-  tasks per domain (see [Scale guidance](#scale-guidance)).
+- **Scale:** thousands of workers per domain. In a load test against a
+  deployed service, 5,000 workers, each with its own token, polled one domain
+  with no errors; a domain started queueing requests at about 550 a second,
+  roughly 15,000 idle workers' worth of polling. Plan for 10,000–100,000
+  outstanding tasks per domain (see [Scale guidance](#scale-guidance)).
 - **Operations:** one `tl service deploy` provisions everything in your own
   Cloudflare account, and rerunning it upgrades the service. There are no
   servers, brokers or databases to patch, back up or monitor.
@@ -233,12 +236,24 @@ in the [protocol specification](docs/spec.md).
 
 ## Scale guidance
 
-On a paid Workers plan, with task payloads around 1–16 KiB, a few dozen active
-workers, and modest request traffic, **10,000–100,000 outstanding tasks per
-domain** is a reasonable initial planning range. This estimate comes from
-local SQLite benchmarks.
-Each domain uses one Durable Object and one database, so count tasks across
-all its topics, including work, replies, and errors.
+Each domain is one Durable Object with one database, so a domain's requests
+and tasks share one object's capacity. Count tasks across all its topics,
+including work, replies, and errors.
+
+**Workers.** An idle worker polls every 30 seconds, so 1,000 idle workers
+send about 33 requests a second to their domain. A load test against a
+deployed service (below) handled 5,000 workers without errors, and a single
+domain served about 550 requests a second before requests queued: roughly
+15,000 idle workers, less the requests their actual work adds. Workers with
+their own tokens added about 90 ms per request compared with shared tokens:
+each Worker instance caches a token's identity for a minute, and with many
+tokens most requests miss that cache and wait for the shared identity
+registry. Split independent workloads into separate domains to add
+capacity.
+
+**Tasks.** On a paid Workers plan, with task payloads around 1–16 KiB,
+**10,000–100,000 outstanding tasks per domain** is a reasonable initial
+planning range. This estimate comes from local SQLite benchmarks.
 
 A million tasks can form a backlog, but calls that scan many held tasks or
 count every task take longer and share the domain's capacity with other
@@ -276,6 +291,39 @@ Each creates and removes temporary databases, then writes a JSON report.
 Use `--sizes 10000 --samples 15` for a shorter run. The comparison program
 also offers `--maintained-totals` to measure an experimental counter query;
 that option excludes the cost of maintaining the counters.
+
+### Load test
+
+[load_pollers.py](scripts/load_pollers.py) simulates workers against a
+deployed service: each worker polls one topic with Own at the real worker's
+jittered interval, and a producer creates tasks that workers own, hold for
+two seconds and consume. These runs used the acceptance deployment from one
+Linux client on 2026-11-08; latency is measured at the client and includes
+about 45 ms of network path. The
+[results](docs/benchmarks/load-acceptance.json) record each run.
+
+| Simulated load | Requests/s | Own p50 / p95 / p99 | Errors |
+| --- | ---: | ---: | ---: |
+| 1,000 workers, 10 shared tokens, 30 s polls | 39 | 45 / 72 / 129 ms | 0 |
+| 5,000 workers, own tokens, 30 s polls | 181 | 137 / 205 / 280 ms | 0 |
+| 1,000 workers, 10 shared tokens, 3 s polls | 347 | 68 / 177 / 314 ms | 0 |
+| 1,000 workers, 10 shared tokens, 1 s polls | 547 (of ~1,040 offered) | 926 / 1,427 / 2,170 ms | 0 |
+
+At about 550 requests a second the domain queued requests rather than
+failing them: a probe on another topic of the same domain waited about
+900 ms too. Each Own writes a poller row and an hourly statistics row, even
+when no task is waiting; that per-poll work, not task lookup, sets the
+domain's limit.
+
+```sh
+TL_ADMIN_TOKEN=... uv run --project python python scripts/load_pollers.py \
+  --url https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev --workers 1000 \
+  --poll-seconds 30 --duration 240 --processes 2 --output /tmp/load.json
+```
+
+Run it only against a test deployment: requests are billed, and the domain
+keeps the test's poller and statistics rows until they expire. One client
+process sustains about 100 requests a second; use `--processes` for more.
 
 ## Reference and acceptance
 
