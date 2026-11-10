@@ -135,7 +135,14 @@ class Config:
         if not path.is_absolute():
             path = self.path.parent / path
         try:
-            value = path.read_text(encoding="utf-8").strip()
+            with path.open(encoding="utf-8") as source:
+                if os.name == "posix" and os.fstat(source.fileno()).st_mode & 0o077:
+                    raise ConfigError(
+                        "Identity token file allows group or other access; "
+                        "run chmod 600 on the identity token file "
+                        "(token.file, or 'token' beside the config by default)"
+                    )
+                value = source.read().strip()
         except (OSError, UnicodeError):
             raise ConfigError(
                 "Cannot read identity token; set TL_TOKEN or token.file"

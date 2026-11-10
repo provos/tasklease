@@ -9,6 +9,7 @@ import os
 import sys
 from pathlib import Path
 
+from tasklease.cli.common import config_option
 from tasklease.cloudflare import DeployError, DeployOptions, deploy, status
 from tasklease.config import load_config
 from tasklease.errors import ConfigError
@@ -151,18 +152,16 @@ def configure_parser(
         ("bucket", "R2 bucket name"),
         ("r2-access-key-id", "R2 signing access key ID"),
         ("url", "HTTPS workers.dev address when Wrangler cannot report it"),
-        ("config", "tasklease config file (or TL_CONFIG)"),
     ):
         deployment.add_argument(f"--{name}", help=help_text, default=argparse.SUPPRESS)
+    config_option(deployment)
     deployment.add_argument("--rotate-admin-token", action="store_true")
     deployment.add_argument("--dry-run", action="store_true")
     deployment.set_defaults(handler=_run_deploy)
     inspection = commands.add_parser(
         "status", help="compare service and installed versions"
     )
-    inspection.add_argument(
-        "--config", default=argparse.SUPPRESS, help="tasklease config file"
-    )
+    config_option(inspection)
     inspection.add_argument(
         "--url", default=argparse.SUPPRESS, help="service origin to inspect"
     )

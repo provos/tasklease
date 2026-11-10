@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable, Sequence
-from pathlib import Path
 from typing import cast
 
 from tasklease import __version__
@@ -22,7 +21,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         topics,
         worker,
     )
-    from tasklease.cli.common import message
+    from tasklease.cli.common import connection_options, message
     from tasklease.errors import TaskleaseError
 
     parser = argparse.ArgumentParser(
@@ -31,9 +30,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
     )
-    parser.add_argument("--config", type=Path)
-    parser.add_argument("--url")
-    parser.add_argument("--worker")
+    connection_options(parser)
     commands = parser.add_subparsers(dest="command")
     for module in (identity, requester, inbox, tasks, topics, service, worker, monitor):
         module.configure_parser(commands)

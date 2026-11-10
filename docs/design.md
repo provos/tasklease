@@ -492,11 +492,16 @@ worker_label = "cli"                           # or TL_WORKER
 file = "token"                                 # relative to the config folder
 ```
 
-The token lives in its own file, created with mode `0600` on POSIX. On
-Windows the user's profile folder is already private to the user. `TL_TOKEN`
-and `TL_ADMIN_TOKEN` override the files. `tl service deploy` prints the admin
-token once (§8.2). The admin token is never written to
-disk by `tl`.
+The token lives in its own file. POSIX reads check the opened file's permission
+bits and reject any group or other access; use mode `0600` or owner-read-only.
+On Windows, use a user-restricted ACL rather than POSIX mode bits. Token paths
+may be absolute, expand `~`, or resolve relative to the config directory.
+`TL_TOKEN` overrides the identity token file. `TL_ADMIN_TOKEN` is the separate,
+environment-only credential for identity administration and service deployment;
+ordinary topic/task commands use identity tokens. `tl service deploy` prints a
+new admin token once (§8.2), never writing it to disk. See the README's
+[client configuration](../README.md#client-configuration) for concrete platform
+paths and the [operator setup](../README.md#operator-setup) for the first identity.
 
 ### 5.7 Monitor
 

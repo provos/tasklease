@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,7 @@ import pytest
 from tasklease import __version__
 from tasklease.cli import main
 from tasklease.client import Client
+from tasklease.config import Config, load_config
 from tasklease.generated.protocol import TaskSummary
 
 IDENTITY_TOKEN = "tl_identity-secret"
@@ -184,12 +186,160 @@ def test_whoami_uses_identity_token_and_outputs_only_json(
     assert cli.requests[0].headers["authorization"] == f"Bearer {IDENTITY_TOKEN}"
 
 
+@pytest.mark.parametrize(
+    ("environment", "selected", "expected"),
+    [
+        (None, None, "default-only"),
+        ("acme/environment", None, "acme/environment"),
+        ("acme/environment", "acme/override", "acme/override"),
+    ],
+)
+@pytest.mark.parametrize("remove", [False, True])
+def test_declare_uses_configured_domain_or_explicit_override_and_identity_token(
+    cli: CLI,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    environment: str | None,
+    selected: str | None,
+    expected: str,
+    remove: bool,
+) -> None:
+    if environment:
+        monkeypatch.setenv("TL_DOMAIN", environment)
+    cli.respond = lambda request: httpx.Response(200, json={"ok": True})
+    args = ["topic", "declare", "verify/linux"]
+    if selected:
+        args.extend(["--domain", selected])
+    if remove:
+        args.append("--remove")
+    assert cli.run(args) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {"ok": True}
+    assert captured.err == ""
+    assert len(cli.requests) == 1
+    assert operation(cli.requests[0]) == "topic.declare"
+    assert body(cli.requests[0]) == {
+        "domain": expected,
+        "topic": "verify/linux",
+        "declared": not remove,
+    }
+    assert cli.requests[0].headers["authorization"] == f"Bearer {IDENTITY_TOKEN}"
+
+
+def test_declare_missing_domain_fails_before_network(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli.config.write_text('url="https://file.example"\n')
+    assert cli.run(["topic", "declare", "verify/linux"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "domain" in captured.err
+    assert not cli.requests
+
+
+@pytest.mark.parametrize("source", ["flag", "environment", "config"])
+@pytest.mark.parametrize("value", ["", ".", "..", "Acme", "bad domain", "a" * 257])
+def test_declare_invalid_domain_fails_before_network(
+    cli: CLI,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    source: str,
+    value: str,
+) -> None:
+    arguments = ["topic", "declare", "verify/linux"]
+    if source == "flag":
+        arguments.extend(["--domain", value])
+    elif source == "environment":
+        monkeypatch.setenv("TL_DOMAIN", value)
+    else:
+        cli.config.write_text(
+            f'url="https://file.example"\ndomain={json.dumps(value)}\n'
+        )
+    assert cli.run(arguments) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "domain" in captured.err
+    assert not cli.requests
+
+
+def test_declare_explicit_domain_overrides_invalid_defaults(
+    cli: CLI, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli.config.write_text('url="https://file.example"\ndomain=false\n')
+    monkeypatch.setenv("TL_DOMAIN", "Invalid default is irrelevant")
+    cli.respond = lambda request: httpx.Response(200, json={"ok": True})
+    assert cli.run(["topic", "declare", "work/echo", "--domain", "acme/override"]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert body(cli.requests[0])["domain"] == "acme/override"
+
+
+def test_declare_uses_one_config_snapshot_for_domain_and_connection(
+    cli: CLI, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reads = 0
+
+    def load_then_change_settings(path: Path | str | None = None) -> Config:
+        nonlocal reads
+        reads += 1
+        selected = load_config(path)
+        cli.config.write_text(
+            'url="https://changed.example"\ndomain="changed"\nworker_label="changed"\n'
+        )
+        monkeypatch.setenv("TL_TOKEN", "tl_changed-token")
+        return selected
+
+    monkeypatch.setattr("tasklease.cli.common.load_config", load_then_change_settings)
+    cli.respond = lambda request: httpx.Response(200, json={"ok": True})
+    assert cli.run(["topic", "declare", "work/echo"]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert reads == 1
+    request = cli.requests[0]
+    assert body(request)["domain"] == "default-only"
+    assert request.url.host == "file.example"
+    assert request.headers["authorization"] == f"Bearer {IDENTITY_TOKEN}"
+    assert request.headers["x-worker"] == "cli"
+
+
+@pytest.mark.parametrize(
+    "folder", ["User config", "100%config", "%(prog)s", "%(missing)s"]
+)
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--help"],
+        ["topic", "declare", "--help"],
+        ["service", "deploy", "--help"],
+        ["service", "status", "--help"],
+    ],
+)
+def test_cli_help_shows_platform_config_fallback(
+    cli: CLI,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    folder: str,
+    arguments: list[str],
+) -> None:
+    directory = Path(tmp_path.anchor) / folder
+    monkeypatch.setattr("tasklease.cli.common.user_config_path", lambda app: directory)
+    with pytest.raises(SystemExit) as caught:
+        main(arguments)
+    assert caught.value.code == 0
+    captured = capsys.readouterr()
+    assert str(directory / "config.toml") in " ".join(captured.out.split())
+    assert "TL_CONFIG" in captured.out
+    assert captured.err == "" and not cli.requests
+
+
 def test_identity_token_file_is_used_for_ordinary_commands_but_never_admin(
     cli: CLI, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.delenv("TL_TOKEN")
     monkeypatch.delenv("TL_ADMIN_TOKEN")
     cli.config.with_name("credential").write_text("tl_disk-token\n")
+    cli.config.with_name("credential").chmod(0o600)
     cli.respond = lambda request: httpx.Response(200, json=example("identity.whoami"))
     assert cli.run(["whoami"]) == 0
     assert cli.requests[0].headers["authorization"] == "Bearer tl_disk-token"
@@ -199,6 +349,31 @@ def test_identity_token_file_is_used_for_ordinary_commands_but_never_admin(
     assert captured.out == ""
     assert "TL_ADMIN_TOKEN" in captured.err
     assert len(cli.requests) == 1
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX token permission bits")
+@pytest.mark.parametrize("configured", [False, True])
+def test_insecure_token_file_reports_fix_without_stdout_secret_or_request(
+    cli: CLI,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    configured: bool,
+) -> None:
+    monkeypatch.delenv("TL_TOKEN")
+    if not configured:
+        cli.config.write_text('url="https://file.example"\n')
+    token = cli.config.with_name("credential" if configured else "token")
+    token.write_text("tl_insecure-do-not-print")
+    token.chmod(0o644)
+    assert cli.run(["whoami"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "chmod 600" in captured.err
+    assert "token.file" in captured.err
+    assert "'token' beside the config by default" in captured.err
+    assert "tl_insecure-do-not-print" not in captured.err
+    assert "Traceback" not in captured.err
+    assert not cli.requests
 
 
 @pytest.mark.parametrize("leaf_override", [False, True])

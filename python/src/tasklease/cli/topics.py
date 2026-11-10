@@ -34,11 +34,12 @@ def _topics(args: argparse.Namespace) -> int:
 
 def _declare(args: argparse.Namespace) -> int:
     config = configuration(args)
-    with client(args) as api:
+    selected = domain(args, config)
+    with client(args, config=config) as api:
         output(
             api.topic_declare(
                 {
-                    "domain": domain(args, config),
+                    "domain": selected,
                     "topic": text(args, "topic"),
                     "declared": not flag(args, "remove"),
                 }
@@ -59,7 +60,9 @@ def configure_parser(
     commands = topic.add_subparsers(dest="topic_command", required=True)
     declare = commands.add_parser("declare")
     connection_options(declare)
-    declare.add_argument("domain")
+    declare.add_argument(
+        "--domain", help="Domain (default: TL_DOMAIN or config.domain)"
+    )
     declare.add_argument("topic")
     declare.add_argument("--remove", action="store_true", help="Remove the declaration")
     declare.set_defaults(handler=_declare)
