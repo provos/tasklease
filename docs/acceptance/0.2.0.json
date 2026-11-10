@@ -2,12 +2,24 @@
   "version": "0.2.0",
   "status": "passed",
   "date": "2026-11-09",
-  "source_commit": "d0191c4db4ecb7bee3a08e1abd200d7cc108a9ac",
+  "source_commit": "8e30da0ab66c8a7416ae2ee3a49f1d9f805c2afd",
   "source_dirty": false,
-  "source_tree_sha256": "28a3d045c577bbfb2622aedb784d5bef0dd7ca666d7d1f14423fa957d0c686e5",
-  "acceptance_zip_sha256": "eb70ac4d12a96f43f06f2d6238c2764e5945ebfcf4c6b6cdd4f5fcba63dde79e",
-  "wheel_sha256": "b542c743a98d08f46c736fe7206e57ec12dc03d4d3fc270a84b1f3a7697790b9",
-  "sdist_sha256": "309148f6c2f4e4597533a815118d63614c033b2c59897c78a88f390978671cf8",
+  "date_timezone": "America/Los_Angeles",
+  "clean_checkout_gates": {
+    "install": "passed",
+    "check": "passed",
+    "build": "passed",
+    "worker_passed": 191,
+    "dashboard_passed": 32,
+    "python_tooling_passed": 1005,
+    "python_skipped": 3,
+    "conformance_passed": 393,
+    "conformance_skipped": 36
+  },
+  "source_tree_sha256": "2edb237c4c32429fb2cef4847b471b59c7e5a72b1fc5f459dda276a6cbda4dbd",
+  "acceptance_zip_sha256": "8f0c26ef16b526ceb7dcaa5c2d3858fbc2045e10a8c9f1f9edf94ed5f9b1f040",
+  "wheel_sha256": "849ccd17851ee76141cec94396eed0fad2bde03670cff5ec3d55399475397a94",
+  "sdist_sha256": "c9461f58cf6393c70d8e67593431ceb7ef12fc7f59740fb937145c730707bd47",
   "native": {
     "macos": {
       "system": "Darwin",
@@ -18,7 +30,7 @@
       "uv": "uv 0.9.15 (5eafae332 2025-12-02)",
       "installed_wheel_no_node": "passed",
       "tests": {
-        "passed": 868,
+        "passed": 912,
         "skipped": 3,
         "failures": 0,
         "errors": 0,
@@ -47,7 +59,7 @@
       "uv": "uv 0.12.21 (7af826859 2026-09-29 aarch64-unknown-linux-gnu)",
       "installed_wheel_no_node": "passed",
       "tests": {
-        "passed": 868,
+        "passed": 912,
         "skipped": 3,
         "failures": 0,
         "errors": 0,
@@ -72,12 +84,12 @@
       "release": "11",
       "architecture": "ARM64",
       "python": "3.12.12",
-      "report": "windows/attempt2/native-report.json",
+      "report": "windows/native-report.json",
       "uv": "uv 0.9.15 (5eafae332 2025-12-02)",
       "installed_wheel_no_node": "passed",
       "tests": {
-        "passed": 865,
-        "skipped": 6,
+        "passed": 907,
+        "skipped": 8,
         "failures": 0,
         "errors": 0,
         "skipped_cases": [
@@ -99,11 +111,19 @@
           },
           {
             "reason": "POSIX signals; Windows uses stop files",
-            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[False]"
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[False-False]"
           },
           {
             "reason": "POSIX signals; Windows uses stop files",
-            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[True]"
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[False-True]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[True-False]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[True-True]"
           }
         ]
       },
@@ -113,22 +133,22 @@
   },
   "live_checks": {
     "published_bootstrap_and_r2_probe": true,
+    "exact_installed_candidate_wheel_bytes": true,
     "upgrade_exact_task_credentials_stats_preserved": true,
     "snapshot_atomic_reply_and_stale_id_fencing": true,
     "signed_content_length_rejection_and_r2_roundtrip": true,
     "public_blob_helpers_live_r2": true,
-    "public_evidence_secret_scan_passed": true,
     "temporary_identities_revoked": true,
-    "new_worker_deleted_existing_bucket_untouched": true,
-    "cross_machine_request_worker_reply_and_durable_store": true
+    "cross_machine_blob_request_reply": true,
+    "new_worker_deleted_existing_bucket_untouched": true
   },
   "cleanup": {
-    "worker": "tasklease-020-acceptance-941afdb77b",
+    "temporary_identities_revoked": true,
     "worker_api_status": 404,
-    "temporary_identities_revoked": 3,
-    "existing_bucket": "tasklease-acceptance-90d25ae",
-    "lifecycle_unchanged": true,
-    "lifecycle_before_and_after": [
+    "worker_deleted": true,
+    "existing_bucket_unchanged": true,
+    "existing_bucket_lifecycle_unchanged": true,
+    "lifecycle_before": [
       {
         "name": "Default Multipart Abort Rule",
         "enabled": "Yes",
@@ -142,11 +162,38 @@
         "action": "Expire objects after 7 days"
       }
     ],
-    "probe_objects": "Retained under unchanged seven-day lifecycle"
+    "lifecycle_after": [
+      {
+        "name": "Default Multipart Abort Rule",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Abort incomplete multipart uploads after 7 days"
+      },
+      {
+        "name": "tasklease-expire",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Expire objects after 7 days"
+      }
+    ],
+    "test_objects_retained_under_seven_day_expiry": true
   },
+  "helper_total_timeout_seconds": 60,
+  "preserved_preflight_and_deployment_failures": [
+    {
+      "report": "cloudflare/preflight-oauth-expired.json",
+      "failure": "Expired OAuth returned HTTP 401 before Worker creation; ordinary Wrangler session refresh succeeded"
+    },
+    {
+      "report": "cloudflare/bootstrap-attempt1-cloudflare-propagation.json",
+      "failure": "Cloudflare 10007 Worker-does-not-exist propagation error after first upload; same run-owned Worker retry passed"
+    }
+  ],
+  "windows_first_attempt_passed": true,
+  "windows_vm_restored_suspended": true,
   "cross_machine": {
     "status": "passed",
-    "request_id": "cross-cross-74259c4bf6",
+    "request_id": "cross-cross-0964e3da0d",
     "requester_os": "Darwin",
     "worker_os": "Linux",
     "version": "0.2.0",
@@ -155,27 +202,14 @@
     "output_size": 262198,
     "durable_inbox_reopened": true,
     "server_reply_acknowledged": true,
-    "uploaded_and_downloaded_real_r2": true
+    "uploaded_and_downloaded_real_r2": true,
+    "explicit_total_timeout_seconds": 60,
+    "worker_report_sha256": "09fddb3e4e39a74155ec35e2f95b45ac110632a0b48b7b6535fb33e1c738c1df",
+    "remote_worker_credential_removed": true
   },
-  "windows_first_attempt": {
-    "status": "failed",
-    "passed": 862,
-    "failed": 3,
-    "skipped": 6,
-    "failures": [
-      "requester one-second wait timed out",
-      "both Task Scheduler subprocesses exceeded 30 seconds"
-    ],
-    "preserved_report": "windows/attempt1-failed/native-report.json"
-  },
-  "windows_revalidation": {
-    "candidate_tests_and_limits_unchanged": true,
-    "stdin_closed_for_noninteractive_rerun": true,
-    "host_load_and_cache_state_also_changed": true,
-    "single_cause_not_established": true
-  },
-  "evidence_archive_sha256": "6444d8c9f6868b5001ed600944704458fc510d0625e8ea7750ea52403bc07635",
-  "evidence_archive": "python/dist/acceptance-0.2.0-d0191c4/evidence.zip",
+  "supersedes_source_commit": "d0191c4db4ecb7bee3a08e1abd200d7cc108a9ac",
+  "evidence_archive_sha256": "ed94a8928e1f6492d72875c56afdd3aa362ccfb78bdd555c0a9d82f2d9dc21e5",
+  "evidence_archive": "python/dist/acceptance-0.2.0-8e30da0/evidence.zip",
   "secret_scan_passed": true,
   "release_status": "Unpublished; release notes, merge/tag and publishing remain separate"
 }

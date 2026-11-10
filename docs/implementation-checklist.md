@@ -102,17 +102,17 @@ macOS and Windows. Deployment from the PyPI installation and an isolated
 state-preserving upgrade passed real Cloudflare/R2 checks. See
 [the publication evidence](review-log.md#first-pypi-publication-2026-11-08).
 
-The unpublished `0.2.0` candidate at `d0191c4` has now passed clean native
-macOS/Linux/Windows installed-wheel acceptance, an isolated upgrade from
-published `0.1.0`, real R2 transfers and a macOS-to-Linux durable request/reply
-flow. The [acceptance summary](acceptance/0.2.0.json) records exact artifacts,
-platform details, expected skips and the preserved initial Windows timeout
-failures before its successful unchanged rerun. Release-note finalization,
-merge/tag and publication remain separate.
-
-Subsequent FluxShot review fixes add cooperative blob deadlines, safe transfer
-diagnostics, public fake blob fault controls and a second-signal cleanup hook.
-Full local checks and macOS installed-wheel regression passed for these changes;
-the earlier Linux/Windows and live acceptance remains evidence for `d0191c4`,
-not qualification of the modified package. Refresh affected release acceptance
-against the final committed candidate before publication.
+The unpublished `0.2.0` candidate at `8e30da0` has passed clean install/check/build
+gates and native macOS/Linux/Windows installed-wheel acceptance, including the
+FluxShot review fixes for cooperative blob deadlines, safe diagnostics, public
+fake controls and second-signal cleanup. macOS and Linux each passed 912 tests
+with three expected skips; Windows passed 907 with eight expected OS skips on
+its first full attempt, including both native Task Scheduler parser modes.
+The same candidate passed an isolated upgrade from published `0.1.0`, real R2
+transfers with explicit helper budgets and a macOS-to-Linux durable request/reply
+flow. The [acceptance summary](acceptance/0.2.0.json) supersedes the earlier
+`d0191c4` qualification and records exact artifacts, platform details, skips,
+preserved Cloudflare preflight/deployment failures and cleanup. The temporary
+Worker and identities were removed; the existing bucket lifecycle was retained,
+and Windows was restored to its original suspended state. Release-note
+finalization, merge/tag and publication remain separate.

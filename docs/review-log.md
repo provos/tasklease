@@ -935,3 +935,60 @@ Status: accepted after corrections, independent reviews and native qualification
   manifest. Earlier native Linux/Windows, live R2/upgrade and cross-machine
   acceptance remains bound to `d0191c4`. Refresh affected acceptance for the
   final release candidate; publication and dated release notes remain separate.
+
+### Acceptance refreshed for `8e30da0` (2026-11-09)
+
+- Qualified clean commit `8e30da0ab66c8a7416ae2ee3a49f1d9f805c2afd` in an
+  isolated checkout with `make install`, `make check` and `make build`.
+  Dependency policy/audit, generation, formatting, lint and strict types passed;
+  191 Worker, 32 dashboard, 1,005 Python/tooling and 393 conformance tests passed,
+  with the expected three Windows-only and 36 backend-capability skips.
+- Bound all platforms and live checks to the same clean source and artifacts:
+  - ZIP: `8f0c26ef16b526ceb7dcaa5c2d3858fbc2045e10a8c9f1f9edf94ed5f9b1f040`;
+  - source tree: `2edb237c4c32429fb2cef4847b471b59c7e5a72b1fc5f459dda276a6cbda4dbd`;
+  - wheel: `849ccd17851ee76141cec94396eed0fad2bde03670cff5ec3d55399475397a94`;
+  - sdist: `c9461f58cf6393c70d8e67593431ceb7ef12fc7f59740fb937145c730707bd47`.
+  Package/source parity, metadata, licenses and bundled assets were inspected.
+- Fresh installed-wheel/no-Node acceptance passed on macOS arm64/Python 3.12.12
+  and Ubuntu 24.04.4 aarch64/Python 3.12.3: 912 passed, three expected Windows-only
+  skips each. Windows 11 Pro build 26200 ARM64 with Python 3.12.12 x64 emulation
+  passed 907 tests with eight expected OS skips on its first full attempt.
+  Both native Task Scheduler Unicode-string/UTF-8-file parsers and native file
+  sharing tests passed. Test limits/exclusions were unchanged, no task was
+  registered, PowerShell remained Restricted, and no candidate worker remained.
+  The Windows VM was restored to its original suspended state.
+- Verified the prior `0.1.0` wheel against fresh PyPI metadata, bootstrapped a
+  unique guarded-absent Worker, then upgraded the same Worker using the exact
+  installed candidate. Admin/scoped credentials, the complete held task and
+  hourly statistics survived. Snapshot, atomic reply and stale-ID fencing passed.
+  R2 rejected wrong signed Content-Length with 403 and no object; correct raw
+  PUT/GET and SHA-256 passed. Public helpers round-tripped 1 MiB + 17 bytes with
+  explicit 60-second total budgets.
+- A macOS `Store` submitted a real blob-backed request to the Linux
+  `WorkerLoop`; Linux verified the input, uploaded its result and atomically
+  replied. macOS verified all 262,198 output bytes, reopened the durable inbox
+  and confirmed server acknowledgement. Both machines used the native-verified
+  installed wheel and explicit helper budgets. Matching request IDs and hashes
+  bind requester/worker reports; the Linux scoped credential file was removed.
+- Preserved an expired-OAuth 401 preflight and the initial Cloudflare 10007
+  propagation error after upload. Ordinary session refresh and a retry of the
+  same run-owned Worker succeeded. No alternate Worker was orphaned. Temporary
+  identities were revoked and Worker deletion verified by API 404. Existing
+  bucket/lifecycle rules remain unchanged; test objects retain seven-day expiry.
+- Retained 78 public files plus their SHA-256 manifest in
+  `python/dist/acceptance-0.2.0-8e30da0/evidence.zip`, including the source export,
+  candidate wheel/sdist, prior published wheel/provenance, native reports/JUnit,
+  commands, cross-machine scripts and failed attempts. Archive SHA-256:
+  `ed94a8928e1f6492d72875c56afdd3aa362ccfb78bdd555c0a9d82f2d9dc21e5`.
+  Recursive actual-secret scanning excluded credentials/private state; the
+  handoff document is absent and was deleted from the working checkout as
+  requested. The [acceptance summary](acceptance/0.2.0.json) now qualifies
+  `8e30da0`; earlier evidence remains historical. This evidence update changes
+  no qualified package/build inputs. Release-note finalization, merge/tag and
+  publication remain separate.
+- A fresh independent Astra high-effort audit verified all 419 source-export
+  payload entries, package bytes/metadata, native JSON/JUnit and expected skips,
+  live upgrade/R2 assertions, cross-machine execution, cleanup and final retained
+  archive/summary bindings. It also reviewed the actual-secret scan safeguards
+  without accessing private credentials. No outstanding acceptance findings
+  remain; prior `d0191c4` results were not used to qualify this candidate.
