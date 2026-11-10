@@ -6,6 +6,8 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-09
+
 ### Added
 
 - Public typed `tasklease.testing.FakeBoard`: a thread-safe, single-domain
@@ -18,6 +20,8 @@ Release preparation and verification are documented in
   signing, transfer, integrity and filesystem failures.
 - Optional `total_timeout` budgets hashing, signing and blob transfer, with
   cooperative monotonic deadline checks and capped HTTP phase timeouts.
+  Blocking calls and HTTPX response-header reads cannot be interrupted;
+  hard cutoffs require process supervision.
   Transfer errors retain safe HTTP status, timeout and filesystem reasons.
 - `FakeBoard.blob_transport()`, `blob_base_url`, immutable `put_grants`
   snapshots and `overwrite_blob()` support transfer fault and corruption tests.
@@ -36,13 +40,13 @@ Release preparation and verification are documented in
 
 ### Compatibility and deployment
 
-- The `0.2.0` candidate adds compatible Python APIs and retains protocol
+- `0.2.0` adds compatible Python APIs and retains protocol
   `/v1/`. Existing `0.1.0` services work with these APIs; no service upgrade
   is required. The bundled service reports the package's new version.
 - The testing service and transfer helpers ship in the main wheel with no
   additional runtime dependencies. Offline fake-only tests need no Node.js,
-  Wrangler, credentials or network access. Real presigned R2 transfers still
-  require deployed-service acceptance.
+  Wrangler, credentials or network access. Real presigned R2 transfers use
+  the deployed service and its configured bucket.
 
 ## [0.1.0] - 2026-11-08
 
