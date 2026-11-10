@@ -24,13 +24,12 @@ from tasklease import fsio
 from tasklease.client import Client
 from tasklease.errors import Empty, NotFound, StoreError, TransportError
 from tasklease.generated import protocol as p
-from tasklease.names import is_domain, is_request_id, is_segment, is_topic
+from tasklease.names import is_domain, is_request_id, is_segment, is_task_id, is_topic
 
 type RequestState = Literal["submission_unknown", "pending", "answered"]
 type CancelResult = Literal["cancelled", "not_found", "submission_unknown"]
 
 _HASH = re.compile(r"[0-9a-f]{32}\Z")
-_TASK = re.compile(r"t_[0-7][0-9A-HJKMNP-TV-Z]{25}\Z")
 _RETENTION_SECONDS = 7 * 86400
 _BATCH_SIZE = 100
 
@@ -67,7 +66,7 @@ def _integer(value: object) -> int:
 
 
 def _task_id(value: object) -> str:
-    if not isinstance(value, str) or _TASK.fullmatch(value) is None:
+    if not is_task_id(value):
         raise StoreError("Invalid task ID in requester state")
     return value
 
@@ -254,12 +253,7 @@ class Store:
     def _parse_reply(self, value: dict[str, object]) -> ReplyRecord:
         data = _object(value.get("data"))
         correlation = data.get("request_id")
-        request_id = None
-        if isinstance(correlation, str) and 1 <= len(correlation) <= 128:
-            try:
-                request_id = _request_id(correlation)
-            except StoreError:
-                pass  # Escaped lone surrogates are JSON, but cannot name a UTF-8 ID.
+        request_id = correlation if is_request_id(correlation) else None
         creator = value.get("creator")
         if not isinstance(creator, str) or not creator:
             raise StoreError("Invalid reply creator in requester state")

@@ -23,7 +23,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Literal, cast
+from typing import Literal, NotRequired, cast, get_origin, get_type_hints
 from urllib.parse import quote
 
 import httpx
@@ -35,7 +35,9 @@ from tasklease.generated import protocol as p
 from tasklease.names import (
     is_bearer_token,
     is_domain,
+    is_task_id,
     is_topic,
+    is_topic_glob,
     is_worker_label,
     topic_matches,
 )
@@ -46,9 +48,7 @@ _MAX_BLOB = 2 * 1024**3
 _WEEK = 7 * 86400 * 1000
 _ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 _ULID = r"[0-7][0-9A-HJKMNP-TV-Z]{25}"
-_TASK_ID = re.compile(r"t_" + _ULID)
 _IDENTITY = re.compile(r"[a-z0-9-]{1,64}")
-_GLOB = re.compile(r"[a-z0-9.*_-]+(?:/[a-z0-9.*_-]+)*")
 _BLOB_NAME = re.compile(r"[A-Za-z0-9._-]{1,128}")
 _KEY_SUFFIX = re.compile(
     r"(\d{4}-\d{2}-\d{2})/(" + _ULID + r")/([A-Za-z0-9._-]{1,128})"
@@ -66,30 +66,39 @@ def _blob_day(now: int) -> str:
     return f"{prefix}-{date.month:02d}-{date.day:02d}"[:10]
 
 
-# Required and optional members; validation below also checks each member's type.
-_FIELDS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
-    "identity.whoami": (frozenset(), frozenset()),
-    "create": (frozenset(("domain", "topic", "data")), frozenset()),
-    "own": (frozenset(("domain", "topic", "hold_seconds")), frozenset()),
-    "renew": (frozenset(("domain", "topic", "id", "hold_seconds")), frozenset()),
-    "read": (frozenset(("domain", "topic", "id")), frozenset()),
-    "delete": (frozenset(("domain", "topic", "id")), frozenset(("lease_before",))),
-    "consume": (frozenset(("domain", "topic", "id", "tasks")), frozenset()),
-    "tasks.list": (frozenset(("domain", "topic")), frozenset(("cursor",))),
-    "topics.list": (frozenset(("domain",)), frozenset(("glob",))),
-    "topic.pollers": (frozenset(("domain", "topic")), frozenset()),
-    "blob.put_url": (frozenset(("domain", "name", "size", "sha256")), frozenset()),
-    "blob.get_url": (frozenset(("domain", "key")), frozenset()),
+_OPERATIONS = {
+    "identity.whoami",
+    "create",
+    "own",
+    "renew",
+    "read",
+    "delete",
+    "consume",
+    "tasks.list",
+    "topics.list",
+    "topic.pollers",
+    "blob.put_url",
+    "blob.get_url",
 }
 
 
-def _glob(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and 1 <= len(value) <= 256
-        and _GLOB.fullmatch(value) is not None
-        and all(part == "**" or "**" not in part for part in value.split("/"))
-    )
+def _request_fields() -> dict[str, tuple[frozenset[str], frozenset[str]]]:
+    fields: dict[str, tuple[frozenset[str], frozenset[str]]] = {}
+    for operation, request in get_type_hints(p.OperationRequests).items():
+        if operation not in _OPERATIONS:
+            continue
+        # Postponed annotations make TypedDict.__optional_keys__ unreliable.
+        annotations = get_type_hints(request, include_extras=True)
+        optional = frozenset(
+            name
+            for name, annotation in annotations.items()
+            if get_origin(annotation) is NotRequired
+        )
+        fields[operation] = (frozenset(annotations) - optional, optional)
+    return fields
+
+
+_FIELDS = _request_fields()
 
 
 def _integer(value: object) -> bool:
@@ -128,6 +137,8 @@ def _number_text(value: int | float) -> str:
     if number == 0:
         return "0"
     shortest = repr(number).removesuffix(".0")
+    if "e" not in shortest:
+        return shortest
     if 1e-6 <= abs(number) < 1e21:
         return format(Decimal(shortest), "f")
     mantissa, exponent = shortest.split("e")
@@ -213,9 +224,7 @@ def _valid_request(operation: str, body: dict[str, object]) -> bool:
         return False
     if "topic" in body and not is_topic(body["topic"]):
         return False
-    if "id" in body and (
-        not isinstance(body["id"], str) or _TASK_ID.fullmatch(body["id"]) is None
-    ):
+    if "id" in body and not is_task_id(body["id"]):
         return False
     if "hold_seconds" in body:
         hold = body["hold_seconds"]
@@ -237,7 +246,7 @@ def _valid_request(operation: str, body: dict[str, object]) -> bool:
                 or not _data(target["data"])
             ):
                 return False
-    if "glob" in body and not _glob(body["glob"]):
+    if "glob" in body and not is_topic_glob(body["glob"]):
         return False
     for field in ("cursor", "key"):
         if field in body and (not isinstance(body[field], str) or not body[field]):
@@ -344,7 +353,7 @@ class FakeBoard:
             _IDENTITY.fullmatch(name) is None
             or not is_bearer_token(token)
             or any(
-                len(grants) > 256 or any(not _glob(grant) for grant in grants)
+                len(grants) > 256 or any(not is_topic_glob(grant) for grant in grants)
                 for grants in (scopes["create"], scopes["own"], scopes["read"])
             )
         ):
@@ -453,7 +462,7 @@ class FakeBoard:
                 for target in cast(list[p.NewTask], body["tasks"])
             ):
                 return _failure("too_large", "Task data exceeds 256 KiB")
-            return self._operate(operation, body, identity["name"], worker, self._now())
+            return self._operate(operation, body, identity, worker, self._now())
 
     @staticmethod
     def _allows(
@@ -504,10 +513,11 @@ class FakeBoard:
         self,
         operation: str,
         body: dict[str, object],
-        identity: str,
+        caller: p.Identity,
         worker: str,
         now: int,
     ) -> httpx.Response:
+        identity = caller["name"]
         if operation.startswith("blob."):
             return self._blob_url(operation, body, now)
         topic = cast(str, body.get("topic", ""))
@@ -562,7 +572,7 @@ class FakeBoard:
             ]
             return _success({"ok": True, "pollers": pollers})
         if operation == "topics.list":
-            return self._topics_list(body, identity, now)
+            return self._topics_list(body, caller["scopes"], now)
         if operation == "tasks.list":
             return self._tasks_list(body, now)
         task = self._tasks.get(cast(str, body["id"]))
@@ -599,14 +609,12 @@ class FakeBoard:
         return _success({"ok": True, "ids": ids})
 
     def _topics_list(
-        self, body: dict[str, object], identity: str, now: int
+        self, body: dict[str, object], scopes: p.Scopes, now: int
     ) -> httpx.Response:
-        scopes = next(
-            item["scopes"]
-            for item in self._identities.values()
-            if item["name"] == identity
-        )
-        names = {task["topic"] for task in self._tasks.values()} | {
+        grouped: dict[str, list[p.Task]] = {}
+        for task in self._tasks.values():
+            grouped.setdefault(task["topic"], []).append(task)
+        names = grouped.keys() | {
             topic
             for (topic, _, _), poller in self._pollers.items()
             if poller["last_polled_at"] >= now - _WEEK
@@ -617,7 +625,7 @@ class FakeBoard:
                 "glob" in body and not topic_matches(cast(str, body["glob"]), topic)
             ):
                 continue
-            tasks = [task for task in self._tasks.values() if task["topic"] == topic]
+            tasks = grouped.get(topic, [])
             available = [task for task in tasks if task["lease_until"] <= now]
             topics.append(
                 {
@@ -647,7 +655,7 @@ class FakeBoard:
                     version != "v1"
                     or re.fullmatch(r"0|[1-9][0-9]*", timestamp) is None
                     or int(timestamp) > 2**53 - 1
-                    or _TASK_ID.fullmatch(task_id) is None
+                    or not is_task_id(task_id)
                 ):
                     raise ValueError
                 after = (int(timestamp), task_id)

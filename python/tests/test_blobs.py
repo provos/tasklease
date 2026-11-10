@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import traceback
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -21,6 +22,7 @@ from tasklease.blobs import (
     upload_file,
 )
 from tasklease.client import Client
+from tasklease.errors import APIError, Forbidden, Invalid, TooLarge, Unauthenticated
 
 _DATA = b"the bytes of a report\x00\xff"
 _DIGEST = hashlib.sha256(_DATA).hexdigest()
@@ -32,7 +34,7 @@ _KEY = "acme/2026-11-09/01KABCDEF0123456789ABCDEFGH/report.bin"
 def _api(
     requests: list[httpx.Request] | None = None,
     on_sign: Callable[[], None] | None = None,
-    status: int = 200,
+    error: type[APIError] | None = None,
 ) -> Iterator[Client]:
     def sign(request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == "Bearer api-secret"
@@ -40,10 +42,13 @@ def _api(
             requests.append(request)
         if on_sign is not None:
             on_sign()
-        if status != 200:
+        if error is not None:
             return httpx.Response(
-                status,
-                json={"ok": False, "error": {"code": "forbidden", "message": "no"}},
+                error.status_code,
+                json={
+                    "ok": False,
+                    "error": {"code": error.code, "message": "refused api-secret"},
+                },
             )
         return httpx.Response(
             200,
@@ -195,6 +200,9 @@ def test_upload_transfer_failures_are_sanitized_and_never_retried(
     assert attempts == 1
     assert "private-signature" not in str(caught.value)
     assert "unsafe diagnostic" not in str(caught.value)
+    diagnostic = "".join(traceback.format_exception(caught.value))
+    assert "private-signature" not in diagnostic
+    assert "unsafe diagnostic" not in diagnostic
 
 
 @pytest.mark.parametrize("direction", ["upload", "download"])
@@ -297,6 +305,9 @@ def test_download_failure_removes_partial_and_preserves_existing_destination(
     assert attempts == 1
     assert "private-signature" not in str(caught.value)
     assert "unsafe diagnostic" not in str(caught.value)
+    diagnostic = "".join(traceback.format_exception(caught.value))
+    assert "private-signature" not in diagnostic
+    assert "unsafe diagnostic" not in diagnostic
     assert stream.closed
     if existing:
         assert destination.read_bytes() == b"previous result"
@@ -356,6 +367,92 @@ def test_download_hashes_stored_bytes_without_decompressing_content_encoding(
         )
     assert destination.read_bytes() == stored
     assert stream.closed
+
+
+@pytest.mark.parametrize("preload", ["content", "read"])
+@pytest.mark.parametrize("expected_decoded", [False, True])
+@pytest.mark.parametrize("existing", [False, True])
+def test_download_rejects_decoded_preloaded_responses_before_creating_partial(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    preload: str,
+    expected_decoded: bool,
+    existing: bool,
+) -> None:
+    stored = gzip.compress(_DATA * 1000)
+    expected = _DATA * 1000 if expected_decoded else stored
+    destination = tmp_path / "result.bin"
+    if existing:
+        destination.write_bytes(b"previous")
+    responses: list[httpx.Response] = []
+
+    def receive(request: httpx.Request) -> httpx.Response:
+        if preload == "content":
+            response = httpx.Response(
+                200, content=stored, headers={"Content-Encoding": "gzip"}
+            )
+        else:
+            response = httpx.Response(
+                200,
+                stream=_Chunks([stored]),
+                headers={"Content-Encoding": "gzip"},
+            )
+            response.read()
+        assert response.is_stream_consumed
+        responses.append(response)
+        return response
+
+    def unexpected_partial(**kwargs: object) -> None:
+        pytest.fail("Rejected preloaded encoded response created a partial file")
+
+    monkeypatch.setattr(
+        "tasklease.blobs.tempfile.NamedTemporaryFile", unexpected_partial
+    )
+    with (
+        _api() as client,
+        httpx.Client(transport=httpx.MockTransport(receive)) as http,
+        pytest.raises(BlobTransferError, match="preserve the raw response stream"),
+    ):
+        download_file(
+            client,
+            "acme",
+            _KEY,
+            destination,
+            size=len(expected),
+            sha256=hashlib.sha256(expected).hexdigest(),
+            http=http,
+        )
+    assert len(responses) == 1 and responses[0].is_closed
+    if existing:
+        assert destination.read_bytes() == b"previous"
+        assert list(tmp_path.iterdir()) == [destination]
+    else:
+        assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("encoding", [None, "", "identity", " Identity, identity "])
+def test_download_accepts_unencoded_preloaded_responses(
+    tmp_path: Path, encoding: str | None
+) -> None:
+    headers = {} if encoding is None else {"Content-Encoding": encoding}
+    with (
+        _api() as client,
+        httpx.Client(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(200, content=_DATA, headers=headers)
+            )
+        ) as http,
+    ):
+        destination = download_file(
+            client,
+            "acme",
+            _KEY,
+            tmp_path / "result.bin",
+            size=len(_DATA),
+            sha256=_DIGEST,
+            http=http,
+        )
+    assert destination.read_bytes() == _DATA
 
 
 class _BrokenOutput:
@@ -436,8 +533,9 @@ def test_download_removes_verified_partial_if_replacement_fails(
 
 
 @pytest.mark.parametrize("direction", ["upload", "download"])
+@pytest.mark.parametrize("error_type", [Unauthenticated, Forbidden, Invalid, TooLarge])
 def test_signing_failures_are_transfer_errors_without_blob_requests(
-    tmp_path: Path, direction: str
+    tmp_path: Path, direction: str, error_type: type[APIError]
 ) -> None:
     source = tmp_path / "report.bin"
     source.write_bytes(_DATA)
@@ -448,9 +546,9 @@ def test_signing_failures_are_transfer_errors_without_blob_requests(
         return httpx.Response(200)
 
     with (
-        _api(status=403) as client,
+        _api(error=error_type) as client,
         httpx.Client(transport=httpx.MockTransport(receive)) as http,
-        pytest.raises(BlobTransferError),
+        pytest.raises(BlobTransferError) as caught,
     ):
         if direction == "upload":
             upload_file(client, "acme", source, http=http)
@@ -466,6 +564,13 @@ def test_signing_failures_are_transfer_errors_without_blob_requests(
             )
     assert requests == []
     assert not (tmp_path / "out").exists()
+    cause = caught.value.__cause__
+    assert type(cause) is error_type
+    assert cause.code == error_type.code
+    assert cause.status_code == error_type.status_code
+    assert error_type.code in str(caught.value)
+    assert "api-secret" not in str(cause)
+    assert "[redacted]" in str(cause)
 
 
 @pytest.mark.parametrize("direction", ["upload", "download"])

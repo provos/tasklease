@@ -16,12 +16,16 @@ Release preparation and verification are documented in
   separate transfer clients, size checks and partial-download cleanup.
   `UploadedBlob` carries the key, size and digest; `BlobTransferError` covers
   signing, transfer, integrity and filesystem failures.
-- Public `tasklease.names.is_request_id` and `topic_matches` predicates for
-  requester-compatible IDs and the Worker's scope glob semantics.
+- Public `tasklease.names.is_request_id`, `is_task_id`, `is_topic_glob` and
+  `topic_matches` predicates for requester-compatible IDs, fencing IDs and
+  the Worker's scope glob syntax and matching semantics.
 
 ### Fixed
 
 - Correct the documented `WorkerLoop` constructor to include its domain.
+- Blob downloads reject encoded responses already decoded by a transport
+  wrapper, preserving stored-byte verification. Blob signing failures retain
+  their typed API error as the cause of `BlobTransferError`.
 
 ### Compatibility and deployment
 

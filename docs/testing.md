@@ -81,11 +81,20 @@ do not send the API bearer token to blob URLs, do not follow redirects, and
 apply a configurable HTTP timeout. An injected HTTP client stays open for
 its caller to manage.
 
+Transfer clients and transport wrappers must preserve the raw stream of an
+encoded response. If a wrapper has already read and decoded a response with
+`Content-Encoding`, the helper raises `BlobTransferError` before creating a
+partial file: the original stored bytes are no longer available to verify.
+Preloaded responses without content encoding remain supported.
+
 Download streams into a temporary sibling of the destination, rejects an
 oversized body as soon as it is observed, and checks exact size and SHA-256.
 Only a verified download replaces the destination. Failures remove the
 partial file and preserve an existing destination. `BlobTransferError` is
 the common error type for signing, transfer, integrity and filesystem errors.
+If signing is refused, its typed API exception (for example `Forbidden` or
+`TooLarge`) is available as the transfer error's `__cause__`. HTTP transfer
+failures keep signed URLs out of displayed diagnostics.
 Bucket retention and application deadlines remain the profile's policy.
 
 The board's blob client enforces signed URL capabilities, expiry, method and
@@ -99,6 +108,11 @@ deletion. Real signed transfers remain a deployed-service acceptance check.
 requester store can correlate: a string of 1 to 128 Unicode characters that
 encodes as valid UTF-8. The identifier is opaque and need not be a topic name
 or a portable filename.
+
+`tasklease.names.is_task_id(value)` validates a fencing ID (`t_` followed by a
+canonical ULID). `tasklease.names.is_topic_glob(value)` validates a scope
+glob's syntax and 256-character limit. These predicates are shared by the
+requester store and fake's corresponding validation paths.
 
 `tasklease.names.topic_matches(glob, topic)` uses the Worker's whole-topic
 matching rule. `*` stays within a segment and `**` consumes one or more

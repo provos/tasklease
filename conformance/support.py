@@ -9,6 +9,7 @@ import httpx
 import pytest
 
 from tasklease.client import Client
+from tasklease.errors import NotFound
 from tasklease.testing import FakeBoard
 
 ADMIN_TOKEN = "conformance-admin-fake-secret"
@@ -26,11 +27,36 @@ class ServiceTarget:
     """A fresh domain, with identities provisioned outside the tested protocol."""
 
     def __init__(
-        self, domain: str, url: str = "", *, board: FakeBoard | None = None
+        self,
+        domain: str,
+        url: str = "",
+        *,
+        board: FakeBoard | None = None,
+        admin: Client | None = None,
     ) -> None:
+        if board is None and admin is None:
+            raise ValueError("Worker targets require a shared admin client")
         self.domain = domain
         self.board = board
         self.url = board.base_url if board is not None else url
+        self._admin = admin
+        self._identities: list[str] = []
+
+    def close(self) -> None:
+        """Revoke this target's identities without closing the shared admin pool."""
+        if self._admin is None:
+            return
+        names, self._identities = self._identities, []
+        errors: list[Exception] = []
+        for name in names:
+            try:
+                self._admin.identity_revoke({"name": name})
+            except NotFound:
+                pass  # Admin protocol tests may already have revoked the identity.
+            except Exception as error:
+                errors.append(error)
+        if errors:
+            raise ExceptionGroup("Conformance identity cleanup failed", errors)
 
     def transport(self) -> httpx.BaseTransport:
         return (
@@ -69,19 +95,20 @@ class ServiceTarget:
             token = "fake-" + uuid4().hex
             self.board.add_identity(name, token, create=create, own=own, read=read)
         else:
-            with self.client(ADMIN_TOKEN) as admin:
-                token = admin.identity_add(
-                    {
-                        "name": name,
-                        "domains": [self.domain],
-                        "scopes": {
-                            "create": list(create),
-                            "own": list(own),
-                            "read": list(read),
-                        },
-                        "operator": operator,
-                    }
-                )["token"]
+            assert self._admin is not None
+            token = self._admin.identity_add(
+                {
+                    "name": name,
+                    "domains": [self.domain],
+                    "scopes": {
+                        "create": list(create),
+                        "own": list(own),
+                        "read": list(read),
+                    },
+                    "operator": operator,
+                }
+            )["token"]
+            self._identities.append(name)
         return name, token
 
     def require(self, operation: str) -> None:

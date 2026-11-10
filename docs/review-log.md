@@ -795,3 +795,42 @@ Status: accepted after corrections, independent reviews and native qualification
   acceptance and the remaining clean-commit/tag/publishing steps from the
   release guide are outstanding. No FluxShot repository, deployment, release
   tag or published package was changed.
+
+### PR #8 review fixes
+
+- Follow-up to `b4ad4a2`: encoded, preconsumed blob responses are rejected
+  before a partial file is created because HTTPX has discarded the original
+  stored bytes. Encoded raw streams and unencoded preloaded responses retain
+  support. Signing refusals preserve their typed API error as the explicit
+  cause of `BlobTransferError`; HTTP transfer diagnostics remain sanitized.
+- Shared `is_task_id` and `is_topic_glob` predicates now serve the store and
+  fake. Reply correlation uses `is_request_id` directly. The fake derives
+  request member sets from resolved generated annotations, including optional
+  fields under Python 3.12, while preserving scalar validation and error
+  precedence. Topics List groups tasks once and receives the caller's scopes;
+  ordinary number formatting avoids unnecessary Decimal conversion.
+- Conformance uses a session admin pool and revokes each target's identities
+  during teardown, including after failed tests. Cleanup tolerates explicit
+  revocation and continues across individual failures. Regression coverage
+  checks resource lifetime, encoded-response handling, typed signing causes,
+  shared predicates, optional fields, topic aggregation and numeric boundaries.
+- Three simplify passes and two fresh, independent Astra high-effort reviews
+  completed. The runtime review identified ambient proxy routing in the new
+  pooled admin client. An explicit direct transport and a socket-free proxy
+  routing regression fixed it; both Astra reviewers rechecked the correction
+  and reported no remaining material findings. Two-pass upload integrity
+  checks and stack-safe snapshots are retained. Full Python validator
+  generation and a broader transfer framework remain outside these fixes.
+- Final `make check` passed on macOS: 191 Worker tests, 32 dashboard tests,
+  961 Python/tooling tests with three native Windows skips, and 393
+  conformance tests with the same 36 explicit capability skips. Dependency
+  policy, audit, generation, formatting, lint and strict type checks passed.
+  `make build` passed; inspected wheel/sdist module and test bytes match the
+  source, runtime dependencies are unchanged, and the handoff is absent.
+- Updated `0.2.0` artifact identities supersede the earlier candidate hashes:
+  - wheel: `d030eaf3119161eed3b5b25968f0bd9c6407f5fb7f82e39525027995fa9f7c06`;
+  - sdist: `f4109ee80bd98d13e1d99371f4255aade0dd748f70e0bedf5300029f37e844a5`.
+  Logs and inspection are in `/tmp/tasklease-pr8-review-fixes-check.log`,
+  `/tmp/tasklease-pr8-review-fixes-build.log` and
+  `/tmp/tasklease-pr8-review-fixes-artifacts.json`. Release acceptance and
+  publication prerequisites remain as recorded above.

@@ -20,7 +20,7 @@ from typing import BinaryIO
 import httpx
 
 from tasklease.client import Client
-from tasklease.errors import TaskleaseError
+from tasklease.errors import APIError, TaskleaseError
 
 _CHUNK_SIZE = 64 * 1024
 _MAX_SIZE = 2 * 1024**3
@@ -141,14 +141,19 @@ def upload_file(
         source_path = Path(path)
         with source_path.open("rb") as source:
             size, sha256 = _measure(source)
-            signed = client.blob_put_url(
-                {
-                    "domain": domain,
-                    "name": source_path.name if name is None else name,
-                    "size": size,
-                    "sha256": sha256,
-                }
-            )
+            try:
+                signed = client.blob_put_url(
+                    {
+                        "domain": domain,
+                        "name": source_path.name if name is None else name,
+                        "size": size,
+                        "sha256": sha256,
+                    }
+                )
+            except APIError as error:
+                raise BlobTransferError(
+                    f"Blob upload signing failed: {error.code}"
+                ) from error
             source.seek(0)
             body = _UploadBody(source, size, sha256)
             with _transfer_client(http) as transfer:
@@ -192,6 +197,8 @@ def download_file(
     The expected size and SHA-256 come from the profile's task data. A failure
     removes the temporary file and preserves an existing destination. ``http``
     remains open when supplied. No redirect is followed and no attempt is retried.
+    Transfer clients must preserve encoded responses' raw streams: once HTTPX
+    has consumed and decoded one, the original stored bytes cannot be verified.
     """
     _validate_timeout(timeout)
     if type(size) is not int or not 1 <= size <= _MAX_SIZE:
@@ -202,7 +209,12 @@ def download_file(
     try:
         try:
             destination = Path(path)
-            signed = client.blob_get_url({"domain": domain, "key": key})
+            try:
+                signed = client.blob_get_url({"domain": domain, "key": key})
+            except APIError as error:
+                raise BlobTransferError(
+                    f"Blob download signing failed: {error.code}"
+                ) from error
             with _transfer_client(http) as transfer:
                 request = _request(transfer, "GET", signed["url"], timeout)
                 with closing(
@@ -211,6 +223,16 @@ def download_file(
                     )
                 ) as response:
                     response.raise_for_status()
+                    if response.is_stream_consumed and any(
+                        encoding.strip().lower() not in {"", "identity"}
+                        for encoding in response.headers.get_list(
+                            "Content-Encoding", split_commas=True
+                        )
+                    ):
+                        raise BlobTransferError(
+                            "Encoded blob response was already consumed; "
+                            "transfer clients must preserve the raw response stream"
+                        )
                     with tempfile.NamedTemporaryFile(
                         mode="wb",
                         dir=destination.parent,
@@ -221,10 +243,9 @@ def download_file(
                         temporary = Path(output.name)
                         received = 0
                         digest = hashlib.sha256()
-                        # Hash stored bytes even if an object has Content-Encoding
-                        # metadata. Preloaded MockTransport responses already hold
-                        # their body; real streamed responses must not be decoded
-                        # or buffered before enforcing the expected size.
+                        # Unencoded preloaded responses retain the stored bytes.
+                        # Streamed responses must not be content-decoded or
+                        # buffered before enforcing the expected size.
                         chunks = (
                             response.iter_bytes()
                             if response.is_stream_consumed

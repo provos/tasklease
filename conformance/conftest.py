@@ -9,6 +9,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
@@ -17,6 +18,7 @@ import httpx
 import pytest
 
 from conformance.support import ADMIN_TOKEN, ServiceTarget
+from tasklease.client import Client
 from tasklease.testing import FakeBoard
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -158,13 +160,35 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 @pytest.fixture
 def target_factory(
     service_backend: str, request: pytest.FixtureRequest
-) -> Callable[[str], ServiceTarget]:
+) -> Iterator[Callable[[str], ServiceTarget]]:
     # Resolve the process fixture lazily: fake-only runs never execute the
     # Worker build, socket allocation, or Wrangler startup code above.
+    url = ""
+    admin: Client | None = None
     if service_backend == "worker":
         url = cast(str, request.getfixturevalue("worker_url"))
-        return lambda domain: ServiceTarget(domain, url)
-    return lambda domain: ServiceTarget(domain, board=FakeBoard(domain))
+        admin = cast(Client, request.getfixturevalue("worker_admin"))
+    with ExitStack() as cleanup:
+
+        def create(domain: str) -> ServiceTarget:
+            target = ServiceTarget(
+                domain,
+                url,
+                board=FakeBoard(domain) if admin is None else None,
+                admin=admin,
+            )
+            cleanup.callback(target.close)
+            return target
+
+        yield create
+
+
+@pytest.fixture(scope="session")
+def worker_admin(worker_url: str) -> Iterator[Client]:
+    with Client(
+        worker_url, ADMIN_TOKEN, transport=httpx.HTTPTransport(trust_env=False)
+    ) as admin:
+        yield admin
 
 
 @pytest.fixture

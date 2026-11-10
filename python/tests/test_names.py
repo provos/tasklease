@@ -10,7 +10,9 @@ from tasklease.names import (
     is_domain,
     is_request_id,
     is_segment,
+    is_task_id,
     is_topic,
+    is_topic_glob,
     is_worker_label,
     topic_matches,
 )
@@ -93,6 +95,48 @@ def test_error_topic_never_nests() -> None:
 )
 def test_request_id(value: object, valid: bool) -> None:
     assert is_request_id(value) is valid
+
+
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [
+        ("t_00000000000000000000000000", True),
+        ("t_7ZZZZZZZZZZZZZZZZZZZZZZZZZ", True),
+        ("t_8ZZZZZZZZZZZZZZZZZZZZZZZZZ", False),
+        ("t_0000000000000000000000000I", False),
+        ("t_0000000000000000000000000a", False),
+        ("t_00000000000000000000000000\n", False),
+        ("00000000000000000000000000", False),
+        ("t_0000000000000000000000000", False),
+        (None, False),
+    ],
+)
+def test_task_id(value: object, valid: bool) -> None:
+    assert is_task_id(value) is valid
+
+
+@pytest.mark.parametrize(
+    ("value", "valid"),
+    [
+        ("verify/**", True),
+        ("mac-*", True),
+        ("**/**", True),
+        ("a" * 256, True),
+        ("a" * 257, False),
+        ("a**", False),
+        ("***", False),
+        ("verify//linux", False),
+        ("verify/", False),
+        ("UPPER", False),
+        ("?", False),
+        ("[a-z]", False),
+        ("work\n", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_topic_glob(value: object, valid: bool) -> None:
+    assert is_topic_glob(value) is valid
 
 
 @pytest.mark.parametrize(

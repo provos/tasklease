@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import socket
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -449,3 +450,109 @@ def test_deep_snapshot_is_detached_and_does_not_hide_live_task(
         for _ in range(500):
             live = cast(p.Data, live["child"])
         assert live == {}
+
+
+def test_generated_optional_request_fields_remain_optional(board: FakeBoard) -> None:
+    with board.client("token") as client:
+        created = client.create({"domain": board.domain, "topic": "work", "data": {}})
+        ref: p.ReadRequest = {
+            "domain": board.domain,
+            "topic": "work",
+            "id": created["id"],
+        }
+        task = client.read(ref)["task"]
+        assert len(client.topics_list({"domain": board.domain})["topics"]) == 1
+        assert (
+            client.topics_list({"domain": board.domain, "glob": "other"})["topics"]
+            == []
+        )
+        assert (
+            len(client.tasks_list({"domain": board.domain, "topic": "work"})["tasks"])
+            == 1
+        )
+        cursor = (
+            base64.urlsafe_b64encode(f"v1:{task['created_at']}:{task['id']}".encode())
+            .decode()
+            .rstrip("=")
+        )
+        assert (
+            client.tasks_list(
+                {"domain": board.domain, "topic": "work", "cursor": cursor}
+            )["tasks"]
+            == []
+        )
+        with pytest.raises(Forbidden):
+            client.delete({**ref, "lease_before": task["lease_until"]})
+        client.delete(cast(p.DeleteRequest, ref))
+    with httpx.Client(transport=board.transport(), base_url=board.base_url) as http:
+        response = http.post(
+            "/v1/topics.list",
+            headers={"Authorization": "Bearer token", "X-Worker": "test"},
+            json={"domain": board.domain, "unknown": True},
+        )
+        assert response.status_code == 400
+
+
+def test_topics_list_aggregates_tasks_and_empty_pollers(
+    board: FakeBoard, clock: Clock
+) -> None:
+    start = clock.now
+    with board.client("token") as client:
+        client.create({"domain": board.domain, "topic": "b", "data": {}})
+        clock.now += 1
+        client.create({"domain": board.domain, "topic": "a", "data": {}})
+        client.own({"domain": board.domain, "topic": "a", "hold_seconds": 60})
+        clock.now += 1
+        client.create({"domain": board.domain, "topic": "b", "data": {}})
+        with pytest.raises(Empty):
+            client.own({"domain": board.domain, "topic": "idle", "hold_seconds": 60})
+        topics = client.topics_list({"domain": board.domain})["topics"]
+        assert topics == [
+            {
+                "topic": "a",
+                "available": 0,
+                "held": 1,
+                "oldest_available_at": None,
+                "declared": False,
+            },
+            {
+                "topic": "b",
+                "available": 2,
+                "held": 0,
+                "oldest_available_at": start,
+                "declared": False,
+            },
+            {
+                "topic": "idle",
+                "available": 0,
+                "held": 0,
+                "oldest_available_at": None,
+                "declared": False,
+            },
+        ]
+
+
+def test_number_wire_format_preserves_fixed_and_exponent_boundaries(
+    board: FakeBoard,
+) -> None:
+    with board.client("token") as client:
+        created = client.create(
+            {
+                "domain": board.domain,
+                "topic": "work",
+                "data": {
+                    "numbers": [-0.0, 1.0, 1.5, 1e-6, 1e-7, 1e20, 1e21],
+                },
+            }
+        )
+    with httpx.Client(transport=board.transport(), base_url=board.base_url) as http:
+        response = http.post(
+            "/v1/read",
+            headers={"Authorization": "Bearer token", "X-Worker": "test"},
+            json={"domain": board.domain, "topic": "work", "id": created["id"]},
+        )
+        assert response.status_code == 200
+        assert (
+            b'"numbers":[0,1,1.5,0.000001,1e-7,100000000000000000000,1e+21]'
+            in response.content
+        )

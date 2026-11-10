@@ -12,6 +12,8 @@ from typing import TypeGuard
 _PATH = re.compile(r"[a-z0-9._-]+(?:/[a-z0-9._-]+)*")
 _SEGMENT = re.compile(r"[a-z0-9._-]{1,128}")
 _WORKER_LABEL = re.compile(r"[A-Za-z0-9._-]{1,256}")
+_TASK_ID = re.compile(r"t_[0-7][0-9A-HJKMNP-TV-Z]{25}")
+_TOPIC_GLOB = re.compile(r"[a-z0-9.*_-]+(?:/[a-z0-9.*_-]+)*")
 _ERROR = "/error"
 
 
@@ -44,6 +46,21 @@ def is_segment(value: object) -> TypeGuard[str]:
 
 def is_worker_label(value: object) -> TypeGuard[str]:
     return isinstance(value, str) and _WORKER_LABEL.fullmatch(value) is not None
+
+
+def is_task_id(value: object) -> TypeGuard[str]:
+    """A fencing ID: ``t_`` followed by a canonical ULID."""
+    return isinstance(value, str) and _TASK_ID.fullmatch(value) is not None
+
+
+def is_topic_glob(value: object) -> TypeGuard[str]:
+    """A spec §3 scope glob, with ``**`` only as a complete segment."""
+    return (
+        isinstance(value, str)
+        and 1 <= len(value) <= 256
+        and _TOPIC_GLOB.fullmatch(value) is not None
+        and all(part == "**" or "**" not in part for part in value.split("/"))
+    )
 
 
 def is_bearer_token(value: object) -> TypeGuard[str]:
