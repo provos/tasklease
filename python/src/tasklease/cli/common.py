@@ -10,13 +10,23 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from platformdirs import user_config_path
+
 from tasklease.client import Client
 from tasklease.config import Config, load_config
 from tasklease.errors import ConfigError
 
 
 def connection_options(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", type=Path, default=argparse.SUPPRESS)
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help=(
+            "Config file (default: TL_CONFIG or "
+            f"{user_config_path('tasklease') / 'config.toml'})"
+        ),
+    )
     parser.add_argument("--url", default=argparse.SUPPRESS)
     parser.add_argument("--worker", default=argparse.SUPPRESS)
 

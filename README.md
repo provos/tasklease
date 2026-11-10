@@ -184,17 +184,83 @@ so the next invocation resumes the same service. Tokens and R2 credentials
 are never saved in `service.toml`. See [deployment design](docs/design.md#82-tl-service-deploy)
 for the complete recovery sequence.
 
-## Request work and run an echo worker
+## Operator setup
 
-Set `TL_ADMIN_TOKEN` to the confirmed admin token, then issue two identities:
+Set `TL_ADMIN_TOKEN` to the confirmed admin token to issue identities.
+`identity add`, `list`, `rotate` and `revoke` use this admin credential.
+Topic/task commands and `whoami` use an **identity token** from the client
+config or `TL_TOKEN`; setting `TL_ADMIN_TOKEN` does not authorize them.
+Service deployment also uses the admin credential for verification and recovery.
+
+Issue an operator identity for the `demo` domain. It can administer tasks and
+topics throughout that domain without individual scope grants:
+
+```sh
+umask 077  # On macOS/Linux, create new credential files private to this user.
+tl --config service.toml identity add operator --domain demo --operator
+```
+
+Save only the returned `token` string, without JSON or quotes, in
+`operator.token`. Create `operator.toml` beside it, copying the deployed URL
+from `service.toml`:
+
+```toml
+url = "https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev"
+domain = "demo"
+
+[token]
+file = "operator.token"
+```
+
+On macOS/Linux, restrict the files before using them:
+
+```sh
+chmod 600 operator.toml operator.token
+```
+
+On Windows, use files whose access-control lists restrict access to your user.
+See [Client configuration](#client-configuration) for default locations.
+Check the identity, declare the served work topic and list the domain:
+
+```sh
+tl --config operator.toml whoami
+tl --config operator.toml topic declare work/echo
+tl --config operator.toml topics --domain demo
+```
+
+`topic declare TOPIC` uses `domain` from the config or `TL_DOMAIN`;
+`--domain demo` selects it explicitly. `--remove` removes only the declaration,
+not its tasks. Declaring a topic keeps it listed while empty; identity scopes
+control access independently. `topics` without `--domain` lists all domains
+granted to the identity.
+
+Use the same operator config to inspect error topics. If retrying is
+appropriate, `move` atomically reposts the task's unchanged data to the target
+topic. Replace `TASK_ID` with a current ID from the task listing:
+
+```sh
+tl --config operator.toml tasks demo work/echo/error
+tl --config operator.toml read demo work/echo/error TASK_ID
+tl --config operator.toml move demo work/echo/error TASK_ID --to work/echo
+```
+
+Issue a separate scoped identity for each agent host and worker machine.
+For the echo example, the requester owns its replies and creates work; the
+worker owns work and creates replies:
 
 ```sh
 tl --config service.toml identity add requester --domain demo --create work/echo --own reply/agent
 tl --config service.toml identity add echo-worker --domain demo --own work/echo --create reply/agent
 ```
 
-Save each returned token in its own private token file. Give the requester
-this `requester.toml`:
+Save the requester's token string in `requester.token` and the worker's in
+`worker.token`, each beside its client config. Keep the operator token on the
+operator's machine. Once identity administration is finished, the requester
+and worker do not need `TL_ADMIN_TOKEN`.
+
+## Request work and run an echo worker
+
+Give the requester this `requester.toml`:
 
 ```toml
 url = "https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev"
@@ -218,6 +284,12 @@ file = "worker.token"
 [worker]
 topic = "work/echo"
 handler = "echo"
+```
+
+On macOS/Linux, set private modes after saving the configs and tokens:
+
+```sh
+chmod 600 requester.toml requester.token worker.toml worker.token
 ```
 
 Start the worker in another terminal or on another machine:
@@ -380,8 +452,42 @@ Use `--no-browser` for a headless monitor and `--port` for a fixed local port.
 `--domain D` selects one service domain; local records still cover every
 agent on this machine.
 
-Configuration supports `TL_CONFIG`, `TL_URL`, `TL_DOMAIN`, `TL_AGENT_ID`,
-`TL_WORKER` and `TL_TOKEN`; admin commands use environment-only `TL_ADMIN_TOKEN`.
+## Client configuration
+
+`tl` selects a config in this order: `--config PATH`, then `TL_CONFIG`, then
+`platformdirs.user_config_path("tasklease")/config.toml`. The usual locations,
+without config-directory overrides, are:
+
+| Platform | Default config file |
+| --- | --- |
+| macOS | `~/Library/Application Support/tasklease/config.toml` |
+| Linux | `~/.config/tasklease/config.toml` |
+| Windows | `%LOCALAPPDATA%\tasklease\tasklease\config.toml` |
+
+Linux follows `XDG_CONFIG_HOME` when set. `tl --help` shows the platform fallback
+path on the current machine. On each client machine, you can place its config
+at that path as `config.toml` and its token beside it, then omit `--config`.
+Keep explicitly named configs when using several identities on one machine;
+`service.toml` holds deployment settings, while `operator.toml`,
+`requester.toml` and `worker.toml` above select their respective identities.
+
+`[token] file` defaults to `token` beside the selected config. Relative paths
+are resolved against that config's directory, absolute paths are accepted,
+and a leading `~` is expanded. For example, a TOML value of
+`file = "~/private/tasklease/operator.token"` works independently of the config
+location. Quote shell paths with spaces, such as
+`tl --config "$HOME/Library/Application Support/tasklease/config.toml" whoami`.
+
+On POSIX systems, `tl` refuses token files with any group or other permission
+bits set. Use `chmod 600 PATH_TO_TOKEN` (owner-only read/write); owner-only
+read access also works. On Windows, protect the file with user-restricted
+ACLs; POSIX mode bits do not describe Windows access. Configs should also be
+private to your user.
+
+Configuration supports `TL_URL`, `TL_DOMAIN`, `TL_AGENT_ID`, `TL_WORKER` and
+`TL_TOKEN`, which override file settings; `--url` and `--worker` override their
+environment settings. `TL_TOKEN` bypasses the identity token file.
+Identity administration uses environment-only `TL_ADMIN_TOKEN`.
 Domain names `.` and `..` are prohibited. Domains otherwise follow the grammar
 in the [protocol specification](docs/spec.md).
 

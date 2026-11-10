@@ -819,11 +819,14 @@ tl whoami
 tl monitor [--domain D] [--port 0] [--no-browser]
 tl service deploy [--account-id ID] [--name NAME] [--dry-run] …
 tl service status
-tl topic declare D verify/linux
+tl topic declare verify/linux [--domain D] [--remove]
 ```
 
 - `topics` without `--domain` calls `identity.whoami` and lists each of the
   caller's domains in turn.
+- `topic declare` takes its domain from `--domain`, `TL_DOMAIN` or the config's
+  `domain`, in that order. It requires an operator identity; `--remove` removes
+  the declaration without deleting tasks.
 - `service deploy` creates or upgrades the whole service in the operator's
   Cloudflare account from the installed package: the R2 bucket and its
   lifecycle rule, the Worker with its Durable Objects, secrets and address.

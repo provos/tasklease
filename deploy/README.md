@@ -8,8 +8,13 @@ executable in the environment containing your handler plugin. Put credentials
 in the configured token file; the templates contain no credentials.
 
 Each worker on a machine needs a unique label. Configure a plugin in the
-config file's `[worker]` table; the default handler is echo. Local configuration
-and token-file permissions should restrict access to your user.
+config file's `[worker]` table; the default handler is echo. Complete the
+[operator and identity setup](../README.md#operator-setup) first. Local config
+and token files should be private to your user. On macOS/Linux, run
+`chmod 600 /path/to/config.toml /path/to/worker.token`; `tl` refuses token files
+with group or other permission bits set. On Windows, use user-restricted ACLs.
+Default config paths and absolute, relative and `~` token paths are documented
+under [Client configuration](../README.md#client-configuration).
 
 ## Linux
 

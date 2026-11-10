@@ -8,6 +8,7 @@ import tomllib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -36,6 +37,7 @@ def test_relative_config_path_is_resolved_before_token_lookup(
     (tmp_path / "settings").mkdir()
     (tmp_path / "settings" / "config.toml").write_text('[token]\nfile = "credential"\n')
     (tmp_path / "settings" / "credential").write_text("tl_file-token\n")
+    (tmp_path / "settings" / "credential").chmod(0o600)
     monkeypatch.chdir(tmp_path)
     config = load_config("settings/config.toml", environ={})
     monkeypatch.chdir(tmp_path.parent)
@@ -115,6 +117,7 @@ def test_identity_token_environment_and_relative_or_absolute_files(
     path = tmp_path / "config.toml"
     token = tmp_path / "credential"
     token.write_text("tl_disk-token\n")
+    token.chmod(0o600)
     config = Config(
         path, {"token": {"file": "credential"}}, {"TL_TOKEN": "tl_env-token"}
     )
@@ -124,12 +127,14 @@ def test_identity_token_environment_and_relative_or_absolute_files(
     )
     assert Config(path, {"token": {"file": str(token)}}, {}).token() == "tl_disk-token"
     (tmp_path / "token").write_text("tl_default-token")
+    (tmp_path / "token").chmod(0o600)
     assert Config(path, {}, {}).token() == "tl_default-token"
 
 
 def test_admin_token_comes_only_from_its_environment_variable(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     (tmp_path / "token").write_text("tl_disk-token")
+    (tmp_path / "token").chmod(0o600)
     values: dict[str, object] = {
         "admin_token": "admin-on-disk",
         "token": {"admin": "admin-on-disk"},
@@ -156,11 +161,76 @@ def test_unreadable_or_invalid_token_files_are_controlled(tmp_path: Path) -> Non
     with pytest.raises(ConfigError, match="Cannot read identity token"):
         config.token()
     (tmp_path / "token").write_bytes(b"\xff")
+    (tmp_path / "token").chmod(0o600)
     with pytest.raises(ConfigError):
         config.token()
     (tmp_path / "token").write_text("contains spaces")
     with pytest.raises(ConfigError):
         config.token()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX token permission bits")
+@pytest.mark.parametrize("mode", [0o644, 0o640, 0o604, 0o620, 0o601])
+def test_token_files_with_group_or_other_access_are_rejected(
+    tmp_path: Path, mode: int
+) -> None:
+    path = tmp_path / "token"
+    path.write_text("tl_never-display-this-secret")
+    path.chmod(mode)
+    with pytest.raises(ConfigError, match="chmod 600") as caught:
+        Config(tmp_path / "config.toml", {}, {}).token()
+    assert "tl_never-display-this-secret" not in str(caught.value)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX token permission bits")
+@pytest.mark.parametrize("mode", [0o600, 0o400])
+def test_private_token_files_are_accepted(tmp_path: Path, mode: int) -> None:
+    path = tmp_path / "token"
+    path.write_text("tl_private-token\n")
+    path.chmod(mode)
+    assert Config(tmp_path / "config.toml", {}, {}).token() == "tl_private-token"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX symlinks and permissions")
+def test_token_permissions_follow_the_open_file_not_the_symlink(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "credential"
+    target.write_text("tl_symlink-token")
+    target.chmod(0o600)
+    (tmp_path / "token").symlink_to(target)
+    config = Config(tmp_path / "config.toml", {}, {})
+    assert config.token() == "tl_symlink-token"
+    target.chmod(0o644)
+    with pytest.raises(ConfigError, match="chmod 600"):
+        config.token()
+
+
+def test_windows_token_files_do_not_use_posix_permission_bits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "token").write_text("tl_windows-token")
+    config = Config(tmp_path / "config.toml", {}, {})
+
+    def unexpected_stat(descriptor: int) -> None:
+        pytest.fail("Windows permissions must not be inferred from POSIX mode bits")
+
+    monkeypatch.setattr(
+        "tasklease.config.os", SimpleNamespace(name="nt", fstat=unexpected_stat)
+    )
+    assert config.token() == "tl_windows-token"
+
+
+def test_environment_credentials_bypass_insecure_token_files(tmp_path: Path) -> None:
+    (tmp_path / "token").write_text("tl_unused-file-token")
+    (tmp_path / "token").chmod(0o644)
+    config = Config(
+        tmp_path / "config.toml",
+        {},
+        {"TL_TOKEN": "tl_env-identity", "TL_ADMIN_TOKEN": "tla_env-admin"},
+    )
+    assert config.token() == "tl_env-identity"
+    assert config.token(admin=True) == "tla_env-admin"
 
 
 @pytest.mark.parametrize(

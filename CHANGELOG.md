@@ -6,6 +6,19 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+### Changed
+
+- `tl topic declare TOPIC` uses the configured domain or `TL_DOMAIN`, with
+  `--domain` to override it; the positional domain argument is removed.
+- POSIX identity token files must have no group or other permission bits.
+  Files such as mode `0644` are rejected with an instruction to use `chmod 600`.
+
+### Fixed
+
+- Document operator identity issuance, client config locations and token modes,
+  topic declarations, scoped machine identities and error-topic operations.
+  CLI config help now shows the platform's default config path.
+
 ## [0.2.0] - 2026-11-09
 
 ### Added
