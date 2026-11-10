@@ -1,0 +1,181 @@
+{
+  "version": "0.2.0",
+  "status": "passed",
+  "date": "2026-11-09",
+  "source_commit": "d0191c4db4ecb7bee3a08e1abd200d7cc108a9ac",
+  "source_dirty": false,
+  "source_tree_sha256": "28a3d045c577bbfb2622aedb784d5bef0dd7ca666d7d1f14423fa957d0c686e5",
+  "acceptance_zip_sha256": "eb70ac4d12a96f43f06f2d6238c2764e5945ebfcf4c6b6cdd4f5fcba63dde79e",
+  "wheel_sha256": "b542c743a98d08f46c736fe7206e57ec12dc03d4d3fc270a84b1f3a7697790b9",
+  "sdist_sha256": "309148f6c2f4e4597533a815118d63614c033b2c59897c78a88f390978671cf8",
+  "native": {
+    "macos": {
+      "system": "Darwin",
+      "release": "27.0.0",
+      "architecture": "arm64",
+      "python": "3.12.12",
+      "report": "macos/native-report.json",
+      "uv": "uv 0.9.15 (5eafae332 2025-12-02)",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "passed": 868,
+        "skipped": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped_cases": [
+          {
+            "reason": "Native Windows file sharing",
+            "test": "tests.test_fsio::test_windows_loser_flush_and_reader_share_an_inflight_delete_handle"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[unicode_string]"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[utf8_file]"
+          }
+        ]
+      }
+    },
+    "linux": {
+      "system": "Linux",
+      "release": "6.17.0-1029-nvidia",
+      "architecture": "aarch64",
+      "python": "3.12.3",
+      "report": "linux/native-report.json",
+      "uv": "uv 0.12.21 (7af826859 2026-09-29 aarch64-unknown-linux-gnu)",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "passed": 868,
+        "skipped": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped_cases": [
+          {
+            "reason": "Native Windows file sharing",
+            "test": "tests.test_fsio::test_windows_loser_flush_and_reader_share_an_inflight_delete_handle"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[unicode_string]"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[utf8_file]"
+          }
+        ]
+      }
+    },
+    "windows": {
+      "system": "Windows",
+      "release": "11",
+      "architecture": "ARM64",
+      "python": "3.12.12",
+      "report": "windows/attempt2/native-report.json",
+      "uv": "uv 0.9.15 (5eafae332 2025-12-02)",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "passed": 865,
+        "skipped": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped_cases": [
+          {
+            "reason": "POSIX supports unprivileged symlinks",
+            "test": "tests.test_fsio::test_temp_cleanup_does_not_follow_symlinks"
+          },
+          {
+            "reason": "Darwin flush uses POSIX fcntl",
+            "test": "tests.test_fsio::test_darwin_full_flush_follows_namespace_flush"
+          },
+          {
+            "reason": "Darwin flush uses POSIX fcntl",
+            "test": "tests.test_fsio::test_darwin_full_flush_failure_is_not_ignored"
+          },
+          {
+            "reason": "Windows denies unlink of an open file",
+            "test": "tests.test_worker_control::test_consumer_can_remove_marker_before_creator_closes"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[False]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[True]"
+          }
+        ]
+      },
+      "task_scheduler_xml_parsers": "both passed; no task registered",
+      "python_payload_architecture": "x86_64 under Windows ARM64 emulation"
+    }
+  },
+  "live_checks": {
+    "published_bootstrap_and_r2_probe": true,
+    "upgrade_exact_task_credentials_stats_preserved": true,
+    "snapshot_atomic_reply_and_stale_id_fencing": true,
+    "signed_content_length_rejection_and_r2_roundtrip": true,
+    "public_blob_helpers_live_r2": true,
+    "public_evidence_secret_scan_passed": true,
+    "temporary_identities_revoked": true,
+    "new_worker_deleted_existing_bucket_untouched": true,
+    "cross_machine_request_worker_reply_and_durable_store": true
+  },
+  "cleanup": {
+    "worker": "tasklease-020-acceptance-941afdb77b",
+    "worker_api_status": 404,
+    "temporary_identities_revoked": 3,
+    "existing_bucket": "tasklease-acceptance-90d25ae",
+    "lifecycle_unchanged": true,
+    "lifecycle_before_and_after": [
+      {
+        "name": "Default Multipart Abort Rule",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Abort incomplete multipart uploads after 7 days"
+      },
+      {
+        "name": "tasklease-expire",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Expire objects after 7 days"
+      }
+    ],
+    "probe_objects": "Retained under unchanged seven-day lifecycle"
+  },
+  "cross_machine": {
+    "status": "passed",
+    "request_id": "cross-cross-74259c4bf6",
+    "requester_os": "Darwin",
+    "worker_os": "Linux",
+    "version": "0.2.0",
+    "input_sha256": "534566bf2e63c5625a7fb3746d741344815210f49bd0efe95f1096e036df7f0d",
+    "output_sha256": "bcf988a821ebdf2095a1817b83b61f0e883c912c4790fdc2d748cc3a2defe850",
+    "output_size": 262198,
+    "durable_inbox_reopened": true,
+    "server_reply_acknowledged": true,
+    "uploaded_and_downloaded_real_r2": true
+  },
+  "windows_first_attempt": {
+    "status": "failed",
+    "passed": 862,
+    "failed": 3,
+    "skipped": 6,
+    "failures": [
+      "requester one-second wait timed out",
+      "both Task Scheduler subprocesses exceeded 30 seconds"
+    ],
+    "preserved_report": "windows/attempt1-failed/native-report.json"
+  },
+  "windows_revalidation": {
+    "candidate_tests_and_limits_unchanged": true,
+    "stdin_closed_for_noninteractive_rerun": true,
+    "host_load_and_cache_state_also_changed": true,
+    "single_cause_not_established": true
+  },
+  "evidence_archive_sha256": "6444d8c9f6868b5001ed600944704458fc510d0625e8ea7750ea52403bc07635",
+  "evidence_archive": "python/dist/acceptance-0.2.0-d0191c4/evidence.zip",
+  "secret_scan_passed": true,
+  "release_status": "Unpublished; release notes, merge/tag and publishing remain separate"
+}

@@ -834,3 +834,60 @@ Status: accepted after corrections, independent reviews and native qualification
   `/tmp/tasklease-pr8-review-fixes-build.log` and
   `/tmp/tasklease-pr8-review-fixes-artifacts.json`. Release acceptance and
   publication prerequisites remain as recorded above.
+
+### Native and live acceptance of the committed candidate (2026-11-09)
+
+- Qualified clean commit `d0191c4db4ecb7bee3a08e1abd200d7cc108a9ac` from an
+  isolated checkout. `make install`, `make check` and `make build` passed there:
+  191 Worker, 32 dashboard, 961 Python/tooling and 393 conformance tests, with
+  the previously documented three native Windows and 36 capability skips.
+  The untracked handoff and private acceptance credentials were excluded.
+- Exported one clean, hash-bound native candidate shared by all three systems:
+  - ZIP: `eb70ac4d12a96f43f06f2d6238c2764e5945ebfcf4c6b6cdd4f5fcba63dde79e`;
+  - source tree: `28a3d045c577bbfb2622aedb784d5bef0dd7ca666d7d1f14423fa957d0c686e5`;
+  - wheel: `b542c743a98d08f46c736fe7206e57ec12dc03d4d3fc270a84b1f3a7697790b9`;
+  - sdist: `309148f6c2f4e4597533a815118d63614c033b2c59897c78a88f390978671cf8`.
+  These artifacts supersede the earlier candidate builds. All native reports
+  verify this exact ZIP, source commit/tree and wheel before executing tests.
+- Native installed-wheel acceptance passed on macOS arm64/Python 3.12.12 and
+  Ubuntu 24.04.4 aarch64/Python 3.12.3: each 868 passed and three expected
+  Windows-only skips. Windows 11 Pro build 26200 ARM64, using Python 3.12.12
+  x64 under emulation, passed 865 tests with six expected skips. Every
+  installed-wheel/no-Node probe passed. Both Windows Task Scheduler parser
+  modes preserved non-ASCII paths; no task was registered or worker left
+  running. Prerequisites stayed in isolated temporary environments; Windows
+  execution policy, registry and global PATH were unchanged.
+- The first Windows full run recorded 862 passed, three timeouts and six
+  expected skips: a one-second requester wait and both 30-second Scheduler
+  subprocesses. Preserved that failed report and separate diagnostics. A full
+  unchanged rerun with closed stdin after host servicing settled passed all
+  871 cases, including the three earlier failures. ZIP, source, wheel, tests,
+  exclusions and all time limits stayed unchanged. Host load and cache state
+  also changed, so the evidence does not establish a single cause.
+- Bootstrapped a new isolated Worker from the verified published `0.1.0`
+  wheel, corroborated against PyPI release metadata, then upgraded it from
+  the exact installed candidate. The full held task, admin/scoped credentials
+  and hourly statistics survived. Snapshot, atomic reply and stale-ID fencing
+  passed. Real R2 rejected wrong signed Content-Length with 403 and no object;
+  correct PUT/GET, SHA-256 and a 1 MiB + 17-byte public-helper round trip passed.
+- A macOS `Store` submitted a blob-backed request to a Linux `WorkerLoop`.
+  Linux verified the input, uploaded the result and atomically replied. macOS
+  verified the 262,198-byte result, reopened its durable inbox and confirmed
+  server acknowledgement. The temporary Worker and run identities were
+  removed. The dedicated test bucket and seven-day lifecycle remain unchanged;
+  test objects are retained under that expiry rule. The Windows VM was
+  returned to its original suspended state after all evidence was collected.
+- A fresh independent Astra high-effort audit verified archive/source/wheel
+  bindings, report/JUnit consistency, real upgrade and transfer assertions,
+  cross-machine execution and retained failure history. Its initial Windows
+  blocker was resolved by the successful full unchanged rerun; no actionable
+  acceptance gaps remain. Retention safeguards and a recursive actual-secret
+  scan excluded credentials, private state and the untracked handoff.
+- Durable evidence is retained under
+  `python/dist/acceptance-0.2.0-d0191c4/`, including an `evidence.zip` containing
+  95 public evidence files plus their manifest. Its SHA-256 is
+  `6444d8c9f6868b5001ed600944704458fc510d0625e8ea7750ea52403bc07635`.
+  The tracked [acceptance summary](acceptance/0.2.0.json) records platform
+  details, counts, skips, artifact identities, live checks and first-run
+  failures. This evidence-only update does not alter qualified package/build
+  inputs. Release-note finalization, merge/tag and publication remain separate.

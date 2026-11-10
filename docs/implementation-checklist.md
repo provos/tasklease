@@ -101,3 +101,11 @@ installations passed CLI/resource probes and native runtime tests on Linux,
 macOS and Windows. Deployment from the PyPI installation and an isolated
 state-preserving upgrade passed real Cloudflare/R2 checks. See
 [the publication evidence](review-log.md#first-pypi-publication-2026-11-08).
+
+The unpublished `0.2.0` candidate at `d0191c4` has now passed clean native
+macOS/Linux/Windows installed-wheel acceptance, an isolated upgrade from
+published `0.1.0`, real R2 transfers and a macOS-to-Linux durable request/reply
+flow. The [acceptance summary](acceptance/0.2.0.json) records exact artifacts,
+platform details, expected skips and the preserved initial Windows timeout
+failures before its successful unchanged rerun. Release-note finalization,
+merge/tag and publication remain separate.
