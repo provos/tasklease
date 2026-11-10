@@ -16,6 +16,13 @@ Release preparation and verification are documented in
   separate transfer clients, size checks and partial-download cleanup.
   `UploadedBlob` carries the key, size and digest; `BlobTransferError` covers
   signing, transfer, integrity and filesystem failures.
+- Optional `total_timeout` budgets hashing, signing and blob transfer, with
+  cooperative monotonic deadline checks and capped HTTP phase timeouts.
+  Transfer errors retain safe HTTP status, timeout and filesystem reasons.
+- `FakeBoard.blob_transport()`, `blob_base_url`, immutable `put_grants`
+  snapshots and `overwrite_blob()` support transfer fault and corruption tests.
+- `WorkerControl(..., on_second_signal=cleanup)` runs an optional fast cleanup
+  callback once before forced exit, including when the callback raises.
 - Public `tasklease.names.is_request_id`, `is_task_id`, `is_topic_glob` and
   `topic_matches` predicates for requester-compatible IDs, fencing IDs and
   the Worker's scope glob syntax and matching semantics.

@@ -22,7 +22,7 @@ with board.client("requester-token", "requester") as requester:
         ]
         assert task["id"] != created["id"]
         board.expire(task["id"])
-        # Or advance now[0] to exercise time-dependent behavior.
+        now[0] += 60_000  # Advance the injected clock without sleeping.
 ```
 
 `client()` returns the production `tasklease.client.Client`, using an
@@ -49,6 +49,21 @@ The board serializes operations across threads, including renewer calls from
 assertions; changing a snapshot cannot change the board. Injected clocks must
 be safe to call from every thread using the board. Omit `clock` to use wall
 time, or advance an injected clock to test expiry without sleeping.
+
+`blob_transport()` creates a fresh blob-only `httpx.MockTransport`; use
+`board.blob_base_url` as its base URL. A custom `httpx.BaseTransport` can wrap
+this transport to inspect, fail or delay a PUT before forwarding it. Intercept
+`request.stream` in that wrapper to control individual upload chunks: HTTPX's
+`MockTransport` reads the body before calling its handler. `blob_http()` builds
+a separate credential-free client on `blob_transport()`.
+
+`put_grants` is a read-only detached snapshot mapping unexpired signed PUT URLs
+to frozen `BlobPutGrant(key, size, expires_at)` records. GET grants are omitted;
+expiry uses the board's clock in Unix milliseconds. `overwrite_blob(key, bytes)`
+replaces an existing object's body so tests can inject corruption; unknown keys
+raise `KeyError`. It leaves signed grants unchanged. For example, after an
+upload, call `board.overwrite_blob(uploaded.key, b"tampered")` and download with
+the original size and SHA-256 to check that verification rejects it.
 
 ## Transfer files
 
@@ -81,6 +96,20 @@ do not send the API bearer token to blob URLs, do not follow redirects, and
 apply a configurable HTTP timeout. An injected HTTP client stays open for
 its caller to manage.
 
+`timeout` (default 30 seconds) limits each HTTP transfer operation. Set
+`total_timeout`, for example `total_timeout=120`, to budget the entire helper,
+including upload hashing, signing and transfer, using monotonic time. The
+helpers check the budget between file operations and chunks, and before
+committing a download. Signing and transfer HTTP phases are capped to the
+remaining budget when each request starts, preserving any shorter configured
+signing timeout. This stops a peer from extending a transfer indefinitely by
+trickling signing or blob body chunks. It is a cooperative deadline: HTTPX
+can perform multiple reads before returning response headers, so trickled
+headers or informational responses can delay a budget check indefinitely.
+Blocking filesystem calls and custom transports also cannot be interrupted.
+Use process-level supervision when a hard external cutoff must be guaranteed.
+Omitting `total_timeout` preserves the existing timeout behavior.
+
 Transfer clients and transport wrappers must preserve the raw stream of an
 encoded response. If a wrapper has already read and decoded a response with
 `Content-Encoding`, the helper raises `BlobTransferError` before creating a
@@ -94,7 +123,9 @@ partial file and preserve an existing destination. `BlobTransferError` is
 the common error type for signing, transfer, integrity and filesystem errors.
 If signing is refused, its typed API exception (for example `Forbidden` or
 `TooLarge`) is available as the transfer error's `__cause__`. HTTP transfer
-failures keep signed URLs out of displayed diagnostics.
+failures report HTTP status, timeout category, or OS errno and its standard
+system description. Untrusted exception messages and filenames are omitted
+to keep signed URLs out of displayed diagnostics and formatted tracebacks.
 Bucket retention and application deadlines remain the profile's policy.
 
 The board's blob client enforces signed URL capabilities, expiry, method and

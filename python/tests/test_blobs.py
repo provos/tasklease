@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import errno
 import gzip
 import hashlib
+import io
 import json
 import traceback
 from collections.abc import Callable, Iterator
@@ -198,6 +200,8 @@ def test_upload_transfer_failures_are_sanitized_and_never_retried(
     ):
         upload_file(client, "acme", source, http=http)
     assert attempts == 1
+    if failure != "network":
+        assert f"HTTP {500 if failure == 'http' else 307}" in str(caught.value)
     assert "private-signature" not in str(caught.value)
     assert "unsafe diagnostic" not in str(caught.value)
     diagnostic = "".join(traceback.format_exception(caught.value))
@@ -642,3 +646,331 @@ def test_helpers_close_only_clients_they_create(
         )
     assert len(transfers) == 2
     assert all(transfer.is_closed for transfer in transfers)
+
+
+@pytest.mark.parametrize("direction", ["upload", "download"])
+@pytest.mark.parametrize("limit", [0.0, -1.0, float("inf"), float("nan"), True])
+def test_invalid_total_timeout_never_signs(
+    tmp_path: Path, direction: str, limit: float
+) -> None:
+    signing: list[httpx.Request] = []
+    with (
+        _api(signing) as client,
+        pytest.raises(BlobTransferError, match="total_timeout"),
+    ):
+        if direction == "upload":
+            upload_file(client, "acme", tmp_path / "absent", total_timeout=limit)
+        else:
+            download_file(
+                client,
+                "acme",
+                _KEY,
+                tmp_path / "out",
+                size=len(_DATA),
+                sha256=_DIGEST,
+                total_timeout=limit,
+            )
+    assert signing == []
+
+
+@pytest.mark.parametrize("direction", ["upload", "download"])
+def test_total_budget_includes_signing_and_caps_api_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, direction: str
+) -> None:
+    now = [10.0]
+    monkeypatch.setattr("tasklease.blobs.time.monotonic", lambda: now[0])
+    source = tmp_path / "source"
+    source.write_bytes(_DATA)
+    signing: list[httpx.Request] = []
+
+    def sign() -> None:
+        now[0] += 2.0
+
+    def unexpected(request: httpx.Request) -> httpx.Response:
+        pytest.fail("An exhausted signing budget must not send a blob request")
+
+    with (
+        _api(signing, on_sign=sign) as client,
+        httpx.Client(transport=httpx.MockTransport(unexpected)) as http,
+        pytest.raises(BlobTransferError, match="total_timeout"),
+    ):
+        if direction == "upload":
+            upload_file(client, "acme", source, http=http, total_timeout=1.0)
+        else:
+            download_file(
+                client,
+                "acme",
+                _KEY,
+                tmp_path / "out",
+                size=len(_DATA),
+                sha256=_DIGEST,
+                http=http,
+                total_timeout=1.0,
+            )
+    assert signing[0].extensions["timeout"] == dict.fromkeys(
+        ("connect", "read", "write", "pool"), 1.0
+    )
+    assert not (tmp_path / "out").exists()
+
+
+def test_total_budget_includes_upload_hashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = [0.0]
+    monkeypatch.setattr("tasklease.blobs.time.monotonic", lambda: now[0])
+
+    class SlowFile(io.BytesIO):
+        def read(self, size: int | None = -1) -> bytes:
+            now[0] += 0.6
+            return super().read(size)
+
+    monkeypatch.setattr(Path, "open", lambda *a, **kw: SlowFile(_DATA))
+    signing: list[httpx.Request] = []
+    with (
+        _api(signing) as client,
+        pytest.raises(BlobTransferError, match="total_timeout"),
+    ):
+        upload_file(client, "acme", tmp_path / "source", total_timeout=0.5)
+    assert signing == []
+
+
+@pytest.mark.parametrize("direction", ["upload", "download"])
+def test_total_budget_stops_trickled_signing_bodies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, direction: str
+) -> None:
+    now = [0.0]
+    monkeypatch.setattr("tasklease.blobs.time.monotonic", lambda: now[0])
+    source = tmp_path / "source"
+    source.write_bytes(_DATA)
+    consumed = 0
+    closed = False
+
+    class SigningStream(httpx.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            nonlocal consumed
+            # Every chunk arrives before the .1s read timeout, but the entire
+            # response must still stop after the .1s total budget is exhausted.
+            for _ in range(80):
+                now[0] += 0.03
+                consumed += 1
+                yield b" "
+
+        def close(self) -> None:
+            nonlocal closed
+            closed = True
+
+    def signing(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=SigningStream())
+
+    def unexpected(request: httpx.Request) -> httpx.Response:
+        pytest.fail("Signing timeout must not start a blob request")
+
+    with (
+        Client(
+            "https://tasks.example",
+            "api-secret",
+            transport=httpx.MockTransport(signing),
+        ) as client,
+        httpx.Client(transport=httpx.MockTransport(unexpected)) as http,
+        pytest.raises(BlobTransferError, match="total_timeout") as caught,
+    ):
+        if direction == "upload":
+            upload_file(client, "acme", source, http=http, total_timeout=0.1)
+        else:
+            download_file(
+                client,
+                "acme",
+                _KEY,
+                tmp_path / "out",
+                size=len(_DATA),
+                sha256=_DIGEST,
+                http=http,
+                total_timeout=0.1,
+            )
+    assert consumed == 4
+    assert closed
+    assert not (tmp_path / "out").exists()
+    assert caught.value.__suppress_context__
+
+
+@pytest.mark.parametrize("direction", ["upload", "download"])
+def test_total_budget_caps_transfer_to_remainder_after_signing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, direction: str
+) -> None:
+    now = [0.0]
+    monkeypatch.setattr("tasklease.blobs.time.monotonic", lambda: now[0])
+    source = tmp_path / "source"
+    source.write_bytes(_DATA)
+
+    def signed() -> None:
+        now[0] += 0.75
+
+    def transfer(request: httpx.Request) -> httpx.Response:
+        assert request.extensions["timeout"] == dict.fromkeys(
+            ("connect", "read", "write", "pool"), 0.25
+        )
+        return httpx.Response(200, content=_DATA if direction == "download" else b"")
+
+    with (
+        _api(on_sign=signed) as client,
+        httpx.Client(transport=httpx.MockTransport(transfer)) as http,
+    ):
+        if direction == "upload":
+            upload_file(client, "acme", source, http=http, timeout=2, total_timeout=1)
+        else:
+            result = download_file(
+                client,
+                "acme",
+                _KEY,
+                tmp_path / "out",
+                size=len(_DATA),
+                sha256=_DIGEST,
+                http=http,
+                timeout=2,
+                total_timeout=1,
+            )
+            assert result.read_bytes() == _DATA
+
+
+def test_download_budget_checks_before_atomic_replace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = [0.0]
+    monkeypatch.setattr("tasklease.blobs.time.monotonic", lambda: now[0])
+    destination = tmp_path / "out"
+    destination.write_bytes(b"previous")
+
+    class SlowClose(_Chunks):
+        def close(self) -> None:
+            now[0] += 2
+            super().close()
+
+    stream = SlowClose([_DATA])
+    with (
+        _api() as client,
+        httpx.Client(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=stream))
+        ) as http,
+        pytest.raises(BlobTransferError, match="total_timeout"),
+    ):
+        download_file(
+            client,
+            "acme",
+            _KEY,
+            destination,
+            size=len(_DATA),
+            sha256=_DIGEST,
+            http=http,
+            total_timeout=1,
+        )
+    assert destination.read_bytes() == b"previous"
+    assert not list(tmp_path.glob("*.part"))
+
+
+@pytest.mark.parametrize("direction", ["upload", "download"])
+@pytest.mark.parametrize("chunks", [1, 4])
+def test_total_budget_stops_trickling_transfers_and_cleans_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, direction: str, chunks: int
+) -> None:
+    now = [0.0]
+    monkeypatch.setattr("tasklease.blobs.time.monotonic", lambda: now[0])
+    data = b"x" * (64 * 1024 * chunks)
+    source = tmp_path / "source"
+    source.write_bytes(data)
+    destination = tmp_path / "out"
+    destination.write_bytes(b"previous")
+    consumed = 0
+    responses: list[httpx.Response] = []
+
+    class SlowStream(httpx.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            nonlocal consumed
+            for offset in range(0, len(data), 64 * 1024):
+                now[0] += 0.6 if chunks == 1 else 0.3
+                consumed += 1
+                yield data[offset : offset + 64 * 1024]
+
+    class SlowTransport(httpx.BaseTransport):
+        def handle_request(self, request: httpx.Request) -> httpx.Response:
+            nonlocal consumed
+            assert request.extensions["timeout"] == dict.fromkeys(
+                ("connect", "read", "write", "pool"), 0.5
+            )
+            if request.method == "PUT":
+                assert isinstance(request.stream, httpx.SyncByteStream)
+                for _ in request.stream:
+                    consumed += 1
+                    now[0] += 0.6 if chunks == 1 else 0.3
+                response = httpx.Response(200)
+            else:
+                response = httpx.Response(200, stream=SlowStream())
+            responses.append(response)
+            return response
+
+    with (
+        _api() as client,
+        httpx.Client(transport=SlowTransport()) as http,
+        pytest.raises(BlobTransferError, match="total_timeout"),
+    ):
+        if direction == "upload":
+            upload_file(client, "acme", source, http=http, timeout=1, total_timeout=0.5)
+        else:
+            download_file(
+                client,
+                "acme",
+                _KEY,
+                destination,
+                size=len(data),
+                sha256=hashlib.sha256(data).hexdigest(),
+                http=http,
+                timeout=1,
+                total_timeout=0.5,
+            )
+    assert consumed == min(chunks, 2)
+    assert destination.read_bytes() == b"previous"
+    assert not list(tmp_path.glob("*.part"))
+    assert all(response.is_closed for response in responses)
+
+
+@pytest.mark.parametrize("direction", ["upload", "download"])
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (httpx.ReadTimeout(_URL), "read timeout"),
+        (httpx.WriteTimeout(_URL), "write timeout"),
+        (httpx.ConnectTimeout(_URL), "connect timeout"),
+        (httpx.PoolTimeout(_URL), "pool timeout"),
+        (OSError(errno.ENOENT, _URL, _URL), "OS error 2:"),
+        (OSError(_URL), "filesystem error"),
+    ],
+)
+def test_safe_error_reasons_hide_untrusted_messages_and_tracebacks(
+    tmp_path: Path, direction: str, error: Exception, reason: str
+) -> None:
+    source = tmp_path / "source"
+    source.write_bytes(_DATA)
+
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise error
+
+    with (
+        _api() as client,
+        httpx.Client(transport=httpx.MockTransport(fail)) as http,
+        pytest.raises(BlobTransferError, match=reason) as caught,
+    ):
+        if direction == "upload":
+            upload_file(client, "acme", source, http=http)
+        else:
+            download_file(
+                client,
+                "acme",
+                _KEY,
+                tmp_path / "out",
+                size=len(_DATA),
+                sha256=_DIGEST,
+                http=http,
+            )
+    diagnostic = "".join(traceback.format_exception(caught.value))
+    assert _URL not in diagnostic
+    assert "private-signature" not in diagnostic
+    assert caught.value.__cause__ is None

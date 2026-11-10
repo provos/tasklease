@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import socket
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import FrozenInstanceError, dataclass
+from pathlib import Path
 from typing import cast
 
 import httpx
 import pytest
 
+from tasklease.blobs import BlobTransferError, download_file
 from tasklease.errors import (
     Empty,
     Forbidden,
@@ -20,7 +23,7 @@ from tasklease.errors import (
     Unauthenticated,
 )
 from tasklease.generated import protocol as p
-from tasklease.testing import FakeBoard
+from tasklease.testing import BlobPutGrant, FakeBoard
 
 
 @dataclass
@@ -306,6 +309,99 @@ def test_blobs_size_scopes_expiry_and_url_integrity(
         clock.now = signed["expires_at"]
         assert blobs.get(get["url"]).status_code == 403
         assert blobs.put(signed["url"], content=b"abc").status_code == 403
+
+
+def test_public_blob_transport_supports_streaming_fault_wrappers(
+    board: FakeBoard,
+) -> None:
+    class RejectPut(httpx.BaseTransport):
+        def __init__(self) -> None:
+            self.inner = board.blob_transport()
+            self.chunks: list[bytes] = []
+
+        def handle_request(self, request: httpx.Request) -> httpx.Response:
+            if request.method == "PUT":
+                assert isinstance(request.stream, httpx.SyncByteStream)
+                self.chunks.extend(request.stream)
+                return httpx.Response(503)
+            return self.inner.handle_request(request)
+
+        def close(self) -> None:
+            self.inner.close()
+
+    first, second = board.blob_transport(), board.blob_transport()
+    assert first is not second
+    first.close()
+    wrapper = RejectPut()
+    with board.client("token") as client:
+        signed = client.blob_put_url(
+            {"domain": board.domain, "name": "file", "size": 3, "sha256": "a" * 64}
+        )
+    assert signed["url"].startswith(board.blob_base_url + "/")
+    with httpx.Client(transport=wrapper, base_url=board.blob_base_url) as blobs:
+        assert blobs.put(signed["url"], content=iter([b"a", b"bc"])).status_code == 503
+    assert wrapper.chunks == [b"a", b"bc"]
+    with httpx.Client(transport=second) as blobs:
+        assert blobs.put(signed["url"], content=b"abc").status_code == 200
+
+
+def test_put_grants_are_read_only_detached_and_exclude_expired_gets(
+    board: FakeBoard, clock: Clock
+) -> None:
+    with board.client("token") as client, board.blob_http() as blobs:
+        signed = client.blob_put_url(
+            {"domain": board.domain, "name": "file", "size": 3, "sha256": "a" * 64}
+        )
+        snapshot = board.put_grants
+        grant = snapshot[signed["url"]]
+        assert grant == BlobPutGrant(signed["key"], 3, signed["expires_at"])
+        with pytest.raises(TypeError):
+            cast(dict[str, BlobPutGrant], snapshot)[signed["url"]] = grant
+        with pytest.raises(FrozenInstanceError):
+            grant.__setattr__("size", 999)
+        assert blobs.put(signed["url"], content=b"abc").status_code == 200
+        client.blob_get_url({"domain": board.domain, "key": signed["key"]})
+        assert board.put_grants == snapshot
+        client.blob_put_url(
+            {"domain": board.domain, "name": "other", "size": 1, "sha256": "b" * 64}
+        )
+        assert len(snapshot) == 1
+        assert len(board.put_grants) == 2
+        clock.now = signed["expires_at"]
+        assert not board.put_grants
+        assert snapshot[signed["url"]] == grant
+
+
+def test_overwrite_blob_injects_corruption_without_changing_grants(
+    board: FakeBoard, tmp_path: Path
+) -> None:
+    with board.client("token") as client, board.blob_http() as blobs:
+        signed = client.blob_put_url(
+            {"domain": board.domain, "name": "file", "size": 3, "sha256": "a" * 64}
+        )
+        with pytest.raises(KeyError):
+            board.overwrite_blob(signed["key"], b"xyz")
+        assert blobs.put(signed["url"], content=b"abc").status_code == 200
+        before = board.put_grants
+        board.overwrite_blob(signed["key"], b"xyz")
+        assert board.blobs[signed["key"]] == b"xyz"
+        assert board.put_grants == before
+        with pytest.raises(TypeError):
+            board.overwrite_blob(signed["key"], cast(bytes, bytearray(b"abc")))
+        destination = tmp_path / "downloaded"
+        destination.write_bytes(b"existing")
+        with pytest.raises(BlobTransferError, match="SHA-256"):
+            download_file(
+                client,
+                board.domain,
+                signed["key"],
+                destination,
+                size=3,
+                sha256=hashlib.sha256(b"abc").hexdigest(),
+                http=blobs,
+            )
+        assert destination.read_bytes() == b"existing"
+        assert not list(tmp_path.glob("*.part"))
 
 
 def test_wire_validation_and_lone_surrogates(board: FakeBoard) -> None:

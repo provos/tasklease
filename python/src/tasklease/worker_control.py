@@ -6,6 +6,7 @@ import os
 import signal
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from types import FrameType, TracebackType
 from typing import Self
@@ -49,21 +50,40 @@ class WorkerControl:
     Stop files are consumed once, including a request already present at
     startup. A unique worker label identifies one running worker on a machine.
     Signal handlers are installed only on the main thread and restored on exit.
+
+    ``on_second_signal`` runs once before forced exit, on the signal-handling
+    thread. Use it for fast, nonblocking cleanup such as terminating a child
+    process. It must not wait for work to finish. Exceptions still force exit;
+    another signal during cleanup exits immediately without calling it again.
     """
 
-    def __init__(self, worker_label: str, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        worker_label: str,
+        root: Path | None = None,
+        *,
+        on_second_signal: Callable[[], None] | None = None,
+    ) -> None:
         self.path = stop_path(worker_label, root)
         self.stop = threading.Event()
         self._closed = threading.Event()
         self._signals: dict[int, signal._HANDLER] = {}
         self._watcher: threading.Thread | None = None
         self._error: OSError | None = None
+        self._on_second_signal = on_second_signal
+        self._forcing_exit = False
 
     def _signal(self, number: int, frame: FrameType | None) -> None:
         if self.stop.is_set():
             # User explicitly requested immediate termination. In particular,
             # do not wait for an uncooperative handler or networking thread.
-            os._exit(128 + number)
+            try:
+                if not self._forcing_exit:
+                    self._forcing_exit = True
+                    if self._on_second_signal is not None:
+                        self._on_second_signal()
+            finally:
+                os._exit(128 + number)
         self.stop.set()
 
     def _consume_stop(self) -> None:

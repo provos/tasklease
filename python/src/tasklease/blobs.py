@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 import re
 import tempfile
+import time
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
@@ -40,9 +42,55 @@ class UploadedBlob:
     sha256: str
 
 
-def _validate_timeout(timeout: float) -> None:
+def _validate_timeout(timeout: float, name: str = "timeout") -> None:
     if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
-        raise BlobTransferError("timeout must be a positive finite number of seconds")
+        raise BlobTransferError(f"{name} must be a positive finite number of seconds")
+
+
+class _Budget:
+    def __init__(self, total_timeout: float | None) -> None:
+        if total_timeout is not None:
+            _validate_timeout(total_timeout, "total_timeout")
+        self.end = None if total_timeout is None else time.monotonic() + total_timeout
+
+    def remaining(self) -> float | None:
+        if self.end is None:
+            return None
+        remaining = self.end - time.monotonic()
+        if remaining <= 0:
+            raise BlobTransferError("Blob total_timeout exceeded") from None
+        return remaining
+
+    def cap(self, timeout: float) -> float:
+        remaining = self.remaining()
+        return timeout if remaining is None else min(timeout, remaining)
+
+
+def _failure(operation: str, error: Exception) -> BlobTransferError:
+    # Exception messages, reason phrases, filenames and chained HTTP errors can
+    # contain presigned credentials. Only report structured, trusted details.
+    if isinstance(error, httpx.HTTPStatusError):
+        reason = f"HTTP {error.response.status_code}"
+    elif isinstance(error, httpx.TimeoutException):
+        reason = {
+            httpx.ConnectTimeout: "connect timeout",
+            httpx.ReadTimeout: "read timeout",
+            httpx.WriteTimeout: "write timeout",
+            httpx.PoolTimeout: "pool timeout",
+        }.get(type(error), "HTTP timeout")
+    elif isinstance(error, OSError):
+        reason = (
+            f"OS error {error.errno}: {os.strerror(error.errno)}"
+            if error.errno is not None
+            else "filesystem error"
+        )
+    elif isinstance(error, httpx.HTTPError):
+        reason = "HTTP transport error"
+    elif isinstance(error, httpx.InvalidURL):
+        reason = "invalid blob URL"
+    else:
+        reason = "client or file operation failed"
+    return BlobTransferError(f"Blob {operation} failed: {reason}")
 
 
 @contextmanager
@@ -81,16 +129,24 @@ def _request(
 
 
 class _UploadBody(httpx.SyncByteStream):
-    def __init__(self, source: BinaryIO, size: int, sha256: str) -> None:
+    def __init__(
+        self, source: BinaryIO, size: int, sha256: str, budget: _Budget
+    ) -> None:
         self.source = source
         self.expected_size = size
         self.expected_sha256 = sha256
         self.size = 0
         self.digest = hashlib.sha256()
         self.complete = False
+        self.budget = budget
 
     def __iter__(self) -> Iterator[bytes]:
-        while chunk := self.source.read(_CHUNK_SIZE):
+        while True:
+            self.budget.remaining()
+            chunk = self.source.read(_CHUNK_SIZE)
+            self.budget.remaining()
+            if not chunk:
+                break
             self.size += len(chunk)
             if self.size > self.expected_size:
                 raise BlobTransferError("The upload file changed during transfer")
@@ -99,6 +155,7 @@ class _UploadBody(httpx.SyncByteStream):
         self.complete = True
 
     def verify(self) -> None:
+        self.budget.remaining()
         if (
             not self.complete
             or self.size != self.expected_size
@@ -107,10 +164,15 @@ class _UploadBody(httpx.SyncByteStream):
             raise BlobTransferError("The upload file changed during transfer")
 
 
-def _measure(source: BinaryIO) -> tuple[int, str]:
+def _measure(source: BinaryIO, budget: _Budget) -> tuple[int, str]:
     size = 0
     digest = hashlib.sha256()
-    while chunk := source.read(_CHUNK_SIZE):
+    while True:
+        budget.remaining()
+        chunk = source.read(_CHUNK_SIZE)
+        budget.remaining()
+        if not chunk:
+            break
         size += len(chunk)
         if size > _MAX_SIZE:
             raise BlobTransferError("Blob exceeds 2 GiB")
@@ -128,6 +190,7 @@ def upload_file(
     name: str | None = None,
     http: httpx.Client | None = None,
     timeout: float = 30.0,
+    total_timeout: float | None = None,
 ) -> UploadedBlob:
     """Hash and upload a file, returning its key, byte count, and SHA-256.
 
@@ -135,12 +198,21 @@ def upload_file(
     client; it remains open after this call. If the source changes between
     hashing and transfer, the upload fails rather than returning wrong metadata.
     A failed upload may leave an object for the bucket lifecycle to remove.
+
+    ``timeout`` limits each HTTP transfer operation. ``total_timeout`` optionally
+    budgets the whole helper, including hashing and signing, using monotonic
+    time. Checks between body chunks stop a trickling peer; HTTP phases are capped
+    to the remaining budget when each request starts. Blocking file operations
+    and custom transports cannot be interrupted. HTTPX can perform multiple
+    reads before returning response headers, so trickled headers can delay
+    budget checks indefinitely. This is not a hard interruption guarantee.
     """
     _validate_timeout(timeout)
+    budget = _Budget(total_timeout)
     try:
         source_path = Path(path)
         with source_path.open("rb") as source:
-            size, sha256 = _measure(source)
+            size, sha256 = _measure(source, budget)
             try:
                 signed = client.blob_put_url(
                     {
@@ -148,17 +220,24 @@ def upload_file(
                         "name": source_path.name if name is None else name,
                         "size": size,
                         "sha256": sha256,
-                    }
+                    },
+                    total_timeout=budget.remaining(),
                 )
             except APIError as error:
                 raise BlobTransferError(
                     f"Blob upload signing failed: {error.code}"
                 ) from error
+            budget.remaining()
             source.seek(0)
-            body = _UploadBody(source, size, sha256)
+            body = _UploadBody(source, size, sha256, budget)
             with _transfer_client(http) as transfer:
                 request = _request(
-                    transfer, "PUT", signed["url"], timeout, content=body, size=size
+                    transfer,
+                    "PUT",
+                    signed["url"],
+                    budget.cap(timeout),
+                    content=body,
+                    size=size,
                 )
                 with closing(
                     transfer.send(
@@ -167,6 +246,7 @@ def upload_file(
                 ) as response:
                     response.raise_for_status()
                     body.verify()
+            budget.remaining()
             return UploadedBlob(signed["key"], size, sha256)
     except BlobTransferError:
         raise
@@ -177,8 +257,9 @@ def upload_file(
         RuntimeError,
         OSError,
         ValueError,
-    ):
-        raise BlobTransferError("Blob upload failed") from None
+    ) as error:
+        budget.remaining()
+        raise _failure("upload", error) from None
 
 
 def download_file(
@@ -191,6 +272,7 @@ def download_file(
     sha256: str,
     http: httpx.Client | None = None,
     timeout: float = 30.0,
+    total_timeout: float | None = None,
 ) -> Path:
     """Verify a streamed download, then atomically replace ``path``.
 
@@ -199,8 +281,10 @@ def download_file(
     remains open when supplied. No redirect is followed and no attempt is retried.
     Transfer clients must preserve encoded responses' raw streams: once HTTPX
     has consumed and decoded one, the original stored bytes cannot be verified.
+    ``timeout`` and ``total_timeout`` have the same semantics as ``upload_file``.
     """
     _validate_timeout(timeout)
+    budget = _Budget(total_timeout)
     if type(size) is not int or not 1 <= size <= _MAX_SIZE:
         raise BlobTransferError("size must be between 1 byte and 2 GiB")
     if not isinstance(sha256, str) or _SHA256.fullmatch(sha256) is None:
@@ -210,19 +294,22 @@ def download_file(
         try:
             destination = Path(path)
             try:
-                signed = client.blob_get_url({"domain": domain, "key": key})
+                signed = client.blob_get_url(
+                    {"domain": domain, "key": key}, total_timeout=budget.remaining()
+                )
             except APIError as error:
                 raise BlobTransferError(
                     f"Blob download signing failed: {error.code}"
                 ) from error
             with _transfer_client(http) as transfer:
-                request = _request(transfer, "GET", signed["url"], timeout)
+                request = _request(transfer, "GET", signed["url"], budget.cap(timeout))
                 with closing(
                     transfer.send(
                         request, stream=True, auth=None, follow_redirects=False
                     )
                 ) as response:
                     response.raise_for_status()
+                    budget.remaining()
                     if response.is_stream_consumed and any(
                         encoding.strip().lower() not in {"", "identity"}
                         for encoding in response.headers.get_list(
@@ -252,6 +339,7 @@ def download_file(
                             else response.iter_raw()
                         )
                         for chunk in chunks:
+                            budget.remaining()
                             received += len(chunk)
                             if received > size:
                                 raise BlobTransferError(
@@ -259,10 +347,12 @@ def download_file(
                                 )
                             output.write(chunk)
                             digest.update(chunk)
+                        budget.remaining()
                         if received != size:
                             raise BlobTransferError("Blob size does not match")
                         if digest.hexdigest() != sha256.lower():
                             raise BlobTransferError("Blob SHA-256 does not match")
+            budget.remaining()
             temporary.replace(destination)
             return destination
         finally:
@@ -277,5 +367,6 @@ def download_file(
         RuntimeError,
         OSError,
         ValueError,
-    ):
-        raise BlobTransferError("Blob download failed") from None
+    ) as error:
+        budget.remaining()
+        raise _failure("download", error) from None

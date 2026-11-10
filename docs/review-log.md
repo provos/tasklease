@@ -891,3 +891,47 @@ Status: accepted after corrections, independent reviews and native qualification
   details, counts, skips, artifact identities, live checks and first-run
   failures. This evidence-only update does not alter qualified package/build
   inputs. Release-note finalization, merge/tag and publication remain separate.
+
+### FluxShot Editor API review follow-up (2026-11-09)
+
+- Addressed the [FluxShot review of PR #8](https://github.com/provos/tasklease/pull/8#issuecomment-6756255222).
+  Blob helpers accept optional `total_timeout`, checked against monotonic time
+  through upload hashing, signing response bodies and blob body chunks, and
+  before committing downloads. Signing and transfer HTTP phases use the
+  remaining budget. This is cooperative: trickled response headers can keep
+  HTTPX inside a request indefinitely, and blocking filesystem calls/custom
+  transports cannot be interrupted. Hard cutoffs require process supervision.
+- Blob failures retain safe HTTP status, timeout category, or OS errno and
+  standard system description; untrusted exception messages, filenames and
+  transfer exception chains remain suppressed. Signing refusals retain their
+  typed API cause. `FakeBoard` exposes a fresh `blob_transport()`, public
+  `blob_base_url`, frozen `BlobPutGrant` records in detached read-only
+  `put_grants`, and an explicit `overwrite_blob()` corruption hook. Documented
+  mutable clock advancement needs no new setter. The Worker's 60-second empty
+  poller update throttle remains unchanged.
+- `WorkerControl(..., on_second_signal=cleanup)` invokes a fast optional
+  callback at most once before forced exit. Exit still happens if cleanup
+  raises; another signal during cleanup exits immediately. Regression coverage
+  includes real POSIX signals as well as callback exceptions and reentry.
+- Simplify reuse, quality and efficiency passes completed, including the
+  revised signing path. Two fresh independent Astra high-effort reviews found
+  that signing response bodies could trickle past the original deadline checks.
+  Added streaming checks and a regression that stops after four of 80 chunks;
+  both reviewers independently rechecked the correction and reported no
+  remaining actionable findings. Focused client/blob tests: 167 passed.
+- Final `make check` passed: 191 Worker, 32 dashboard, 1,005 Python/tooling
+  and 393 conformance tests, with three native Windows and 36 capability skips.
+  Dependency policy/audit, generation, formatting, lint and strict mypy passed.
+  `make build` passed; wheel/sdist source parity was verified for all four
+  changed runtime modules, with no handoff or private credentials packaged.
+- A fresh macOS installed-wheel environment with locked dependencies passed
+  912 runtime tests and three expected Windows-only skips, plus the no-Node
+  package/resource probe. This precommit regression bundle records dirty source
+  based on `16f1792`; it is not clean-commit release qualification. Build hashes:
+  - wheel: `3d06c1a58926c9c2b36cecb2aa19854f4c5207adfd518ce4e38d679b117ed4e0`;
+  - sdist: `322719724f83a651b848ed9d0f89bfdf1bbbcdb540426a02ee59191b55875263`.
+  Logs, artifact inspection, exported source/wheel and macOS report/JUnit are
+  retained under `python/dist/validation-0.2.0-fluxshot-review/` with SHA-256
+  manifest. Earlier native Linux/Windows, live R2/upgrade and cross-machine
+  acceptance remains bound to `d0191c4`. Refresh affected acceptance for the
+  final release candidate; publication and dated release notes remain separate.

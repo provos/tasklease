@@ -23,6 +23,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from types import MappingProxyType
 from typing import Literal, NotRequired, cast, get_origin, get_type_hints
 from urllib.parse import quote
 
@@ -274,6 +275,18 @@ class _BlobGrant:
     size: int | None = None
 
 
+@dataclass(frozen=True)
+class BlobPutGrant:
+    """An issued PUT capability's signed fields; its URL is the snapshot key.
+
+    ``expires_at`` uses Unix milliseconds, like the board's injected clock.
+    """
+
+    key: str
+    size: int
+    expires_at: int
+
+
 class FakeBoard:
     """One-domain service with explicit test identities and an injectable clock.
 
@@ -281,11 +294,12 @@ class FakeBoard:
     ``pollers`` snapshots map ``(topic, identity, worker)`` to poller records;
     old entries can remain stored but API queries hide entries older than a week.
     ``blobs`` snapshots map object keys to immutable bytes. Mutating any snapshot
-    never changes the board. Close clients returned by ``client``/``blob_http``.
+    never changes the board; ``put_grants`` also prevents snapshot mutation.
+    Close clients returned by ``client``/``blob_http``.
     """
 
     base_url = "https://api.tasklease.invalid"
-    _blob_base = "https://blobs.tasklease.invalid"
+    blob_base_url = "https://blobs.tasklease.invalid"
 
     def __init__(self, domain: str, *, clock: Callable[[], int] | None = None) -> None:
         if not is_domain(domain):
@@ -329,6 +343,33 @@ class FakeBoard:
         """A snapshot of stored object bytes, keyed by blob key."""
         with self._lock:
             return self._blobs.copy()
+
+    @property
+    def put_grants(self) -> Mapping[str, BlobPutGrant]:
+        """A read-only snapshot of unexpired signed PUT grants, keyed by URL."""
+        with self._lock:
+            now = self._now()
+            return MappingProxyType(
+                {
+                    url: BlobPutGrant(
+                        grant.key, cast(int, grant.size), grant.expires_at
+                    )
+                    for url, grant in self._grants.items()
+                    if grant.method == "PUT" and grant.expires_at > now
+                }
+            )
+
+    def overwrite_blob(self, key: str, content: bytes) -> None:
+        """Replace an existing object's bytes to inject corruption in a test.
+
+        Unknown keys raise KeyError. Signed grants and their sizes are unchanged.
+        """
+        if not isinstance(content, bytes):
+            raise TypeError("content must be immutable bytes")
+        with self._lock:
+            if key not in self._blobs:
+                raise KeyError(key)
+            self._blobs[key] = content
 
     def add_identity(
         self,
@@ -387,10 +428,14 @@ class FakeBoard:
     def blob_http(self) -> httpx.Client:
         """Create a separate, credential-free client for local presigned URLs."""
         return httpx.Client(
-            transport=httpx.MockTransport(self._handle_blob),
+            transport=self.blob_transport(),
             follow_redirects=False,
             trust_env=False,
         )
+
+    def blob_transport(self) -> httpx.MockTransport:
+        """A fresh blob-only transport for clients and streaming fault wrappers."""
+        return httpx.MockTransport(self._handle_blob)
 
     def expire(self, task_id: str) -> None:
         """End a live task's lease now; an unknown fencing ID raises KeyError."""
@@ -728,7 +773,7 @@ class FakeBoard:
             url: grant for url, grant in self._grants.items() if grant.expires_at > now
         }
         signature = secrets.token_hex(32)
-        url = f"{self._blob_base}/{quote(key, safe='/')}?X-Amz-Signature={signature}"
+        url = f"{self.blob_base_url}/{quote(key, safe='/')}?X-Amz-Signature={signature}"
         self._grants[url] = _BlobGrant(key, method, expires_at, size)
         result: dict[str, object] = {"ok": True, "url": url, "expires_at": expires_at}
         if method == "PUT":

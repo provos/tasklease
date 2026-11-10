@@ -109,3 +109,10 @@ flow. The [acceptance summary](acceptance/0.2.0.json) records exact artifacts,
 platform details, expected skips and the preserved initial Windows timeout
 failures before its successful unchanged rerun. Release-note finalization,
 merge/tag and publication remain separate.
+
+Subsequent FluxShot review fixes add cooperative blob deadlines, safe transfer
+diagnostics, public fake blob fault controls and a second-signal cleanup hook.
+Full local checks and macOS installed-wheel regression passed for these changes;
+the earlier Linux/Windows and live acceptance remains evidence for `d0191c4`,
+not qualification of the modified package. Refresh affected release acceptance
+against the final committed candidate before publication.

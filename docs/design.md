@@ -449,6 +449,11 @@ the current task, then exits. A stop request is `SIGHUP` or `SIGTERM` on
 POSIX, or a stop file (`<state dir>/workers/<h(label)>.stop`) on any OS, which
 is also what the Windows service wrapper uses. A second signal stops at once,
 and the task's lease brings it back for another worker.
+Library callers can pass `on_second_signal=cleanup` to `WorkerControl` to end a
+running child command before forced exit. The callback takes no arguments and
+runs at most once in the signal handler. It must finish quickly without waiting
+for work; an exception still forces exit, and another signal during cleanup
+exits immediately without invoking the callback again.
 The hash uses the store's first 32 lowercase hexadecimal SHA-256 characters,
 so case-sensitive labels, Windows device names and long labels are portable.
 `tl worker stop --worker <label>` creates the file without needing credentials.
