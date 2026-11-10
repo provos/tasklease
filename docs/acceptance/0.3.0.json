@@ -1,0 +1,246 @@
+{
+  "version": "0.3.0",
+  "metadata_and_readme_verified": true,
+  "license_verified": true,
+  "third_party_notices_verified": true,
+  "dashboard_and_worker_verified": true,
+  "wheel_and_sdist_package_members_identical": true,
+  "wheel_members": 50,
+  "wheel_sha256": "6b45d81ca8fc92801e07e19a6329196915c0bff9f9f4551c5aee74a23c79b2ce",
+  "sdist_sha256": "06dde505c39f0cc487465bc20f60b0429428faf0d4841b4dfb294397df34338d",
+  "acceptance_zip_sha256": "6ccc5851d2bb1c310384bbbc0f9976cef0108b8e1a2f273f17d6e85dd4291ccc",
+  "source_commit": "cfaecf3a9747dd0704d8101d5d46b8faa483ba8e",
+  "source_tree_sha256": "6c4ae27fad3d519b013ece3242e72c35ca80ef48bb989ac313da287fbb5d5923",
+  "status": "passed",
+  "date": "2026-11-10",
+  "date_timezone": "America/Los_Angeles",
+  "source_dirty": false,
+  "clean_checkout_gates": {
+    "install": "passed",
+    "check": "passed",
+    "build": "passed",
+    "worker_passed": 191,
+    "dashboard_passed": 32,
+    "python_tooling_passed": 1060,
+    "python_skipped": 3,
+    "conformance_passed": 393,
+    "conformance_skipped": 36
+  },
+  "native": {
+    "macos": {
+      "report": "macos/native-report.json",
+      "platform": "macOS-27.0-arm64-arm-64bit",
+      "python": "3.12.12",
+      "python_build_platform": "macosx-11.0-arm64",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "errors": 0,
+        "failed_cases": [],
+        "failures": 0,
+        "passed": 967,
+        "skipped": 3,
+        "skipped_cases": [
+          {
+            "reason": "Native Windows file sharing",
+            "test": "tests.test_fsio::test_windows_loser_flush_and_reader_share_an_inflight_delete_handle"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[unicode_string]"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[utf8_file]"
+          }
+        ],
+        "tests": 970
+      }
+    },
+    "linux": {
+      "report": "linux/native-report.json",
+      "platform": "Linux-6.17.0-1029-nvidia-aarch64-with-glibc2.39",
+      "python": "3.12.3",
+      "python_build_platform": "linux-aarch64",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "errors": 0,
+        "failed_cases": [],
+        "failures": 0,
+        "passed": 967,
+        "skipped": 3,
+        "skipped_cases": [
+          {
+            "reason": "Native Windows file sharing",
+            "test": "tests.test_fsio::test_windows_loser_flush_and_reader_share_an_inflight_delete_handle"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[unicode_string]"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[utf8_file]"
+          }
+        ],
+        "tests": 970
+      }
+    },
+    "windows": {
+      "report": "windows/native-report.json",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.12.12",
+      "python_build_platform": "win-amd64",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "errors": 0,
+        "failed_cases": [],
+        "failures": 0,
+        "passed": 952,
+        "skipped": 18,
+        "skipped_cases": [
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_cli::test_insecure_token_file_reports_fix_without_stdout_secret_or_request[False]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_cli::test_insecure_token_file_reports_fix_without_stdout_secret_or_request[True]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[420]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[416]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[388]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[400]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[385]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_private_token_files_are_accepted[384]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_private_token_files_are_accepted[256]"
+          },
+          {
+            "reason": "POSIX symlinks and permissions",
+            "test": "tests.test_config::test_token_permissions_follow_the_open_file_not_the_symlink"
+          },
+          {
+            "reason": "POSIX supports unprivileged symlinks",
+            "test": "tests.test_fsio::test_temp_cleanup_does_not_follow_symlinks"
+          },
+          {
+            "reason": "Darwin flush uses POSIX fcntl",
+            "test": "tests.test_fsio::test_darwin_full_flush_follows_namespace_flush"
+          },
+          {
+            "reason": "Darwin flush uses POSIX fcntl",
+            "test": "tests.test_fsio::test_darwin_full_flush_failure_is_not_ignored"
+          },
+          {
+            "reason": "Windows denies unlink of an open file",
+            "test": "tests.test_worker_control::test_consumer_can_remove_marker_before_creator_closes"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[False-False]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[False-True]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[True-False]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[True-True]"
+          }
+        ],
+        "tests": 970
+      },
+      "cleanup": {
+        "leftover_python_count": 0,
+        "execution_policy": "Restricted"
+      }
+    }
+  },
+  "prior_version": "0.2.0",
+  "live_checks": {
+    "published_bootstrap_and_r2_probe": true,
+    "exact_installed_candidate_wheel_bytes": true,
+    "upgrade_exact_task_credentials_stats_preserved": true,
+    "snapshot_atomic_reply_and_stale_id_fencing": true,
+    "signed_content_length_rejection_and_r2_roundtrip": true,
+    "public_blob_helpers_live_r2": true,
+    "installed_operator_cli_private_config_and_declaration": true,
+    "temporary_identities_revoked": true,
+    "new_worker_deleted_existing_bucket_untouched": true
+  },
+  "cleanup": {
+    "worker_api_status": 404,
+    "worker_deleted": true,
+    "existing_bucket_lifecycle_unchanged": true,
+    "lifecycle_before": [
+      {
+        "name": "Default Multipart Abort Rule",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Abort incomplete multipart uploads after 7 days"
+      },
+      {
+        "name": "tasklease-expire",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Expire objects after 7 days"
+      }
+    ],
+    "lifecycle_after": [
+      {
+        "name": "Default Multipart Abort Rule",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Abort incomplete multipart uploads after 7 days"
+      },
+      {
+        "name": "tasklease-expire",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Expire objects after 7 days"
+      }
+    ],
+    "test_objects_retained_under_seven_day_expiry": true
+  },
+  "cross_machine": {
+    "status": "passed",
+    "request_id": "cross-cross-03ec95ff5c",
+    "requester_os": "Darwin",
+    "worker_os": "Linux",
+    "version": "0.3.0",
+    "input_sha256": "534566bf2e63c5625a7fb3746d741344815210f49bd0efe95f1096e036df7f0d",
+    "output_sha256": "bcf988a821ebdf2095a1817b83b61f0e883c912c4790fdc2d748cc3a2defe850",
+    "output_size": 262198,
+    "durable_inbox_reopened": true,
+    "server_reply_acknowledged": true,
+    "uploaded_and_downloaded_real_r2": true,
+    "remote_worker_credential_removed": true
+  },
+  "helper_total_timeout_seconds": 60,
+  "evidence_archive": "python/dist/publication-0.3.0-cfaecf3/evidence.zip",
+  "evidence_archive_sha256": "b233fe08a9d6e1d0bc1359cf92f2e56706c6fd20a66144ee785c497c749c1f67",
+  "secret_scan_passed": true
+}

@@ -1047,3 +1047,41 @@ Status: accepted after corrections, independent reviews and native qualification
   Recursive actual-secret scanning excluded private credentials/state. The
   [publication summary](acceptance/0.2.0-publication.json) records tag/commit,
   workflow identities, published hashes, native results, diagnostics and cleanup.
+
+## 0.3.0 acceptance and publication (2026-11-10)
+
+- Release commit `cfaecf3a9747dd0704d8101d5d46b8faa483ba8e` includes the
+  operator setup fixes from PR #10. Clean `make install`, `make check` and
+  `make build` passed, including 191 Worker, 32 dashboard, 1,060 Python/tooling
+  and 393 conformance tests. The Python and conformance suites had three and
+  36 expected skips, respectively. Wheel and sdist inspection verified
+  package metadata, licenses, notices, dashboard and Worker resources.
+- The installed candidate wheel passed 967 native tests on macOS and Linux
+  with three expected skips each, and 952 on Windows with 18 expected skips.
+  Windows passed both native Task Scheduler parser modes and the file sharing
+  test. The isolated upgrade from published 0.2.0 preserved the exact held
+  task, identity credentials and statistics. Operator CLI setup, stale ID
+  fencing, real R2 signed-size enforcement and the macOS-to-Linux durable
+  blob request/reply passed. See the [candidate report](acceptance/0.3.0.json).
+- The annotated `v0.3.0` tag identifies the accepted commit. Both the
+  [build-only rehearsal](https://github.com/provos/tasklease/actions/runs/42898265420)
+  and [trusted publishing run](https://github.com/provos/tasklease/actions/runs/42898779319)
+  succeeded. PyPI's wheel and sdist matched the publishing artifacts byte for
+  byte. Comparison with the candidate wheel accounted for generated
+  timestamps, source paths and their RECORD entries.
+- Fresh PyPI installations passed the same native test counts and the
+  installed-package probes without Node. Initial package index lookups on
+  Linux and Windows could not resolve 0.3.0. Both passed in fresh environments
+  using the SHA-256-pinned wheel URL from PyPI. The published package also
+  passed an isolated live deployment, task flow, signed-size rejection and
+  real R2 file transfers.
+- Temporary identities were revoked and both isolated Workers returned API
+  404 after deletion. Test blobs expire under the existing seven-day lifecycle.
+  The Windows VM was returned to its suspended state with idle pausing enabled.
+  The [GitHub Release](https://github.com/provos/tasklease/releases/tag/v0.3.0)
+  uses the finalized changelog text.
+- The [publication report](acceptance/0.3.0-publication.json) records the
+  published distribution hashes, native results and cleanup. The local archive
+  `python/dist/publication-0.3.0-cfaecf3/evidence.zip` contains 156 files plus
+  a SHA-256 manifest and passed recursive credential scanning. Its SHA-256 is
+  `b233fe08a9d6e1d0bc1359cf92f2e56706c6fd20a66144ee785c497c749c1f67`.

@@ -1,0 +1,240 @@
+{
+  "version": "0.3.0",
+  "tag": "v0.3.0",
+  "release_commit": "cfaecf3a9747dd0704d8101d5d46b8faa483ba8e",
+  "publishing_run": 42898779319,
+  "publishing_url": "https://github.com/provos/tasklease/actions/runs/42898779319",
+  "wheel_sha256": "273212a50ad93eefbb2875a993e28193e5eb863c26b904c093005351e80d7219",
+  "sdist_sha256": "6557ad4f203b5cb252a6d4fc5479092e2ad6cf7018b34fb82c4543a692374a10",
+  "pypi_matches_publishing_run": true,
+  "distributions": {
+    "tasklease-0.3.0-py3-none-any.whl": {
+      "sha256": "273212a50ad93eefbb2875a993e28193e5eb863c26b904c093005351e80d7219",
+      "url": "https://files.pythonhosted.org/packages/59/fa/bd85c0e9b6700017b35e4811edf0ea4be27d1a38c9fed75bd071f5cc92cd/tasklease-0.3.0-py3-none-any.whl",
+      "upload_time": "2026-11-10T20:50:03.810607Z"
+    },
+    "tasklease-0.3.0.tar.gz": {
+      "sha256": "6557ad4f203b5cb252a6d4fc5479092e2ad6cf7018b34fb82c4543a692374a10",
+      "url": "https://files.pythonhosted.org/packages/41/43/c064d38c7cc76d4e3d20b9235c3d1ed010f97188af58738f5ab396e46fb1/tasklease-0.3.0.tar.gz",
+      "upload_time": "2026-11-10T20:50:05.401283Z"
+    }
+  },
+  "source_tree_sha256": "eb8e659c083cdaadceb3cd20daa6b773fd6f27819577d4230704827190467034",
+  "archive_sha256": "98d7f5e8b91dee9a306c65573aca41f1d2f4e4aa3ee16b48ed12a1889ae2fc55",
+  "source_dirty": false,
+  "build_resource_origin": "Verified publishing-run artifacts downloaded from PyPI",
+  "status": "passed",
+  "date": "2026-11-10",
+  "date_timezone": "America/Los_Angeles",
+  "github_release": "https://github.com/provos/tasklease/releases/tag/v0.3.0",
+  "pypi_url": "https://pypi.org/project/tasklease/0.3.0/",
+  "rehearsal_run": 42898265420,
+  "rehearsal_url": "https://github.com/provos/tasklease/actions/runs/42898265420",
+  "initial_index_lookup_failures": [
+    "linux",
+    "windows"
+  ],
+  "native": {
+    "macos": {
+      "report": "post-publication/macos/native-report.json",
+      "platform": "macOS-27.0-arm64-arm-64bit",
+      "python": "3.12.12",
+      "python_build_platform": "macosx-11.0-arm64",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "errors": 0,
+        "failed_cases": [],
+        "failures": 0,
+        "passed": 967,
+        "skipped": 3,
+        "skipped_cases": [
+          {
+            "reason": "Native Windows file sharing",
+            "test": "tests.test_fsio::test_windows_loser_flush_and_reader_share_an_inflight_delete_handle"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[unicode_string]"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[utf8_file]"
+          }
+        ],
+        "tests": 970
+      },
+      "installation_source": "https://pypi.org/simple"
+    },
+    "linux": {
+      "report": "post-publication/linux/native-report.json",
+      "platform": "Linux-6.17.0-1029-nvidia-aarch64-with-glibc2.39",
+      "python": "3.12.3",
+      "python_build_platform": "linux-aarch64",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "errors": 0,
+        "failed_cases": [],
+        "failures": 0,
+        "passed": 967,
+        "skipped": 3,
+        "skipped_cases": [
+          {
+            "reason": "Native Windows file sharing",
+            "test": "tests.test_fsio::test_windows_loser_flush_and_reader_share_an_inflight_delete_handle"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[unicode_string]"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[utf8_file]"
+          }
+        ],
+        "tests": 970
+      },
+      "installation_source": "https://files.pythonhosted.org/packages/59/fa/bd85c0e9b6700017b35e4811edf0ea4be27d1a38c9fed75bd071f5cc92cd/tasklease-0.3.0-py3-none-any.whl"
+    },
+    "windows": {
+      "report": "post-publication/windows/native-report.json",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.12.12",
+      "python_build_platform": "win-amd64",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "errors": 0,
+        "failed_cases": [],
+        "failures": 0,
+        "passed": 952,
+        "skipped": 18,
+        "skipped_cases": [
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_cli::test_insecure_token_file_reports_fix_without_stdout_secret_or_request[False]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_cli::test_insecure_token_file_reports_fix_without_stdout_secret_or_request[True]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[420]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[416]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[388]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[400]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[385]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_private_token_files_are_accepted[384]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_private_token_files_are_accepted[256]"
+          },
+          {
+            "reason": "POSIX symlinks and permissions",
+            "test": "tests.test_config::test_token_permissions_follow_the_open_file_not_the_symlink"
+          },
+          {
+            "reason": "POSIX supports unprivileged symlinks",
+            "test": "tests.test_fsio::test_temp_cleanup_does_not_follow_symlinks"
+          },
+          {
+            "reason": "Darwin flush uses POSIX fcntl",
+            "test": "tests.test_fsio::test_darwin_full_flush_follows_namespace_flush"
+          },
+          {
+            "reason": "Darwin flush uses POSIX fcntl",
+            "test": "tests.test_fsio::test_darwin_full_flush_failure_is_not_ignored"
+          },
+          {
+            "reason": "Windows denies unlink of an open file",
+            "test": "tests.test_worker_control::test_consumer_can_remove_marker_before_creator_closes"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[False-False]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[False-True]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[True-False]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[True-True]"
+          }
+        ],
+        "tests": 970
+      },
+      "installation_source": "https://files.pythonhosted.org/packages/59/fa/bd85c0e9b6700017b35e4811edf0ea4be27d1a38c9fed75bd071f5cc92cd/tasklease-0.3.0-py3-none-any.whl",
+      "cleanup": {
+        "leftover_python_count": 0,
+        "execution_policy": "Restricted"
+      }
+    }
+  },
+  "live_checks": {
+    "exact_pypi_installed_package_verified": true,
+    "task_request_lease_consume": true,
+    "real_r2_signed_size_and_sha256": true,
+    "public_helpers_real_r2": true,
+    "temporary_identity_revoked": true,
+    "temporary_worker_removed_bucket_unchanged": true
+  },
+  "cleanup": {
+    "worker_api_status": 404,
+    "worker_deleted": true,
+    "existing_bucket_lifecycle_unchanged": true,
+    "lifecycle_before": [
+      {
+        "name": "Default Multipart Abort Rule",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Abort incomplete multipart uploads after 7 days"
+      },
+      {
+        "name": "tasklease-expire",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Expire objects after 7 days"
+      }
+    ],
+    "lifecycle_after": [
+      {
+        "name": "Default Multipart Abort Rule",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Abort incomplete multipart uploads after 7 days"
+      },
+      {
+        "name": "tasklease-expire",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Expire objects after 7 days"
+      }
+    ],
+    "test_objects_retained_under_seven_day_expiry": true
+  },
+  "windows_vm_restored_suspended": true,
+  "windows_idle_pause_restored": true,
+  "evidence_archive": "python/dist/publication-0.3.0-cfaecf3/evidence.zip",
+  "evidence_archive_sha256": "b233fe08a9d6e1d0bc1359cf92f2e56706c6fd20a66144ee785c497c749c1f67",
+  "secret_scan_passed": true
+}
