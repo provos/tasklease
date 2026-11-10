@@ -211,5 +211,5 @@
   "evidence_archive_sha256": "ed94a8928e1f6492d72875c56afdd3aa362ccfb78bdd555c0a9d82f2d9dc21e5",
   "evidence_archive": "python/dist/acceptance-0.2.0-8e30da0/evidence.zip",
   "secret_scan_passed": true,
-  "release_status": "Unpublished; release notes, merge/tag and publishing remain separate"
+  "release_status": "Published as v0.2.0 at a0bff8d815b489659a684f39f541f1c39f5f0a27; post-publication verification is recorded in 0.2.0-publication.json"
 }

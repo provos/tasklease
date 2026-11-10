@@ -1,0 +1,121 @@
+{
+  "version": "0.2.0",
+  "tag": "v0.2.0",
+  "release_commit": "a0bff8d815b489659a684f39f541f1c39f5f0a27",
+  "publishing_run": 42746347814,
+  "publishing_url": "https://github.com/provos/tasklease/actions/runs/42746347814",
+  "wheel_sha256": "3736e042da80adaca05fa68c8e269555fb2016fdb1a57b05c04c0af69b02e778",
+  "sdist_sha256": "f60662c5ebe7461c41ffdd99a8cc31e0a263f0384279b22f93193f8e27045f27",
+  "pypi_matches_publishing_run": true,
+  "distributions": {
+    "tasklease-0.2.0-py3-none-any.whl": {
+      "sha256": "3736e042da80adaca05fa68c8e269555fb2016fdb1a57b05c04c0af69b02e778",
+      "url": "https://files.pythonhosted.org/packages/76/e3/f9c400f3330781ba9afa3823d1ca9a5a01248d61c150d1573b613969d928/tasklease-0.2.0-py3-none-any.whl",
+      "upload_time": "2026-11-10T03:01:18.845817Z"
+    },
+    "tasklease-0.2.0.tar.gz": {
+      "sha256": "f60662c5ebe7461c41ffdd99a8cc31e0a263f0384279b22f93193f8e27045f27",
+      "url": "https://files.pythonhosted.org/packages/b6/79/c49a580f0b217afe0f083636c3baa2c44a7d5d9a7e336c7c6eb63ddbaf8f/tasklease-0.2.0.tar.gz",
+      "upload_time": "2026-11-10T03:01:20.482912Z"
+    }
+  },
+  "source_tree_sha256": "4df48c15b662269156a2cf4b5adaefad8827dec1c20d704792f80f78e1dc961d",
+  "archive_sha256": "f3916a8cedb5d4ff5549b8b73330077c2ee1a46e36289ce96dfe165fc804f29a",
+  "source_dirty": false,
+  "build_resource_origin": "Verified publishing-run artifacts downloaded from PyPI",
+  "status": "passed",
+  "release_date": "2026-11-09",
+  "date_timezone": "America/Los_Angeles",
+  "pypi_url": "https://pypi.org/project/tasklease/0.2.0/",
+  "github_release": "https://github.com/provos/tasklease/releases/tag/v0.2.0",
+  "rehearsal_run": 42745964694,
+  "rehearsal_url": "https://github.com/provos/tasklease/actions/runs/42745964694",
+  "rehearsal_conclusion": "success",
+  "publishing_conclusion": "success",
+  "accepted_source_commit": "8e30da0ab66c8a7416ae2ee3a49f1d9f805c2afd",
+  "acceptance_bridge": "Unchanged package/service/test/build/dependency source; rebuilt bundle differences limited to generated timestamp/source paths and RECORD",
+  "native": {
+    "macos": {
+      "passed": 912,
+      "skipped": 3,
+      "report": "macos/attempt2/native-report.json",
+      "cli_version": "tl 0.2.0",
+      "no_node_probe": "passed",
+      "installation_source": "https://pypi.org/simple"
+    },
+    "linux": {
+      "passed": 912,
+      "skipped": 3,
+      "report": "linux/native-report.json",
+      "cli_version": "tl 0.2.0",
+      "no_node_probe": "passed",
+      "installation_source": "https://pypi.org/simple"
+    },
+    "windows": {
+      "passed": 907,
+      "skipped": 8,
+      "report": "windows/native-report.json",
+      "cli_version": "tl 0.2.0",
+      "no_node_probe": "passed",
+      "installation_source": "https://pypi.org/simple"
+    }
+  },
+  "live_checks": {
+    "exact_pypi_installed_package_verified": true,
+    "task_request_lease_consume": true,
+    "real_r2_signed_size_and_sha256": true,
+    "public_helpers_real_r2": true,
+    "temporary_identity_revoked": true,
+    "temporary_worker_removed_bucket_unchanged": true
+  },
+  "cleanup": {
+    "worker_api_status": 404,
+    "worker_deleted": true,
+    "existing_bucket_lifecycle_unchanged": true,
+    "lifecycle_before": [
+      {
+        "name": "Default Multipart Abort Rule",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Abort incomplete multipart uploads after 7 days"
+      },
+      {
+        "name": "tasklease-expire",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Expire objects after 7 days"
+      }
+    ],
+    "lifecycle_after": [
+      {
+        "name": "Default Multipart Abort Rule",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Abort incomplete multipart uploads after 7 days"
+      },
+      {
+        "name": "tasklease-expire",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Expire objects after 7 days"
+      }
+    ],
+    "test_objects_retained_under_seven_day_expiry": true
+  },
+  "windows_vm_restored_suspended": true,
+  "windows_idle_pause_restored_on": true,
+  "preserved_diagnostics": [
+    {
+      "report": "macos/pypi-install.log",
+      "finding": "Initial resolver reported no 0.2.0; fresh isolated uncached retry passed with unchanged tests and limits"
+    },
+    {
+      "report": "preparation/windows-transfer.log",
+      "finding": "Automatic VM idle pauses delayed transfers; idle-pause temporarily disabled for retrieval and restored afterward; native tests passed"
+    }
+  ],
+  "evidence_archive": "python/dist/publication-0.2.0-a0bff8d/evidence.zip",
+  "evidence_archive_sha256": "0e16379f69af3763e7e0739db1e320b2053097413b78619e296c6cfdedb02f84",
+  "evidence_files": 98,
+  "secret_scan_passed": true
+}

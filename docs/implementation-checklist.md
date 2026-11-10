@@ -102,7 +102,7 @@ macOS and Windows. Deployment from the PyPI installation and an isolated
 state-preserving upgrade passed real Cloudflare/R2 checks. See
 [the publication evidence](review-log.md#first-pypi-publication-2026-11-08).
 
-The unpublished `0.2.0` candidate at `8e30da0` has passed clean install/check/build
+The `0.2.0` candidate at `8e30da0` passed clean install/check/build
 gates and native macOS/Linux/Windows installed-wheel acceptance, including the
 FluxShot review fixes for cooperative blob deadlines, safe diagnostics, public
 fake controls and second-signal cleanup. macOS and Linux each passed 912 tests
@@ -114,5 +114,16 @@ flow. The [acceptance summary](acceptance/0.2.0.json) supersedes the earlier
 `d0191c4` qualification and records exact artifacts, platform details, skips,
 preserved Cloudflare preflight/deployment failures and cleanup. The temporary
 Worker and identities were removed; the existing bucket lifecycle was retained,
-and Windows was restored to its original suspended state. Release-note
-finalization, merge/tag and publication remain separate.
+and Windows was restored to its original suspended state.
+
+`0.2.0` is published on PyPI from `v0.2.0` at squash merge `a0bff8d` of PR #8,
+with finalized release notes and a matching GitHub Release. Clean release gates,
+build-only rehearsal and trusted publication succeeded. Fresh PyPI installations
+passed CLI/resource/no-Node probes and native runtime suites on macOS and Linux
+(912 passed, three expected skips each) and Windows (907 passed, eight expected
+skips). The exact PyPI-installed package passed isolated Cloudflare deployment,
+task operations, signed-size rejection and real R2/public-helper transfers;
+temporary resources were cleaned up. The Windows idle-pause setting and suspended
+state were restored. Published artifact hashes and workflow/run evidence are in
+[the publication summary](acceptance/0.2.0-publication.json) and
+[review log](review-log.md#020-publication-2026-11-09).

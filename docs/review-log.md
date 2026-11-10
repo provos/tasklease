@@ -992,3 +992,58 @@ Status: accepted after corrections, independent reviews and native qualification
   archive/summary bindings. It also reviewed the actual-secret scan safeguards
   without accessing private credentials. No outstanding acceptance findings
   remain; prior `d0191c4` results were not used to qualify this candidate.
+
+### 0.2.0 publication (2026-11-09)
+
+- Finalized the dated changelog, then squash-merged PR #8 as
+  `a0bff8d815b489659a684f39f541f1c39f5f0a27` and created annotated tag `v0.2.0`.
+  The merge tree matches the checked release-notes commit. Only documentation
+  changed after accepted `8e30da0`; package, service, test, build and dependency
+  sources are unchanged. Clean `make install`, `make check` and `make build`
+  passed again after release-note finalization.
+- The [build-only rehearsal](https://github.com/provos/tasklease/actions/runs/42745964694)
+  succeeded; its distributions were inspected before dispatching the
+  [successful trusted publication](https://github.com/provos/tasklease/actions/runs/42746347814).
+  The publishing run independently passed dependency policy/audit, generation,
+  formatting, lint/types, 191 Worker, 32 dashboard, 1,005 Python/tooling and
+  393 conformance tests, with the expected three and 36 skips, before rebuilding
+  and uploading through OIDC with attestations.
+- Fresh PyPI metadata and downloads match that publishing run's distributions:
+  - wheel: `3736e042da80adaca05fa68c8e269555fb2016fdb1a57b05c04c0af69b02e778`;
+  - sdist: `f60662c5ebe7461c41ffdd99a8cc31e0a263f0384279b22f93193f8e27045f27`.
+  Wheel/sdist package bytes and metadata were inspected. Compared with the
+  accepted wheel, rebuilt differences are limited to generated bundle README
+  timestamps, source-path comments/map paths and their RECORD hashes. Worker
+  executable text after comment normalization, source-map contents/mappings,
+  Python modules, dashboard, metadata, licenses and templates match acceptance.
+- Exported clean tagged source with the verified publishing-run resources and
+  actual downloaded PyPI wheel. Post-publication ZIP SHA-256 is
+  `f3916a8cedb5d4ff5549b8b73330077c2ee1a46e36289ce96dfe165fc804f29a`;
+  tree SHA-256 is `4df48c15b662269156a2cf4b5adaefad8827dec1c20d704792f80f78e1dc961d`.
+  Fresh environments on all three platforms installed exact `tasklease==0.2.0`
+  from PyPI, separately from dependencies retaining a seven-day age cutoff.
+  `tl --version`, `tl --help`, isolated no-Node probes, all packaged byte checks
+  and native runtime tests passed: macOS/Linux each 912 with three expected
+  Windows-only skips, Windows 907 with eight expected OS skips. Both native
+  Task Scheduler parser modes passed; no task was registered or worker left.
+- Preserved macOS's initial resolver failure to find the newly published
+  version. A fresh uncached run outside the checkout passed with unchanged tests
+  and limits. Automatic Windows VM idle pauses delayed orchestration/transfers;
+  its idle-pause optimization was temporarily disabled for retrieval, then
+  restored to enabled and the VM returned to its original suspended state.
+  PowerShell stayed Restricted. All native tests passed without weakened limits.
+- Deployed a new guarded-absent isolated Worker from the fresh PyPI installation,
+  verified exact installed package bytes and service version `0.2.0`, and passed
+  task create/lease/consume, wrong signed-size 403/no-object rejection, raw R2
+  SHA-256 and a 1 MiB + 17-byte helper round trip with explicit 60-second budgets.
+  The temporary identity was revoked and Worker deletion verified by API 404;
+  existing bucket/lifecycle rules remain unchanged, with test objects under
+  seven-day expiry. No upgrade of another operator's service was required.
+- Created the [GitHub Release](https://github.com/provos/tasklease/releases/tag/v0.2.0)
+  after successful checks using the exact finalized changelog text. Retained
+  98 public evidence files plus a SHA-256 manifest in
+  `python/dist/publication-0.2.0-a0bff8d/evidence.zip`; archive SHA-256 is
+  `0e16379f69af3763e7e0739db1e320b2053097413b78619e296c6cfdedb02f84`.
+  Recursive actual-secret scanning excluded private credentials/state. The
+  [publication summary](acceptance/0.2.0-publication.json) records tag/commit,
+  workflow identities, published hashes, native results, diagnostics and cleanup.
