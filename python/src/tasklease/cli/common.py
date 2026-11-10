@@ -15,9 +15,10 @@ from platformdirs import user_config_path
 from tasklease.client import Client
 from tasklease.config import Config, load_config
 from tasklease.errors import ConfigError
+from tasklease.names import is_domain
 
 
-def connection_options(parser: argparse.ArgumentParser) -> None:
+def config_option(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config",
         type=Path,
@@ -27,6 +28,10 @@ def connection_options(parser: argparse.ArgumentParser) -> None:
             f"{user_config_path('tasklease') / 'config.toml'})"
         ).replace("%", "%%"),  # argparse interpolates help with the % operator.
     )
+
+
+def connection_options(parser: argparse.ArgumentParser) -> None:
+    config_option(parser)
     parser.add_argument("--url", default=argparse.SUPPRESS)
     parser.add_argument("--worker", default=argparse.SUPPRESS)
 
@@ -70,15 +75,24 @@ def configuration(args: argparse.Namespace) -> Config:
 
 
 def domain(args: argparse.Namespace, config: Config) -> str:
-    value = optional_text(args, "domain") or config.domain
-    if not value:
+    value = optional_text(args, "domain")
+    if value is None:
+        value = config.domain
+    if value is None:
         raise ConfigError("Give a domain or set domain in configuration")
+    if not is_domain(value):
+        raise ConfigError(
+            "domain must be a valid domain name of at most 256 characters"
+        )
     return value
 
 
 @contextmanager
-def client(args: argparse.Namespace, *, admin: bool = False) -> Iterator[Client]:
-    config = configuration(args)
+def client(
+    args: argparse.Namespace, *, admin: bool = False, config: Config | None = None
+) -> Iterator[Client]:
+    if config is None:
+        config = configuration(args)
     url = optional_text(args, "url") or config.url
     if not url:
         raise ConfigError("Set the service URL in config.toml or use --url")

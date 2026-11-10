@@ -17,7 +17,11 @@ Release preparation and verification are documented in
 
 - Document operator identity issuance, client config locations and token modes,
   topic declarations, scoped machine identities and error-topic operations.
-  CLI config help now shows the platform's default config path.
+  CLI config help, including service commands, now shows the platform's default
+  config path. Token-permission errors explain the default token-file location.
+- Validate explicit domains locally in commands using the shared domain resolver.
+  Topic declaration uses one configuration snapshot for domain and connection
+  settings.
 
 ## [0.2.0] - 2026-11-09
 

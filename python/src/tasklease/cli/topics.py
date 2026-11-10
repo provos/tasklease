@@ -33,8 +33,9 @@ def _topics(args: argparse.Namespace) -> int:
 
 
 def _declare(args: argparse.Namespace) -> int:
-    selected = domain(args, configuration(args))
-    with client(args) as api:
+    config = configuration(args)
+    selected = domain(args, config)
+    with client(args, config=config) as api:
         output(
             api.topic_declare(
                 {

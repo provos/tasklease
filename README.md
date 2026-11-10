@@ -228,8 +228,8 @@ tl --config operator.toml topic declare work/echo
 tl --config operator.toml topics --domain demo
 ```
 
-`topic declare TOPIC` uses `domain` from the config or `TL_DOMAIN`;
-`--domain demo` selects it explicitly. `--remove` removes only the declaration,
+`topic declare TOPIC` selects its domain from `--domain`, `TL_DOMAIN` or the
+config's `domain`, in that order. `--remove` removes only the declaration,
 not its tasks. Declaring a topic keeps it listed while empty; identity scopes
 control access independently. `topics` without `--domain` lists all domains
 granted to the identity.

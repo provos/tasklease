@@ -139,7 +139,8 @@ class Config:
                 if os.name == "posix" and os.fstat(source.fileno()).st_mode & 0o077:
                     raise ConfigError(
                         "Identity token file allows group or other access; "
-                        "run chmod 600 on the file named by token.file"
+                        "run chmod 600 on the identity token file "
+                        "(token.file, or 'token' beside the config by default)"
                     )
                 value = source.read().strip()
         except (OSError, UnicodeError):
