@@ -1,0 +1,215 @@
+{
+  "version": "0.2.0",
+  "status": "passed",
+  "date": "2026-11-09",
+  "source_commit": "8e30da0ab66c8a7416ae2ee3a49f1d9f805c2afd",
+  "source_dirty": false,
+  "date_timezone": "America/Los_Angeles",
+  "clean_checkout_gates": {
+    "install": "passed",
+    "check": "passed",
+    "build": "passed",
+    "worker_passed": 191,
+    "dashboard_passed": 32,
+    "python_tooling_passed": 1005,
+    "python_skipped": 3,
+    "conformance_passed": 393,
+    "conformance_skipped": 36
+  },
+  "source_tree_sha256": "2edb237c4c32429fb2cef4847b471b59c7e5a72b1fc5f459dda276a6cbda4dbd",
+  "acceptance_zip_sha256": "8f0c26ef16b526ceb7dcaa5c2d3858fbc2045e10a8c9f1f9edf94ed5f9b1f040",
+  "wheel_sha256": "849ccd17851ee76141cec94396eed0fad2bde03670cff5ec3d55399475397a94",
+  "sdist_sha256": "c9461f58cf6393c70d8e67593431ceb7ef12fc7f59740fb937145c730707bd47",
+  "native": {
+    "macos": {
+      "system": "Darwin",
+      "release": "27.0.0",
+      "architecture": "arm64",
+      "python": "3.12.12",
+      "report": "macos/native-report.json",
+      "uv": "uv 0.9.15 (5eafae332 2025-12-02)",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "passed": 912,
+        "skipped": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped_cases": [
+          {
+            "reason": "Native Windows file sharing",
+            "test": "tests.test_fsio::test_windows_loser_flush_and_reader_share_an_inflight_delete_handle"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[unicode_string]"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[utf8_file]"
+          }
+        ]
+      }
+    },
+    "linux": {
+      "system": "Linux",
+      "release": "6.17.0-1029-nvidia",
+      "architecture": "aarch64",
+      "python": "3.12.3",
+      "report": "linux/native-report.json",
+      "uv": "uv 0.12.21 (7af826859 2026-09-29 aarch64-unknown-linux-gnu)",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "passed": 912,
+        "skipped": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped_cases": [
+          {
+            "reason": "Native Windows file sharing",
+            "test": "tests.test_fsio::test_windows_loser_flush_and_reader_share_an_inflight_delete_handle"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[unicode_string]"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[utf8_file]"
+          }
+        ]
+      }
+    },
+    "windows": {
+      "system": "Windows",
+      "release": "11",
+      "architecture": "ARM64",
+      "python": "3.12.12",
+      "report": "windows/native-report.json",
+      "uv": "uv 0.9.15 (5eafae332 2025-12-02)",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "passed": 907,
+        "skipped": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped_cases": [
+          {
+            "reason": "POSIX supports unprivileged symlinks",
+            "test": "tests.test_fsio::test_temp_cleanup_does_not_follow_symlinks"
+          },
+          {
+            "reason": "Darwin flush uses POSIX fcntl",
+            "test": "tests.test_fsio::test_darwin_full_flush_follows_namespace_flush"
+          },
+          {
+            "reason": "Darwin flush uses POSIX fcntl",
+            "test": "tests.test_fsio::test_darwin_full_flush_failure_is_not_ignored"
+          },
+          {
+            "reason": "Windows denies unlink of an open file",
+            "test": "tests.test_worker_control::test_consumer_can_remove_marker_before_creator_closes"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[False-False]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[False-True]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[True-False]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[True-True]"
+          }
+        ]
+      },
+      "task_scheduler_xml_parsers": "both passed; no task registered",
+      "python_payload_architecture": "x86_64 under Windows ARM64 emulation"
+    }
+  },
+  "live_checks": {
+    "published_bootstrap_and_r2_probe": true,
+    "exact_installed_candidate_wheel_bytes": true,
+    "upgrade_exact_task_credentials_stats_preserved": true,
+    "snapshot_atomic_reply_and_stale_id_fencing": true,
+    "signed_content_length_rejection_and_r2_roundtrip": true,
+    "public_blob_helpers_live_r2": true,
+    "temporary_identities_revoked": true,
+    "cross_machine_blob_request_reply": true,
+    "new_worker_deleted_existing_bucket_untouched": true
+  },
+  "cleanup": {
+    "temporary_identities_revoked": true,
+    "worker_api_status": 404,
+    "worker_deleted": true,
+    "existing_bucket_unchanged": true,
+    "existing_bucket_lifecycle_unchanged": true,
+    "lifecycle_before": [
+      {
+        "name": "Default Multipart Abort Rule",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Abort incomplete multipart uploads after 7 days"
+      },
+      {
+        "name": "tasklease-expire",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Expire objects after 7 days"
+      }
+    ],
+    "lifecycle_after": [
+      {
+        "name": "Default Multipart Abort Rule",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Abort incomplete multipart uploads after 7 days"
+      },
+      {
+        "name": "tasklease-expire",
+        "enabled": "Yes",
+        "prefix": "(all prefixes)",
+        "action": "Expire objects after 7 days"
+      }
+    ],
+    "test_objects_retained_under_seven_day_expiry": true
+  },
+  "helper_total_timeout_seconds": 60,
+  "preserved_preflight_and_deployment_failures": [
+    {
+      "report": "cloudflare/preflight-oauth-expired.json",
+      "failure": "Expired OAuth returned HTTP 401 before Worker creation; ordinary Wrangler session refresh succeeded"
+    },
+    {
+      "report": "cloudflare/bootstrap-attempt1-cloudflare-propagation.json",
+      "failure": "Cloudflare 10007 Worker-does-not-exist propagation error after first upload; same run-owned Worker retry passed"
+    }
+  ],
+  "windows_first_attempt_passed": true,
+  "windows_vm_restored_suspended": true,
+  "cross_machine": {
+    "status": "passed",
+    "request_id": "cross-cross-0964e3da0d",
+    "requester_os": "Darwin",
+    "worker_os": "Linux",
+    "version": "0.2.0",
+    "input_sha256": "534566bf2e63c5625a7fb3746d741344815210f49bd0efe95f1096e036df7f0d",
+    "output_sha256": "bcf988a821ebdf2095a1817b83b61f0e883c912c4790fdc2d748cc3a2defe850",
+    "output_size": 262198,
+    "durable_inbox_reopened": true,
+    "server_reply_acknowledged": true,
+    "uploaded_and_downloaded_real_r2": true,
+    "explicit_total_timeout_seconds": 60,
+    "worker_report_sha256": "09fddb3e4e39a74155ec35e2f95b45ac110632a0b48b7b6535fb33e1c738c1df",
+    "remote_worker_credential_removed": true
+  },
+  "supersedes_source_commit": "d0191c4db4ecb7bee3a08e1abd200d7cc108a9ac",
+  "evidence_archive_sha256": "ed94a8928e1f6492d72875c56afdd3aa362ccfb78bdd555c0a9d82f2d9dc21e5",
+  "evidence_archive": "python/dist/acceptance-0.2.0-8e30da0/evidence.zip",
+  "secret_scan_passed": true,
+  "release_status": "Unpublished; release notes, merge/tag and publishing remain separate"
+}

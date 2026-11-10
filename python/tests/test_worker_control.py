@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 
@@ -72,6 +73,55 @@ def test_signal_handlers_are_restored_on_exception(tmp_path: Path) -> None:
         with WorkerControl("worker", tmp_path):
             raise ValueError("handler failed")
     assert {number: signal.getsignal(number) for number in numbers} == previous
+
+
+@pytest.mark.parametrize("raises", [False, True])
+def test_second_signal_calls_cleanup_once_and_always_exits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, raises: bool
+) -> None:
+    calls: list[str] = []
+
+    def cleanup() -> None:
+        calls.append("cleanup")
+        if raises:
+            raise RuntimeError("cleanup failed")
+
+    def exit_now(code: int) -> NoReturn:
+        raise SystemExit(code)
+
+    monkeypatch.setattr("tasklease.worker_control.os._exit", exit_now)
+    control = WorkerControl("worker", tmp_path, on_second_signal=cleanup)
+    control._signal(signal.SIGINT, None)
+    assert control.stop.is_set()
+    assert not calls
+    for _ in range(2):
+        with pytest.raises(SystemExit) as caught:
+            control._signal(signal.SIGINT, None)
+        assert caught.value.code == 128 + signal.SIGINT
+    assert calls == ["cleanup"]
+
+
+def test_signal_during_cleanup_forces_exit_without_repeating_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    exits: list[int] = []
+
+    def cleanup() -> None:
+        calls.append("cleanup")
+        control._signal(signal.SIGINT, None)
+
+    def exit_now(code: int) -> NoReturn:
+        exits.append(code)
+        raise SystemExit(code)
+
+    monkeypatch.setattr("tasklease.worker_control.os._exit", exit_now)
+    control = WorkerControl("worker", tmp_path, on_second_signal=cleanup)
+    control.stop.set()
+    with pytest.raises(SystemExit):
+        control._signal(signal.SIGINT, None)
+    assert calls == ["cleanup"]
+    assert exits and set(exits) == {128 + signal.SIGINT}
 
 
 def test_unusable_stop_file_stops_and_reports_failure(
@@ -155,15 +205,20 @@ def _wait_for(path: Path, process: subprocess.Popen[bytes]) -> None:
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX signals; Windows uses stop files")
 @pytest.mark.parametrize("immediate", [False, True])
+@pytest.mark.parametrize("hook", [False, True])
 def test_actual_first_signal_finishes_work_second_signal_exits(
-    tmp_path: Path, immediate: bool
+    tmp_path: Path, immediate: bool, hook: bool
 ) -> None:
     script = """
 import sys, time
 from pathlib import Path
 from tasklease.worker_control import WorkerControl
 root = Path(sys.argv[1])
-with WorkerControl('child', root) as control:
+def cleanup():
+    (root / 'cleanup').touch()
+with WorkerControl(
+    'child', root, on_second_signal=cleanup if sys.argv[2] == 'hook' else None
+) as control:
     (root / 'ready').touch()
     control.stop.wait(30)
     (root / 'stopping').touch()
@@ -171,7 +226,7 @@ with WorkerControl('child', root) as control:
         time.sleep(.01)
 """
     process = subprocess.Popen(
-        [sys.executable, "-c", script, str(tmp_path)],
+        [sys.executable, "-c", script, str(tmp_path), "hook" if hook else "default"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -180,6 +235,7 @@ with WorkerControl('child', root) as control:
         process.send_signal(signal.SIGTERM)
         _wait_for(tmp_path / "stopping", process)
         assert process.poll() is None
+        assert not (tmp_path / "cleanup").exists()
         if immediate:
             process.send_signal(signal.SIGTERM)
             expected = 128 + signal.SIGTERM
@@ -188,6 +244,7 @@ with WorkerControl('child', root) as control:
             expected = 0
         _, errors = process.communicate(timeout=3)
         assert process.returncode == expected, errors
+        assert (tmp_path / "cleanup").exists() == (immediate and hook)
     finally:
         if process.poll() is None:
             process.kill()

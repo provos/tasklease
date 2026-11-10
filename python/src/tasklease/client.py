@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import math
+import time
+from collections.abc import Iterator
 from types import TracebackType
 from typing import NoReturn, Self, cast
 
@@ -58,10 +60,31 @@ def reject_nonfinite(value: str) -> NoReturn:
     raise ValueError("Nonfinite JSON number")
 
 
+class _TimedResponseStream(httpx.SyncByteStream):
+    """Check elapsed signing time between network response body chunks."""
+
+    def __init__(self, stream: httpx.SyncByteStream, deadline: float) -> None:
+        self.stream = stream
+        self.deadline = deadline
+
+    def __iter__(self) -> Iterator[bytes]:
+        for chunk in self.stream:
+            self.check()
+            yield chunk
+        self.check()
+
+    def check(self) -> None:
+        if time.monotonic() >= self.deadline:
+            raise TransportError("Blob signing total_timeout exceeded")
+
+    def close(self) -> None:
+        self.stream.close()
+
+
 class Client:
     """One HTTP connection pool, identity credential and worker label.
 
-    Own, Renew, Consume and Delete accept a per-call timeout cap in seconds.
+    Own, Renew, Consume, Delete and blob signing accept a per-call timeout cap.
     It limits each configured HTTPX phase timeout, including unlimited phases,
     and never lengthens a configured limit. Omitting the cap preserves settings.
     """
@@ -110,9 +133,21 @@ class Client:
         content: bytes | None = None,
         *,
         timeout: float | None = None,
+        total_timeout: float | None = None,
     ) -> httpx.Response:
         if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
             raise Invalid("timeout must be a positive finite number of seconds")
+        if total_timeout is not None:
+            if (
+                isinstance(total_timeout, bool)
+                or not math.isfinite(total_timeout)
+                or total_timeout <= 0
+            ):
+                raise Invalid(
+                    "total_timeout must be a positive finite number of seconds"
+                )
+            deadline = time.monotonic() + total_timeout
+            timeout = total_timeout if timeout is None else min(timeout, total_timeout)
         headers = (
             {
                 "Authorization": f"Bearer {self._token}",
@@ -124,11 +159,8 @@ class Client:
         )
         try:
             url = f"{self._base_url}/v1/{operation}"
-            if timeout is None:
-                response = self._http.request(
-                    method, url, headers=headers, content=content
-                )
-            else:
+            bounded: httpx.Timeout | None = None
+            if timeout is not None:
                 configured = self._http.timeout
 
                 def cap(value: float | None) -> float:
@@ -140,9 +172,25 @@ class Client:
                     write=cap(configured.write),
                     pool=cap(configured.pool),
                 )
-                response = self._http.request(
-                    method, url, headers=headers, content=content, timeout=bounded
-                )
+            request = self._http.build_request(
+                method,
+                url,
+                headers=headers,
+                content=content,
+                timeout=self._http.timeout if bounded is None else bounded,
+            )
+            response = self._http.send(request, stream=True)
+            try:
+                if total_timeout is not None:
+                    assert isinstance(response.stream, httpx.SyncByteStream)
+                    stream = _TimedResponseStream(response.stream, deadline)
+                    stream.check()
+                    response.stream = stream
+                response.read()
+                if total_timeout is not None:
+                    stream.check()
+            finally:
+                response.close()
         except httpx.RequestError:
             raise TransportError("The tasklease service could not be reached") from None
         if response.status_code >= 500:
@@ -164,7 +212,12 @@ class Client:
         return cast(dict[str, object], value)
 
     def _post(
-        self, operation: str, request: object, *, timeout: float | None = None
+        self,
+        operation: str,
+        request: object,
+        *,
+        timeout: float | None = None,
+        total_timeout: float | None = None,
     ) -> dict[str, object]:
         try:
             content = json.dumps(
@@ -172,7 +225,9 @@ class Client:
             ).encode("utf-8")
         except (TypeError, ValueError, UnicodeError, RecursionError):
             raise Invalid("Request must contain valid JSON values") from None
-        response = self._send("POST", operation, content, timeout=timeout)
+        response = self._send(
+            "POST", operation, content, timeout=timeout, total_timeout=total_timeout
+        )
         body = self._decode(response)
         if body.get("ok") is False:
             error = body.get("error")
@@ -238,11 +293,39 @@ class Client:
     def topic_declare(self, request: p.TopicDeclareRequest) -> p.TopicDeclareResponse:
         return cast(p.TopicDeclareResponse, self._post("topic.declare", request))
 
-    def blob_put_url(self, request: p.BlobPutUrlRequest) -> p.BlobPutUrlResponse:
-        return cast(p.BlobPutUrlResponse, self._post("blob.put_url", request))
+    def blob_put_url(
+        self,
+        request: p.BlobPutUrlRequest,
+        *,
+        timeout: float | None = None,
+        total_timeout: float | None = None,
+    ) -> p.BlobPutUrlResponse:
+        """Sign a PUT; optional total_timeout checks the signing body stream.
 
-    def blob_get_url(self, request: p.BlobGetUrlRequest) -> p.BlobGetUrlResponse:
-        return cast(p.BlobGetUrlResponse, self._post("blob.get_url", request))
+        The total budget also caps HTTP phases. Header reads and blocking custom
+        transports remain subject to HTTPX's per-operation timeout behavior.
+        """
+        return cast(
+            p.BlobPutUrlResponse,
+            self._post(
+                "blob.put_url", request, timeout=timeout, total_timeout=total_timeout
+            ),
+        )
+
+    def blob_get_url(
+        self,
+        request: p.BlobGetUrlRequest,
+        *,
+        timeout: float | None = None,
+        total_timeout: float | None = None,
+    ) -> p.BlobGetUrlResponse:
+        """Sign a GET, with the same optional budgets as blob_put_url."""
+        return cast(
+            p.BlobGetUrlResponse,
+            self._post(
+                "blob.get_url", request, timeout=timeout, total_timeout=total_timeout
+            ),
+        )
 
     def identity_add(self, request: p.IdentityAddRequest) -> p.IdentityAddResponse:
         return cast(p.IdentityAddResponse, self._post("identity.add", request))

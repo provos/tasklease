@@ -334,7 +334,9 @@ def test_invalid_worker_labels_are_refused(label: str) -> None:
         Client("https://tasks.example", TOKEN, label)
 
 
-@pytest.mark.parametrize("operation", ["renew", "consume"])
+@pytest.mark.parametrize(
+    "operation", ["renew", "consume", "blob.put_url", "blob.get_url"]
+)
 def test_worker_per_call_timeout_caps_configured_phases(operation: str) -> None:
     seen: list[object] = []
 
@@ -352,10 +354,18 @@ def test_worker_per_call_timeout_caps_configured_phases(operation: str) -> None:
             request = cast(p.RenewRequest, example(operation, "request"))
             client.renew(request, timeout=1.25)
             client.renew(request)
-        else:
+        elif operation == "consume":
             consume = cast(p.ConsumeRequest, example(operation, "request"))
             client.consume(consume, timeout=1.25)
             client.consume(consume)
+        elif operation == "blob.put_url":
+            put = cast(p.BlobPutUrlRequest, example(operation, "request"))
+            client.blob_put_url(put, timeout=1.25)
+            client.blob_put_url(put)
+        else:
+            get = cast(p.BlobGetUrlRequest, example(operation, "request"))
+            client.blob_get_url(get, timeout=1.25)
+            client.blob_get_url(get)
     assert seen == [
         {"connect": 1.25, "read": 1.25, "write": 0.5, "pool": 1.25},
         {"connect": 2, "read": None, "write": 0.5, "pool": 4},

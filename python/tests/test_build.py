@@ -62,6 +62,12 @@ def test_wheel_contains_deployable_assets(artifacts: Path) -> None:
     with zipfile.ZipFile(next(artifacts.glob("*.whl"))) as wheel:
         files = set(wheel.namelist())
         assert "tasklease/monitor/static/index.html" in files
+        assert {
+            "tasklease/testing.py",
+            "tasklease/blobs.py",
+            "tasklease/names.py",
+            "tasklease/py.typed",
+        } <= files
         assert any(
             name.startswith("tasklease/monitor/static/assets/") for name in files
         )
@@ -142,7 +148,8 @@ def test_sdist_builds_without_node_and_installs_cleanly(
     environment.pop("PYTHONPATH", None)
     environment["PATH"] = ""
     installation = tmp_path / "installed"
-    venv.EnvBuilder().create(installation)
+    # Match the venv CLI's POSIX default so uv's shared-library Python works.
+    venv.EnvBuilder(symlinks=os.name != "nt").create(installation)
     bin_directory = installation / ("Scripts" if sys.platform == "win32" else "bin")
     python = bin_directory / ("python.exe" if sys.platform == "win32" else "python")
     uv = shutil.which("uv")
@@ -188,7 +195,35 @@ def test_sdist_builds_without_node_and_installs_cleanly(
             "out = io.StringIO()\n"
             "with redirect_stdout(out):\n"
             "    assert main(['worker', 'template', '--platform', 'launchd']) == 0\n"
-            "assert plistlib.loads(out.getvalue().encode())['RunAtLoad'] is True\n",
+            "assert plistlib.loads(out.getvalue().encode())['RunAtLoad'] is True\n"
+            "from pathlib import Path\n"
+            "from tasklease.blobs import upload_file, download_file\n"
+            "from tasklease.names import is_request_id, topic_matches\n"
+            "from tasklease.testing import FakeBoard\n"
+            "import socket\n"
+            "def no_connect(*args, **kwargs):\n"
+            "    raise AssertionError('Installed offline API opened a socket')\n"
+            "socket.socket.connect = no_connect\n"
+            "socket.socket.connect_ex = no_connect\n"
+            "assert is_request_id('installed-request')\n"
+            "assert not is_request_id(chr(0xd800))\n"
+            "assert topic_matches('work/**', 'work/linux')\n"
+            "assert not topic_matches('work/**', 'work')\n"
+            "board = FakeBoard('installed')\n"
+            "board.add_identity('test', 'test-token', create=['**'], own=['**'])\n"
+            "with board.client('test-token') as api, board.blob_http() as blobs:\n"
+            "    api.create({'domain': 'installed', 'topic': 'work', 'data': {}})\n"
+            "    task = api.own({'domain': 'installed', 'topic': 'work', "
+            "'hold_seconds': 60})['task']\n"
+            "    api.consume({'domain': 'installed', 'topic': 'work', "
+            "'id': task['id'], 'tasks': []})\n"
+            "    source = Path('offline-source.txt')\n"
+            "    source.write_bytes(b'installed offline round trip')\n"
+            "    uploaded = upload_file(api, 'installed', source, http=blobs)\n"
+            "    target = Path('offline-target.txt')\n"
+            "    download_file(api, 'installed', uploaded.key, target, "
+            "size=uploaded.size, sha256=uploaded.sha256, http=blobs)\n"
+            "    assert target.read_bytes() == source.read_bytes()\n",
         ],
         cwd=tmp_path,
         env=environment,

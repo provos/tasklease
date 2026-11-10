@@ -1,4 +1,4 @@
-"""Run the packaged Worker locally with isolated state and fake secrets."""
+"""Run the same contract checks against the Worker and in-process board."""
 
 import json
 import os
@@ -8,21 +8,24 @@ import subprocess
 import threading
 import time
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from pathlib import Path
 from typing import cast
+from uuid import uuid4
 
 import httpx
 import pytest
 
+from conformance.support import ADMIN_TOKEN, ServiceTarget
 from tasklease.client import Client
+from tasklease.testing import FakeBoard
 
 ROOT = Path(__file__).resolve().parents[1]
-ADMIN_TOKEN = "conformance-admin-fake-secret"
 
 
 @pytest.fixture(scope="session")
-def service_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+def worker_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     temporary = tmp_path_factory.mktemp("tasklease-conformance")
     assets = temporary / "assets"
     environment = os.environ.copy()
@@ -138,20 +141,66 @@ def service_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
         output.close()
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--backend",
+        choices=("both", "worker", "fake"),
+        default="both",
+        help="Conformance target (fake runs without Node, Wrangler, or sockets)",
+    )
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    if "service_backend" in metafunc.fixturenames:
+        selected = metafunc.config.getoption("--backend")
+        values = ["worker", "fake"] if selected == "both" else [selected]
+        metafunc.parametrize("service_backend", values, scope="session")
+
+
 @pytest.fixture
-def admin(service_url: str) -> Iterator[Client]:
-    with Client(service_url, ADMIN_TOKEN) as client:
-        yield client
+def target_factory(
+    service_backend: str, request: pytest.FixtureRequest
+) -> Iterator[Callable[[str], ServiceTarget]]:
+    # Resolve the process fixture lazily: fake-only runs never execute the
+    # Worker build, socket allocation, or Wrangler startup code above.
+    url = ""
+    admin: Client | None = None
+    if service_backend == "worker":
+        url = cast(str, request.getfixturevalue("worker_url"))
+        admin = cast(Client, request.getfixturevalue("worker_admin"))
+    with ExitStack() as cleanup:
+
+        def create(domain: str) -> ServiceTarget:
+            target = ServiceTarget(
+                domain,
+                url,
+                board=FakeBoard(domain) if admin is None else None,
+                admin=admin,
+            )
+            cleanup.callback(target.close)
+            return target
+
+        yield create
 
 
 @pytest.fixture(scope="session")
-def corpus_token(service_url: str) -> str:
-    with Client(service_url, ADMIN_TOKEN) as client:
-        return client.identity_add(
-            {
-                "name": "conformance-corpus",
-                "domains": ["acme/pipeline"],
-                "scopes": {"create": ["**"], "own": ["**"], "read": ["**"]},
-                "operator": True,
-            }
-        )["token"]
+def worker_admin(worker_url: str) -> Iterator[Client]:
+    with Client(
+        worker_url, ADMIN_TOKEN, transport=httpx.HTTPTransport(trust_env=False)
+    ) as admin:
+        yield admin
+
+
+@pytest.fixture
+def target(target_factory: Callable[[str], ServiceTarget]) -> ServiceTarget:
+    return target_factory("conformance/" + uuid4().hex)
+
+
+@pytest.fixture
+def corpus_target(target_factory: Callable[[str], ServiceTarget]) -> ServiceTarget:
+    return target_factory("acme/pipeline")
+
+
+@pytest.fixture
+def corpus_token(corpus_target: ServiceTarget) -> str:
+    return corpus_target.identity()[1]

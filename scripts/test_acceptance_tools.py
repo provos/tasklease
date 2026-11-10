@@ -354,7 +354,8 @@ def test_missing_wheel_installation_produces_failure_report_not_a_false_pass(
     bundle = tmp_path / "bundle"
     unpack(archive, bundle)
     installation = tmp_path / "empty-environment"
-    venv.EnvBuilder().create(installation)
+    # Match the venv CLI's POSIX default so uv's shared-library Python works.
+    venv.EnvBuilder(symlinks=os.name != "nt").create(installation)
     executable = installation / (
         "Scripts/python.exe" if os.name == "nt" else "bin/python"
     )

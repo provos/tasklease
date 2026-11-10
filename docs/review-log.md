@@ -747,3 +747,248 @@ Status: accepted after corrections, independent reviews and native qualification
   first-release setup/publication acceptance complete, and finalized the
   changelog. This documentation follow-up does not modify the published tag
   or distributions.
+
+## 0.2.0 candidate: offline service and blob helpers (2026-11-09)
+
+- Prepared an uncommitted candidate based on
+  `f2c22dc174957adf90ab26a9124ece2eed2e6569`. Added typed `FakeBoard`, streaming
+  blob transfer helpers and public request-ID/scope predicates, with usage
+  documentation and shared fake/Worker conformance. Optional runtime behavior
+  changes from the handoff remain separate; corrected the documented
+  `WorkerLoop` domain argument. No service upgrade is required for these APIs.
+- Three implementation agents owned disjoint files. Three review-only
+  simplify passes found no worthwhile reuse, quality or efficiency changes.
+  Two independent `gpt-6-astra` high-effort reviews each reproduced nested-JSON
+  drift against the actual Worker. Fixed validation and serialization with
+  iterative traversal, removed redundant recursive data copying, and made
+  snapshots stack-safe. Shared 500-level array/object lifecycle regressions
+  now pass on both targets. Both reviewers rechecked the fix independently
+  and reported no remaining material findings.
+- Integration also checked JavaScript number formatting at data-size limits,
+  upload mutation detection, raw-byte download verification, and blob-date
+  boundary behavior. A seeded differential probe of 99,946 finite IEEE754
+  values found no number-rendering mismatches with `JSON.stringify`.
+- `make install`, `make check` and `make build` passed on macOS with Node
+  `26.7.0`, Python `3.12.12` and uv `0.9.15`. The full check included 191
+  Worker tests, 32 dashboard tests, 916 Python/tooling tests with three native
+  Windows skips, and 386 conformance tests with 36 explicit capability skips.
+  Conformance skips are 35 unsupported fake admin/operator/declaration/monitor
+  cases and one local-Worker signed-transfer case. Dependency policy checked
+  302 locked registry versions, the installed tree matched, and audit found
+  zero vulnerabilities. Formatting, generation, schema, lint and strict type
+  checks passed.
+- Installed-wheel acceptance rebuilt the sdist without Node, installed away
+  from the checkout, blocked socket connections and completed real-client task
+  and blob-helper round trips. Two existing tests now use the injected package
+  version rather than `0.1.0`; temporary test environments use POSIX symlinks
+  so uv's macOS shared-library interpreter remains usable.
+- Inspected both distributions: the new modules and `py.typed` are present,
+  public module bytes match the working source, the bundled service reports
+  `0.2.0`, and runtime dependencies are unchanged. The private handoff remains
+  untracked and is absent from both artifacts. Artifact identities:
+  - wheel: `f29e5e1eca7a38f4109953ac893895f7c7fb8f5aa25290760a12fc6c01bfcb85`;
+  - sdist: `1fbe86a63778e4c941390157de8aa8864a7c720032238921c66168ea13d37119`.
+- Local logs and artifact inspection are preserved at
+  `/tmp/tasklease-020-check.log`, `/tmp/tasklease-020-build.log` and
+  `/tmp/tasklease-020-artifacts.json`. This is a candidate, not a published
+  release: native Linux/Windows acceptance, deployed R2 transfer/upgrade
+  acceptance and the remaining clean-commit/tag/publishing steps from the
+  release guide are outstanding. No FluxShot repository, deployment, release
+  tag or published package was changed.
+
+### PR #8 review fixes
+
+- Follow-up to `b4ad4a2`: encoded, preconsumed blob responses are rejected
+  before a partial file is created because HTTPX has discarded the original
+  stored bytes. Encoded raw streams and unencoded preloaded responses retain
+  support. Signing refusals preserve their typed API error as the explicit
+  cause of `BlobTransferError`; HTTP transfer diagnostics remain sanitized.
+- Shared `is_task_id` and `is_topic_glob` predicates now serve the store and
+  fake. Reply correlation uses `is_request_id` directly. The fake derives
+  request member sets from resolved generated annotations, including optional
+  fields under Python 3.12, while preserving scalar validation and error
+  precedence. Topics List groups tasks once and receives the caller's scopes;
+  ordinary number formatting avoids unnecessary Decimal conversion.
+- Conformance uses a session admin pool and revokes each target's identities
+  during teardown, including after failed tests. Cleanup tolerates explicit
+  revocation and continues across individual failures. Regression coverage
+  checks resource lifetime, encoded-response handling, typed signing causes,
+  shared predicates, optional fields, topic aggregation and numeric boundaries.
+- Three simplify passes and two fresh, independent Astra high-effort reviews
+  completed. The runtime review identified ambient proxy routing in the new
+  pooled admin client. An explicit direct transport and a socket-free proxy
+  routing regression fixed it; both Astra reviewers rechecked the correction
+  and reported no remaining material findings. Two-pass upload integrity
+  checks and stack-safe snapshots are retained. Full Python validator
+  generation and a broader transfer framework remain outside these fixes.
+- Final `make check` passed on macOS: 191 Worker tests, 32 dashboard tests,
+  961 Python/tooling tests with three native Windows skips, and 393
+  conformance tests with the same 36 explicit capability skips. Dependency
+  policy, audit, generation, formatting, lint and strict type checks passed.
+  `make build` passed; inspected wheel/sdist module and test bytes match the
+  source, runtime dependencies are unchanged, and the handoff is absent.
+- Updated `0.2.0` artifact identities supersede the earlier candidate hashes:
+  - wheel: `d030eaf3119161eed3b5b25968f0bd9c6407f5fb7f82e39525027995fa9f7c06`;
+  - sdist: `f4109ee80bd98d13e1d99371f4255aade0dd748f70e0bedf5300029f37e844a5`.
+  Logs and inspection are in `/tmp/tasklease-pr8-review-fixes-check.log`,
+  `/tmp/tasklease-pr8-review-fixes-build.log` and
+  `/tmp/tasklease-pr8-review-fixes-artifacts.json`. Release acceptance and
+  publication prerequisites remain as recorded above.
+
+### Native and live acceptance of the committed candidate (2026-11-09)
+
+- Qualified clean commit `d0191c4db4ecb7bee3a08e1abd200d7cc108a9ac` from an
+  isolated checkout. `make install`, `make check` and `make build` passed there:
+  191 Worker, 32 dashboard, 961 Python/tooling and 393 conformance tests, with
+  the previously documented three native Windows and 36 capability skips.
+  The untracked handoff and private acceptance credentials were excluded.
+- Exported one clean, hash-bound native candidate shared by all three systems:
+  - ZIP: `eb70ac4d12a96f43f06f2d6238c2764e5945ebfcf4c6b6cdd4f5fcba63dde79e`;
+  - source tree: `28a3d045c577bbfb2622aedb784d5bef0dd7ca666d7d1f14423fa957d0c686e5`;
+  - wheel: `b542c743a98d08f46c736fe7206e57ec12dc03d4d3fc270a84b1f3a7697790b9`;
+  - sdist: `309148f6c2f4e4597533a815118d63614c033b2c59897c78a88f390978671cf8`.
+  These artifacts supersede the earlier candidate builds. All native reports
+  verify this exact ZIP, source commit/tree and wheel before executing tests.
+- Native installed-wheel acceptance passed on macOS arm64/Python 3.12.12 and
+  Ubuntu 24.04.4 aarch64/Python 3.12.3: each 868 passed and three expected
+  Windows-only skips. Windows 11 Pro build 26200 ARM64, using Python 3.12.12
+  x64 under emulation, passed 865 tests with six expected skips. Every
+  installed-wheel/no-Node probe passed. Both Windows Task Scheduler parser
+  modes preserved non-ASCII paths; no task was registered or worker left
+  running. Prerequisites stayed in isolated temporary environments; Windows
+  execution policy, registry and global PATH were unchanged.
+- The first Windows full run recorded 862 passed, three timeouts and six
+  expected skips: a one-second requester wait and both 30-second Scheduler
+  subprocesses. Preserved that failed report and separate diagnostics. A full
+  unchanged rerun with closed stdin after host servicing settled passed all
+  871 cases, including the three earlier failures. ZIP, source, wheel, tests,
+  exclusions and all time limits stayed unchanged. Host load and cache state
+  also changed, so the evidence does not establish a single cause.
+- Bootstrapped a new isolated Worker from the verified published `0.1.0`
+  wheel, corroborated against PyPI release metadata, then upgraded it from
+  the exact installed candidate. The full held task, admin/scoped credentials
+  and hourly statistics survived. Snapshot, atomic reply and stale-ID fencing
+  passed. Real R2 rejected wrong signed Content-Length with 403 and no object;
+  correct PUT/GET, SHA-256 and a 1 MiB + 17-byte public-helper round trip passed.
+- A macOS `Store` submitted a blob-backed request to a Linux `WorkerLoop`.
+  Linux verified the input, uploaded the result and atomically replied. macOS
+  verified the 262,198-byte result, reopened its durable inbox and confirmed
+  server acknowledgement. The temporary Worker and run identities were
+  removed. The dedicated test bucket and seven-day lifecycle remain unchanged;
+  test objects are retained under that expiry rule. The Windows VM was
+  returned to its original suspended state after all evidence was collected.
+- A fresh independent Astra high-effort audit verified archive/source/wheel
+  bindings, report/JUnit consistency, real upgrade and transfer assertions,
+  cross-machine execution and retained failure history. Its initial Windows
+  blocker was resolved by the successful full unchanged rerun; no actionable
+  acceptance gaps remain. Retention safeguards and a recursive actual-secret
+  scan excluded credentials, private state and the untracked handoff.
+- Durable evidence is retained under
+  `python/dist/acceptance-0.2.0-d0191c4/`, including an `evidence.zip` containing
+  95 public evidence files plus their manifest. Its SHA-256 is
+  `6444d8c9f6868b5001ed600944704458fc510d0625e8ea7750ea52403bc07635`.
+  The tracked [acceptance summary](acceptance/0.2.0.json) records platform
+  details, counts, skips, artifact identities, live checks and first-run
+  failures. This evidence-only update does not alter qualified package/build
+  inputs. Release-note finalization, merge/tag and publication remain separate.
+
+### FluxShot Editor API review follow-up (2026-11-09)
+
+- Addressed the [FluxShot review of PR #8](https://github.com/provos/tasklease/pull/8#issuecomment-6756255222).
+  Blob helpers accept optional `total_timeout`, checked against monotonic time
+  through upload hashing, signing response bodies and blob body chunks, and
+  before committing downloads. Signing and transfer HTTP phases use the
+  remaining budget. This is cooperative: trickled response headers can keep
+  HTTPX inside a request indefinitely, and blocking filesystem calls/custom
+  transports cannot be interrupted. Hard cutoffs require process supervision.
+- Blob failures retain safe HTTP status, timeout category, or OS errno and
+  standard system description; untrusted exception messages, filenames and
+  transfer exception chains remain suppressed. Signing refusals retain their
+  typed API cause. `FakeBoard` exposes a fresh `blob_transport()`, public
+  `blob_base_url`, frozen `BlobPutGrant` records in detached read-only
+  `put_grants`, and an explicit `overwrite_blob()` corruption hook. Documented
+  mutable clock advancement needs no new setter. The Worker's 60-second empty
+  poller update throttle remains unchanged.
+- `WorkerControl(..., on_second_signal=cleanup)` invokes a fast optional
+  callback at most once before forced exit. Exit still happens if cleanup
+  raises; another signal during cleanup exits immediately. Regression coverage
+  includes real POSIX signals as well as callback exceptions and reentry.
+- Simplify reuse, quality and efficiency passes completed, including the
+  revised signing path. Two fresh independent Astra high-effort reviews found
+  that signing response bodies could trickle past the original deadline checks.
+  Added streaming checks and a regression that stops after four of 80 chunks;
+  both reviewers independently rechecked the correction and reported no
+  remaining actionable findings. Focused client/blob tests: 167 passed.
+- Final `make check` passed: 191 Worker, 32 dashboard, 1,005 Python/tooling
+  and 393 conformance tests, with three native Windows and 36 capability skips.
+  Dependency policy/audit, generation, formatting, lint and strict mypy passed.
+  `make build` passed; wheel/sdist source parity was verified for all four
+  changed runtime modules, with no handoff or private credentials packaged.
+- A fresh macOS installed-wheel environment with locked dependencies passed
+  912 runtime tests and three expected Windows-only skips, plus the no-Node
+  package/resource probe. This precommit regression bundle records dirty source
+  based on `16f1792`; it is not clean-commit release qualification. Build hashes:
+  - wheel: `3d06c1a58926c9c2b36cecb2aa19854f4c5207adfd518ce4e38d679b117ed4e0`;
+  - sdist: `322719724f83a651b848ed9d0f89bfdf1bbbcdb540426a02ee59191b55875263`.
+  Logs, artifact inspection, exported source/wheel and macOS report/JUnit are
+  retained under `python/dist/validation-0.2.0-fluxshot-review/` with SHA-256
+  manifest. Earlier native Linux/Windows, live R2/upgrade and cross-machine
+  acceptance remains bound to `d0191c4`. Refresh affected acceptance for the
+  final release candidate; publication and dated release notes remain separate.
+
+### Acceptance refreshed for `8e30da0` (2026-11-09)
+
+- Qualified clean commit `8e30da0ab66c8a7416ae2ee3a49f1d9f805c2afd` in an
+  isolated checkout with `make install`, `make check` and `make build`.
+  Dependency policy/audit, generation, formatting, lint and strict types passed;
+  191 Worker, 32 dashboard, 1,005 Python/tooling and 393 conformance tests passed,
+  with the expected three Windows-only and 36 backend-capability skips.
+- Bound all platforms and live checks to the same clean source and artifacts:
+  - ZIP: `8f0c26ef16b526ceb7dcaa5c2d3858fbc2045e10a8c9f1f9edf94ed5f9b1f040`;
+  - source tree: `2edb237c4c32429fb2cef4847b471b59c7e5a72b1fc5f459dda276a6cbda4dbd`;
+  - wheel: `849ccd17851ee76141cec94396eed0fad2bde03670cff5ec3d55399475397a94`;
+  - sdist: `c9461f58cf6393c70d8e67593431ceb7ef12fc7f59740fb937145c730707bd47`.
+  Package/source parity, metadata, licenses and bundled assets were inspected.
+- Fresh installed-wheel/no-Node acceptance passed on macOS arm64/Python 3.12.12
+  and Ubuntu 24.04.4 aarch64/Python 3.12.3: 912 passed, three expected Windows-only
+  skips each. Windows 11 Pro build 26200 ARM64 with Python 3.12.12 x64 emulation
+  passed 907 tests with eight expected OS skips on its first full attempt.
+  Both native Task Scheduler Unicode-string/UTF-8-file parsers and native file
+  sharing tests passed. Test limits/exclusions were unchanged, no task was
+  registered, PowerShell remained Restricted, and no candidate worker remained.
+  The Windows VM was restored to its original suspended state.
+- Verified the prior `0.1.0` wheel against fresh PyPI metadata, bootstrapped a
+  unique guarded-absent Worker, then upgraded the same Worker using the exact
+  installed candidate. Admin/scoped credentials, the complete held task and
+  hourly statistics survived. Snapshot, atomic reply and stale-ID fencing passed.
+  R2 rejected wrong signed Content-Length with 403 and no object; correct raw
+  PUT/GET and SHA-256 passed. Public helpers round-tripped 1 MiB + 17 bytes with
+  explicit 60-second total budgets.
+- A macOS `Store` submitted a real blob-backed request to the Linux
+  `WorkerLoop`; Linux verified the input, uploaded its result and atomically
+  replied. macOS verified all 262,198 output bytes, reopened the durable inbox
+  and confirmed server acknowledgement. Both machines used the native-verified
+  installed wheel and explicit helper budgets. Matching request IDs and hashes
+  bind requester/worker reports; the Linux scoped credential file was removed.
+- Preserved an expired-OAuth 401 preflight and the initial Cloudflare 10007
+  propagation error after upload. Ordinary session refresh and a retry of the
+  same run-owned Worker succeeded. No alternate Worker was orphaned. Temporary
+  identities were revoked and Worker deletion verified by API 404. Existing
+  bucket/lifecycle rules remain unchanged; test objects retain seven-day expiry.
+- Retained 78 public files plus their SHA-256 manifest in
+  `python/dist/acceptance-0.2.0-8e30da0/evidence.zip`, including the source export,
+  candidate wheel/sdist, prior published wheel/provenance, native reports/JUnit,
+  commands, cross-machine scripts and failed attempts. Archive SHA-256:
+  `ed94a8928e1f6492d72875c56afdd3aa362ccfb78bdd555c0a9d82f2d9dc21e5`.
+  Recursive actual-secret scanning excluded credentials/private state; the
+  handoff document is absent and was deleted from the working checkout as
+  requested. The [acceptance summary](acceptance/0.2.0.json) now qualifies
+  `8e30da0`; earlier evidence remains historical. This evidence update changes
+  no qualified package/build inputs. Release-note finalization, merge/tag and
+  publication remain separate.
+- A fresh independent Astra high-effort audit verified all 419 source-export
+  payload entries, package bytes/metadata, native JSON/JUnit and expected skips,
+  live upgrade/R2 assertions, cross-machine execution, cleanup and final retained
+  archive/summary bindings. It also reviewed the actual-secret scan safeguards
+  without accessing private credentials. No outstanding acceptance findings
+  remain; prior `d0191c4` results were not used to qualify this candidate.

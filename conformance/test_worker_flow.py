@@ -1,72 +1,35 @@
-"""Worker/requester completion and fault handling through the packaged service."""
+"""Worker/requester completion and faults through both service implementations."""
 
 import json
-from collections.abc import Iterator
 from pathlib import Path
 from threading import Event
-from uuid import uuid4
 
-import httpx
 import pytest
 
-from tasklease.client import Client
+from conformance.support import LostResponse, ServiceTarget
 from tasklease.errors import Empty
 from tasklease.generated import protocol as p
 from tasklease.store import Store
 from tasklease.worker import EchoHandler, UnlimitedCapacity, WorkerLoop
 
 
-class LostOperationResponse(httpx.BaseTransport):
-    """Commit an operation remotely, then lose only its first response."""
-
-    def __init__(self, operation: str) -> None:
-        self.actual = httpx.HTTPTransport()
-        self.operation = operation
-        self.calls = 0
-
-    def handle_request(self, request: httpx.Request) -> httpx.Response:
-        response = self.actual.handle_request(request)
-        if request.url.path == "/v1/" + self.operation:
-            self.calls += 1
-            if self.calls == 1:
-                response.read()
-                response.close()
-                raise httpx.ReadError("Lost committed response", request=request)
-        return response
-
-    def close(self) -> None:
-        self.actual.close()
-
-
 @pytest.fixture
-def worker_identity(admin: Client) -> Iterator[tuple[str, str]]:
-    name = "worker-" + uuid4().hex
-    domain = "conformance/worker/" + uuid4().hex
-    issued = admin.identity_add(
-        {
-            "name": name,
-            "domains": [domain],
-            "scopes": {
-                "create": ["work", "reply/**"],
-                "own": ["work", "work/error", "reply/**"],
-                "read": ["**"],
-            },
-            "operator": False,
-        }
+def worker_identity(target: ServiceTarget) -> tuple[str, str]:
+    _, token = target.identity(
+        create=("work", "reply/**"),
+        own=("work", "work/error", "reply/**"),
+        read=("**",),
     )
-    try:
-        yield domain, issued["token"]
-    finally:
-        admin.identity_revoke({"name": name})
+    return target.domain, token
 
 
 def test_echo_reply_survives_lost_consume_response_without_error_duplicate(
-    service_url: str, worker_identity: tuple[str, str], tmp_path: Path
+    target: ServiceTarget, worker_identity: tuple[str, str], tmp_path: Path
 ) -> None:
     domain, token = worker_identity
     store = Store("echo-requester", tmp_path)
-    transport = LostOperationResponse("consume")
-    with Client(service_url, token) as requester:
+    transport = LostResponse(target.transport(), "consume")
+    with target.client(token) as requester:
         store.submit(
             requester,
             domain,
@@ -75,7 +38,7 @@ def test_echo_reply_survives_lost_consume_response_without_error_duplicate(
             {"message": "hello from requester", "large_unused": "x" * 200_000},
             "lost-completion",
         )
-        with Client(service_url, token, "echo-worker", transport=transport) as api:
+        with target.client(token, "echo-worker", transport=transport) as api:
             loop = WorkerLoop(api, domain, "work", UnlimitedCapacity(), EchoHandler())
             assert loop.step() == "worked"
             assert transport.calls == 2
@@ -91,7 +54,7 @@ def test_echo_reply_survives_lost_consume_response_without_error_duplicate(
 
 
 def test_lost_renew_response_retries_before_short_local_deadline(
-    service_url: str, worker_identity: tuple[str, str], tmp_path: Path
+    target: ServiceTarget, worker_identity: tuple[str, str], tmp_path: Path
 ) -> None:
     class SlowEcho(EchoHandler):
         def run(self, request: str, lost: Event) -> p.Data:
@@ -100,8 +63,8 @@ def test_lost_renew_response_retries_before_short_local_deadline(
 
     domain, token = worker_identity
     store = Store("echo-requester", tmp_path)
-    transport = LostOperationResponse("renew")
-    with Client(service_url, token) as requester:
+    transport = LostResponse(target.transport(), "renew")
+    with target.client(token) as requester:
         store.submit(
             requester,
             domain,
@@ -110,7 +73,7 @@ def test_lost_renew_response_retries_before_short_local_deadline(
             {"message": "short lease"},
             "lost-renewal",
         )
-        with Client(service_url, token, "slow-echo", transport=transport) as api:
+        with target.client(token, "slow-echo", transport=transport) as api:
             loop = WorkerLoop(
                 api,
                 domain,
@@ -128,11 +91,11 @@ def test_lost_renew_response_retries_before_short_local_deadline(
 
 
 def test_forbidden_reply_routes_original_to_automatic_error_grant(
-    service_url: str, worker_identity: tuple[str, str]
+    target: ServiceTarget, worker_identity: tuple[str, str]
 ) -> None:
     domain, token = worker_identity
     data: p.Data = {"message": "hello", "reply_topic": "denied", "request_id": "denied"}
-    with Client(service_url, token, "echo-worker") as api:
+    with target.client(token, "echo-worker") as api:
         api.create({"domain": domain, "topic": "work", "data": data})
         loop = WorkerLoop(api, domain, "work", UnlimitedCapacity(), EchoHandler())
         assert loop.step() == "worked"
@@ -148,7 +111,7 @@ def test_forbidden_reply_routes_original_to_automatic_error_grant(
 
 
 def test_unencodable_wire_data_drains_through_ascii_bounded_fallback(
-    service_url: str, worker_identity: tuple[str, str]
+    target: ServiceTarget, worker_identity: tuple[str, str]
 ) -> None:
     domain, token = worker_identity
     # Escaped isolated surrogates are legal wire JSON, even though Python's
@@ -162,17 +125,18 @@ def test_unencodable_wire_data_drains_through_ascii_bounded_fallback(
             "request_id": "\ud800",
         },
     }
-    response = httpx.post(
-        service_url + "/v1/create",
-        headers={
-            "Authorization": "Bearer " + token,
-            "X-Worker": "raw-requester",
-            "Content-Type": "application/json",
-        },
-        content=json.dumps(payload, ensure_ascii=True).encode("ascii"),
-    )
+    with target.http() as http:
+        response = http.post(
+            target.url + "/v1/create",
+            headers={
+                "Authorization": "Bearer " + token,
+                "X-Worker": "raw-requester",
+                "Content-Type": "application/json",
+            },
+            content=json.dumps(payload, ensure_ascii=True).encode("ascii"),
+        )
     assert response.status_code == 200
-    with Client(service_url, token, "echo-worker") as api:
+    with target.client(token, "echo-worker") as api:
         loop = WorkerLoop(api, domain, "work", UnlimitedCapacity(), EchoHandler())
         assert loop.step() == "worked"
         assert loop.step() == "empty"
