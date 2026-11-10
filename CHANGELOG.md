@@ -6,10 +6,12 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-10
+
 ### Changed
 
-- `tl topic declare TOPIC` uses the configured domain or `TL_DOMAIN`, with
-  `--domain` to override it; the positional domain argument is removed.
+- `tl topic declare TOPIC` selects its domain from `--domain`, `TL_DOMAIN` or
+  the config's `domain`, in that order; the positional domain argument is removed.
 - POSIX identity token files must have no group or other permission bits.
   Files such as mode `0644` are rejected with an instruction to use `chmod 600`.
 
@@ -22,6 +24,16 @@ Release preparation and verification are documented in
 - Validate explicit domains locally in commands using the shared domain resolver.
   Topic declaration uses one configuration snapshot for domain and connection
   settings.
+
+### Compatibility and deployment
+
+- The CLI syntax and POSIX token-file checks are breaking changes. Replace
+  `tl topic declare DOMAIN TOPIC` with `tl topic declare TOPIC --domain DOMAIN`,
+  or configure the domain. On macOS/Linux, run `chmod 600` on identity token files
+  that permit group or other access before using them.
+- Python APIs and protocol `/v1/` are unchanged. The `0.3.0` client works with
+  existing `0.1.0` and `0.2.0` services; no service upgrade is required. The bundled
+  service reports version `0.3.0`.
 
 ## [0.2.0] - 2026-11-09
 
