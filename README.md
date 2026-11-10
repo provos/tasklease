@@ -234,14 +234,18 @@ not its tasks. Declaring a topic keeps it listed while empty; identity scopes
 control access independently. `topics` without `--domain` lists all domains
 granted to the identity.
 
-Use the same operator config to inspect error topics. If retrying is
-appropriate, `move` atomically reposts the task's unchanged data to the target
-topic. Replace `TASK_ID` with a current ID from the task listing:
+Use the same operator config to inspect error topics. Worker-generated error
+tasks wrap their data in an error record with `original`, `outcome` and `error`;
+large records may contain truncated JSON text. For a retry, fix the cause and
+resubmit valid original input through the requester or application profile.
+`move` preserves the entire error record, so use it to route that record for
+manual review rather than replay the original work. Replace `TASK_ID` with a
+current ID from the task listing:
 
 ```sh
 tl --config operator.toml tasks demo work/echo/error
 tl --config operator.toml read demo work/echo/error TASK_ID
-tl --config operator.toml move demo work/echo/error TASK_ID --to work/echo
+tl --config operator.toml move demo work/echo/error TASK_ID --to review/echo
 ```
 
 Issue a separate scoped identity for each agent host and worker machine.

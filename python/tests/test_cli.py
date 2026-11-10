@@ -236,16 +236,22 @@ def test_declare_missing_domain_fails_before_network(
     assert not cli.requests
 
 
+@pytest.mark.parametrize(
+    "folder", ["User config", "100%config", "%(prog)s", "%(missing)s"]
+)
+@pytest.mark.parametrize("arguments", [["--help"], ["topic", "declare", "--help"]])
 def test_cli_help_shows_platform_config_fallback(
     cli: CLI,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
+    folder: str,
+    arguments: list[str],
 ) -> None:
-    directory = Path(tmp_path.anchor) / "User config"
+    directory = Path(tmp_path.anchor) / folder
     monkeypatch.setattr("tasklease.cli.common.user_config_path", lambda app: directory)
     with pytest.raises(SystemExit) as caught:
-        main(["--help"])
+        main(arguments)
     assert caught.value.code == 0
     captured = capsys.readouterr()
     assert str(directory / "config.toml") in " ".join(captured.out.split())

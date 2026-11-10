@@ -25,7 +25,7 @@ def connection_options(parser: argparse.ArgumentParser) -> None:
         help=(
             "Config file (default: TL_CONFIG or "
             f"{user_config_path('tasklease') / 'config.toml'})"
-        ),
+        ).replace("%", "%%"),  # argparse interpolates help with the % operator.
     )
     parser.add_argument("--url", default=argparse.SUPPRESS)
     parser.add_argument("--worker", default=argparse.SUPPRESS)

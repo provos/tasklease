@@ -807,7 +807,7 @@ tl read D verify/linux t_01J…
 tl delete D verify/linux t_01J…
 tl pollers D verify/linux
 tl prune D --topic 'verify/**' --lease-older-than 3d
-tl move D verify/linux/error t_01J… --to verify/linux
+tl move D verify/linux/error t_01J… --to review/verify
 tl identity add linux-1 --domain D --own 'verify/linux,build/linux' \
   --create 'verified/*,built/*' --read 'verify/**,build/**'
 tl identity add mac-agents --domain D --own 'verified/mac-*,built/mac-*,advised/mac-*' \
@@ -851,6 +851,8 @@ tl topic declare verify/linux [--domain D] [--remove]
   removes never-owned tasks.
 - `move` re-posts a task elsewhere: a Consume by the operator, who may
   consume any live task (§3), into the target topic with the same data.
+  Worker error records retain their wrapper; retrying work requires
+  resubmitting valid original input through its requester or producer.
 - `identity add` takes one flag per scope (§3), each a comma-separated list
   of topic globs:
   - `--own`: topics the identity may take tasks from (Own, then Renew and
