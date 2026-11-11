@@ -10022,7 +10022,12 @@ function validate82(
       errors++;
     }
     for (const key0 in data) {
-      if (!(key0 === "domain" || key0 === "topic" || key0 === "hold_seconds")) {
+      if (!(
+        key0 === "domain" ||
+        key0 === "topic" ||
+        key0 === "hold_seconds" ||
+        key0 === "wait_seconds"
+      )) {
         const err3 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -10367,8 +10372,63 @@ function validate82(
         }
       }
     }
+    if (data.wait_seconds !== void 0) {
+      let data3 = data.wait_seconds;
+      if (!(
+        typeof data3 == "number" &&
+        !(data3 % 1) &&
+        !isNaN(data3) &&
+        isFinite(data3)
+      )) {
+        const err22 = {
+          instancePath: instancePath + "/wait_seconds",
+          schemaPath: "#/properties/wait_seconds/type",
+          keyword: "type",
+          params: { type: "integer" },
+          message: "must be integer",
+        };
+        if (vErrors === null) {
+          vErrors = [err22];
+        } else {
+          vErrors.push(err22);
+        }
+        errors++;
+      }
+      if (typeof data3 == "number" && isFinite(data3)) {
+        if (data3 > 30 || isNaN(data3)) {
+          const err23 = {
+            instancePath: instancePath + "/wait_seconds",
+            schemaPath: "#/properties/wait_seconds/maximum",
+            keyword: "maximum",
+            params: { comparison: "<=", limit: 30 },
+            message: "must be <= 30",
+          };
+          if (vErrors === null) {
+            vErrors = [err23];
+          } else {
+            vErrors.push(err23);
+          }
+          errors++;
+        }
+        if (data3 < 0 || isNaN(data3)) {
+          const err24 = {
+            instancePath: instancePath + "/wait_seconds",
+            schemaPath: "#/properties/wait_seconds/minimum",
+            keyword: "minimum",
+            params: { comparison: ">=", limit: 0 },
+            message: "must be >= 0",
+          };
+          if (vErrors === null) {
+            vErrors = [err24];
+          } else {
+            vErrors.push(err24);
+          }
+          errors++;
+        }
+      }
+    }
   } else {
-    const err22 = {
+    const err25 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -10376,9 +10436,9 @@ function validate82(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err22];
+      vErrors = [err25];
     } else {
-      vErrors.push(err22);
+      vErrors.push(err25);
     }
     errors++;
   }

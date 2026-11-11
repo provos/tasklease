@@ -558,6 +558,10 @@ export interface OwnRequest {
   domain: DomainName;
   topic: TopicName;
   hold_seconds: number;
+  /**
+   * How long to wait for a task before returning empty. Omitted or 0 returns immediately.
+   */
+  wait_seconds?: number;
 }
 export interface OwnResponse {
   ok: true;

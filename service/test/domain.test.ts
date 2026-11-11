@@ -1036,3 +1036,154 @@ describe("DomainObject task transactions", () => {
     ).toEqual([]);
   });
 });
+
+describe("long-poll Own", () => {
+  const poll = (domain: string, topic: string) => ({
+    domain,
+    topic,
+    hold_seconds: 60,
+    wait_seconds: 30,
+  });
+
+  it("returns a waiting task as soon as Create commits", async () => {
+    const { domain, stub } = fixture("wait-create");
+    const topic = "work/waited";
+    const waiting = stub.own(poll(domain, topic), worker);
+    // Give the waiter a turn to register and park before creating the task.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const created = success(
+      await stub.create({ domain, topic, data: { request: 1 } }, creator),
+    ).id;
+    const claimed = success(await waiting).task;
+    expect(claimed.id).not.toBe(created);
+    expect(claimed.data).toEqual({ request: 1 });
+    expect(claimed.owner).toEqual({ identity: "worker", worker: "worker-1" });
+  });
+
+  it("returns empty at the deadline without claiming anything", async () => {
+    const { domain, stub } = fixture("wait-timeout");
+    const started = Date.now();
+    error(
+      await stub.own({ ...poll(domain, "work/idle"), wait_seconds: 1 }, worker),
+      "empty",
+    );
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("keeps omission and zero immediate", async () => {
+    const { domain, stub } = fixture("wait-immediate");
+    const topic = "work/none";
+    const started = Date.now();
+    error(await stub.own({ domain, topic, hold_seconds: 60 }, worker), "empty");
+    error(
+      await stub.own(
+        { domain, topic, hold_seconds: 60, wait_seconds: 0 },
+        worker,
+      ),
+      "empty",
+    );
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it("wakes waiters for a Consume successor", async () => {
+    const { domain, stub } = fixture("wait-consume");
+    const source = success(
+      await stub.create({ domain, topic: "work/source", data: {} }, creator),
+    ).id;
+    const held = success(
+      await stub.own(
+        { domain, topic: "work/source", hold_seconds: 60 },
+        worker,
+      ),
+    ).task;
+    expect(held.id).not.toBe(source);
+    const waiting = stub.own(poll(domain, "result/next"), worker);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(
+      await stub.consume(
+        {
+          domain,
+          topic: "work/source",
+          id: held.id,
+          tasks: [{ topic: "result/next", data: { step: 2 } }],
+        },
+        worker,
+      ),
+    );
+    expect(success(await waiting).task.data).toEqual({ step: 2 });
+  });
+
+  it("wakes at the next lease expiry", async () => {
+    const { domain, stub } = fixture("wait-lease");
+    const topic = "work/lease";
+    const task = success(
+      await stub.create({ domain, topic, data: {} }, creator),
+    ).id;
+    success(await stub.own({ domain, topic, hold_seconds: 1 }, worker));
+    const other: Caller = { ...worker, identity: "worker-two", worker: "w2" };
+    const claimed = success(
+      await stub.own({ ...poll(domain, topic), wait_seconds: 5 }, other),
+    ).task;
+    expect(claimed.owner).toEqual({ identity: "worker-two", worker: "w2" });
+    // The original ID is fenced by the new owner's claim.
+    error(
+      await stub.renew({ domain, topic, id: task, hold_seconds: 60 }, worker),
+      "not_found",
+    );
+  });
+
+  it("does not wake waiters on an unrelated topic", async () => {
+    const { domain, stub } = fixture("wait-isolation");
+    const waiting = stub.own(
+      { ...poll(domain, "work/quiet"), wait_seconds: 1 },
+      worker,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(
+      await stub.create({ domain, topic: "work/noisy", data: {} }, creator),
+    );
+    error(await waiting, "empty");
+    // The unrelated task is still claimable.
+    expect(
+      success(
+        await stub.own(
+          { domain, topic: "work/noisy", hold_seconds: 60 },
+          worker,
+        ),
+      ).task.topic,
+    ).toBe("work/noisy");
+  });
+
+  it("claims each task once for competing waiters", async () => {
+    const { domain, stub } = fixture("wait-compete");
+    const topic = "work/compete";
+    const waiting = [0, 1, 2].map((index) =>
+      stub.own(
+        { ...poll(domain, topic), wait_seconds: 2 },
+        { ...worker, worker: `worker-${index}` },
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
+    const results = await Promise.all(waiting);
+    const tasks = results.filter((result) => result.ok);
+    expect(tasks).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toHaveLength(2);
+  });
+
+  it("re-registers no waiter after a completed wait", async () => {
+    const { domain, stub } = fixture("wait-cleanup");
+    error(
+      await stub.own(
+        { ...poll(domain, "work/clean"), wait_seconds: 1 },
+        worker,
+      ),
+      "empty",
+    );
+    await runInDurableObject(stub, (instance: DomainObject) => {
+      const waiters = (instance as unknown as { waiters: Map<string, unknown> })
+        .waiters;
+      expect(waiters.size).toBe(0);
+    });
+  });
+});

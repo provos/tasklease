@@ -82,6 +82,38 @@ type Snapshot = { id: string; expiresAt: number; chunks: number };
 /** How stale a poller row's last_polled_at may get before an empty poll writes it. */
 const POLLER_REFRESH_MS = 60_000;
 
+/**
+ * Retained waiters per topic. Beyond this, long polls answer empty immediately
+ * so clients fall back to their own poll sleep instead of growing the object.
+ */
+const MAX_WAITERS_PER_TOPIC = 10_000;
+
+/** An in-memory long-poll waiter. Lost waiters are safe: the client retries. */
+type Waiter = {
+  wake: () => void;
+  // setTimeout returns a number in Workers; null means no timer is armed.
+  timer: ReturnType<typeof setTimeout> | null;
+  /** A wake hint is outstanding and the waiter is about to retry. */
+  pending: boolean;
+  done: boolean;
+};
+
+/** Arm a waiter's wake-up; it settles on a hint or when `delay` elapses. */
+function pause(waiter: Waiter, delay: number): Promise<void> {
+  // A hint that arrived during the preceding attempt is consumed at once.
+  if (waiter.pending) {
+    waiter.pending = false;
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    waiter.wake = () => {
+      waiter.pending = false;
+      resolve();
+    };
+    waiter.timer = setTimeout(resolve, delay);
+  });
+}
+
 const pollerQuery = `SELECT identity, worker, last_polled_at, last_owned_at FROM pollers
   WHERE topic = ? AND last_polled_at >= ? ORDER BY identity, worker`;
 
@@ -190,6 +222,9 @@ export class DomainObject extends DurableObject<Env> {
   // The cleanup alarm reschedules itself and is never deleted, so once seen
   // it stays set for this object's lifetime.
   private alarmSet = false;
+  // Long-poll waiters are transient: they hold no task state, and an evicted
+  // object simply drops them while callers retry their bounded waits.
+  private readonly waiters = new Map<string, Waiter[]>();
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     void ctx.blockConcurrencyWhile(async () => {
@@ -223,7 +258,7 @@ export class DomainObject extends DurableObject<Env> {
     request: CreateRequest,
     caller: Caller,
   ): Promise<Result<CreateResponse>> {
-    return this.operation((now) => {
+    const result = await this.operation((now) => {
       const id = this.insertTask(
         request.topic,
         JSON.stringify(request.data),
@@ -232,9 +267,13 @@ export class DomainObject extends DurableObject<Env> {
       );
       return { ok: true, id };
     });
+    // A new task is available immediately (lease_until is in the past).
+    if (result.ok) this.notify(request.topic);
+    return result;
   }
 
-  async own(
+  /** One atomic claim attempt. The transaction is the only availability authority. */
+  private async attemptOwn(
     request: OwnRequest,
     caller: Caller,
   ): Promise<Result<RpcTaskResponse<OwnResponse>>> {
@@ -287,11 +326,99 @@ export class DomainObject extends DurableObject<Env> {
     });
   }
 
+  /** The earliest future lease on a topic, or undefined if none can expire. */
+  private nextLease(topic: string, now: number): number | undefined {
+    return (
+      this.ctx.storage.sql
+        .exec<{ lease_until: number | null }>(
+          "SELECT MIN(lease_until) AS lease_until FROM tasks WHERE topic = ? AND lease_until > ?",
+          topic,
+          now,
+        )
+        .one().lease_until ?? undefined
+    );
+  }
+
+  /**
+   * Wait for a claimable task. The SQLite transaction stays authoritative: a
+   * notification only wakes a waiter, which then retries it from scratch.
+   */
+  private async awaitTask(
+    request: OwnRequest,
+    caller: Caller,
+  ): Promise<Result<RpcTaskResponse<OwnResponse>>> {
+    const topic = request.topic;
+    let queue = this.waiters.get(topic);
+    if (!queue) {
+      queue = [];
+      this.waiters.set(topic, queue);
+    }
+    // Backpressure: a full topic answers empty at once, so clients fall back
+    // to their own poll sleep rather than the object retaining more waiters.
+    if (queue.length >= MAX_WAITERS_PER_TOPIC) return failure("empty");
+    const waiter: Waiter = {
+      wake: () => {},
+      timer: null,
+      pending: false,
+      done: false,
+    };
+    queue.push(waiter);
+    const deadline = Date.now() + request.wait_seconds! * 1000;
+    try {
+      for (;;) {
+        // Retry after registration, so a Create that committed between an
+        // earlier empty attempt and this waiter becoming visible is seen.
+        const result = await this.attemptOwn(request, caller);
+        if (result.ok) return result;
+        const now = Date.now();
+        if (now >= deadline) return failure("empty");
+        const lease = this.nextLease(topic, now);
+        const next = lease === undefined ? deadline : Math.min(deadline, lease);
+        // The pause ends at the wait deadline or at an earlier lease expiry;
+        // only the former ends the poll, so a lease wake retries the claim.
+        await pause(waiter, Math.max(0, next - now));
+        if (Date.now() >= deadline) return failure("empty");
+      }
+    } finally {
+      waiter.done = true;
+      clearTimeout(waiter.timer);
+      const index = queue.indexOf(waiter);
+      if (index >= 0) queue.splice(index, 1);
+      if (queue.length === 0 && this.waiters.get(topic) === queue) {
+        this.waiters.delete(topic);
+      }
+    }
+  }
+
+  async own(
+    request: OwnRequest,
+    caller: Caller,
+  ): Promise<Result<RpcTaskResponse<OwnResponse>>> {
+    if (!request.wait_seconds) return this.attemptOwn(request, caller);
+    return this.awaitTask(request, caller);
+  }
+
+  /**
+   * Wake waiters for `count` newly available tasks. One hint per task keeps a
+   * burst from waking every waiter; losers wait again for the next hint.
+   */
+  private notify(topic: string, count = 1): void {
+    const queue = this.waiters.get(topic);
+    if (!queue) return;
+    for (const waiter of queue) {
+      if (count === 0) return;
+      if (waiter.done || waiter.pending) continue;
+      waiter.pending = true;
+      waiter.wake();
+      count--;
+    }
+  }
+
   async renew(
     request: RenewRequest,
     caller: Caller,
   ): Promise<Result<RpcTaskResponse<RenewResponse>>> {
-    return this.operation((now) => {
+    const result = await this.operation((now) => {
       const row = this.findTask(request.topic, request.id);
       if (!row) return failure("not_found");
       if (!caller.operator && row.owner_identity !== caller.identity) {
@@ -306,6 +433,10 @@ export class DomainObject extends DurableObject<Env> {
       );
       return { ok: true, task: task(row, request.domain) };
     });
+    // A renewed lease moves the next wake-up later; let waiting claims
+    // recompute their expiry timer instead of sleeping until the old one.
+    if (result.ok) this.notify(request.topic);
+    return result;
   }
 
   async read(
@@ -354,7 +485,7 @@ export class DomainObject extends DurableObject<Env> {
     request: ConsumeRequest,
     caller: Caller,
   ): Promise<Result<ConsumeResponse>> {
-    return this.operation((now) => {
+    const result = await this.operation((now) => {
       const row = this.findTask(request.topic, request.id);
       if (!row) return failure("not_found");
       if (!caller.operator && row.owner_identity !== caller.identity) {
@@ -382,6 +513,15 @@ export class DomainObject extends DurableObject<Env> {
       });
       return { ok: true, ids };
     });
+    // Successors are available immediately; wake one waiter per successor topic.
+    if (result.ok) {
+      const perTopic = new Map<string, number>();
+      for (const target of request.tasks) {
+        perTopic.set(target.topic, (perTopic.get(target.topic) ?? 0) + 1);
+      }
+      for (const [topic, count] of perTopic) this.notify(topic, count);
+    }
+    return result;
   }
 
   async topicsList(

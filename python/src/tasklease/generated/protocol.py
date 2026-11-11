@@ -244,6 +244,7 @@ class OwnRequest(TypedDict):
     domain: DomainName
     topic: TopicName
     hold_seconds: int
+    wait_seconds: NotRequired[int]
 
 
 class ReadRequest(TypedDict):

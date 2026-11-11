@@ -150,6 +150,16 @@ describe("HTTP routing and validation", () => {
         400,
         "invalid",
       );
+    for (const wait_seconds of [-1, 31, 1.5, true, "5"])
+      await expectError(
+        await post(
+          "own",
+          { domain, topic: "work", hold_seconds: 60, wait_seconds },
+          token,
+        ),
+        400,
+        "invalid",
+      );
     expect(
       (
         await post(
