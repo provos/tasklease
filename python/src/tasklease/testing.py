@@ -30,7 +30,7 @@ from urllib.parse import quote
 import httpx
 
 from tasklease import __version__
-from tasklease.client import Client, reject_nonfinite
+from tasklease.client import MAX_WAIT_SECONDS, Client, reject_nonfinite
 from tasklease.errors import API_ERRORS
 from tasklease.generated import protocol as p
 from tasklease.names import (
@@ -231,6 +231,10 @@ def _valid_request(operation: str, body: dict[str, object]) -> bool:
         hold = body["hold_seconds"]
         if not _integer(hold) or not 1 <= cast(int, hold) <= 86400:
             return False
+    if "wait_seconds" in body:
+        wait = body["wait_seconds"]
+        if not _integer(wait) or not 0 <= cast(int, wait) <= MAX_WAIT_SECONDS:
+            return False
     if "lease_before" in body and not _integer(body["lease_before"]):
         return False
     if "data" in body and not _data(body["data"]):
@@ -309,6 +313,9 @@ class FakeBoard:
             clock if clock is not None else lambda: time.time_ns() // 1_000_000
         )
         self._lock = threading.RLock()
+        # Waiters park on this condition without holding _lock, so Create and
+        # Consume from other threads can wake them.
+        self._changed = threading.Condition(self._lock)
         self._identities: dict[str, p.Identity] = {}
         self._tasks: dict[str, p.Task] = {}
         self._pollers: dict[tuple[str, str, str], p.Poller] = {}
@@ -488,7 +495,7 @@ class FakeBoard:
                     return _failure("invalid", "Invalid request body")
             except (ValueError, UnicodeError, RecursionError):
                 return _failure("invalid", "Invalid request body")
-            for field in ("hold_seconds", "lease_before", "size"):
+            for field in ("hold_seconds", "wait_seconds", "lease_before", "size"):
                 if field in body:
                     body[field] = int(cast(int, body[field]))
             worker = request.headers.get("X-Worker")
@@ -507,7 +514,12 @@ class FakeBoard:
                 for target in cast(list[p.NewTask], body["tasks"])
             ):
                 return _failure("too_large", "Task data exceeds 256 KiB")
-            return self._operate(operation, body, identity, worker, self._now())
+            wait = cast(int, body.get("wait_seconds", 0)) if operation == "own" else 0
+            if not wait:
+                return self._operate(operation, body, identity, worker, self._now())
+        # Long-poll outside the lock; the clock may be injected, so bound the
+        # wait by both wall time and the board's own clock.
+        return self._wait_own(body, identity, worker, wait)
 
     @staticmethod
     def _allows(
@@ -554,6 +566,38 @@ class FakeBoard:
         }
         return task_id
 
+    def _wait_own(
+        self, body: dict[str, object], caller: p.Identity, worker: str, wait: int
+    ) -> httpx.Response:
+        """Repeat the real atomic claim until it succeeds or the wait ends.
+
+        The lock is released between attempts, so Create and Consume on other
+        threads can make progress and notify this waiter.
+        """
+        # Whichever clock has advanced furthest measures elapsed wait time: an
+        # injected clock lets a test jump the deadline, while a frozen one
+        # still terminates on wall time.
+        start_wall, start_clock = time.monotonic(), self._now()
+        for _ in range(1000):
+            with self._changed:
+                response = self._operate("own", body, caller, worker, self._now())
+                if response.status_code != 404:
+                    return response
+                elapsed = max(
+                    time.monotonic() - start_wall, (self._now() - start_clock) / 1000
+                )
+                remaining = wait - elapsed
+                if remaining <= 0:
+                    break
+                # Recheck after registering, mirroring the service: a Create
+                # may have committed between the attempt and this wait.
+                self._changed.wait(min(remaining, 0.05))
+        return _failure("empty")
+
+    def _wake(self) -> None:
+        """Notify blocked Own callers; callers must hold the lock."""
+        self._changed.notify_all()
+
     def _operate(
         self,
         operation: str,
@@ -568,6 +612,7 @@ class FakeBoard:
         topic = cast(str, body.get("topic", ""))
         if operation == "create":
             task_id = self._insert(topic, cast(p.Data, body["data"]), identity, now)
+            self._wake()
             return _success({"ok": True, "id": task_id})
         if operation == "own":
             available = [
@@ -634,6 +679,8 @@ class FakeBoard:
             return _failure("forbidden")
         if operation == "renew":
             task["lease_until"] = now + cast(int, body["hold_seconds"]) * 1000
+            # A renewed lease moves the next expiry; recheck it.
+            self._wake()
             return _success({"ok": True, "task": task})
         if operation == "delete":
             if "lease_before" in body and task["lease_until"] >= cast(
@@ -651,6 +698,7 @@ class FakeBoard:
             for target in targets
         ]
         del self._tasks[task["id"]]
+        self._wake()
         return _success({"ok": True, "ids": ids})
 
     def _topics_list(

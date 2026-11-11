@@ -15,7 +15,7 @@ from random import uniform
 from threading import TIMEOUT_MAX, Condition, Event, Thread
 from typing import Literal, Protocol, cast
 
-from tasklease.client import Client
+from tasklease.client import MAX_WAIT_GRACE, MAX_WAIT_SECONDS, Client
 from tasklease.errors import (
     Empty,
     Forbidden,
@@ -266,6 +266,7 @@ class WorkerLoop[Request, Outcome]:
         renew_every: float = 180,
         max_owned: int = 3,
         poll_interval: float = 30,
+        wait_seconds: int = 30,
         stop: Event | None = None,
     ) -> None:
         if not is_domain(domain):
@@ -287,6 +288,10 @@ class WorkerLoop[Request, Outcome]:
             or not math.isfinite(poll_interval)
         ):
             raise Invalid("poll_interval must be positive and fit the platform timeout")
+        if type(wait_seconds) is not int or not 0 <= wait_seconds <= MAX_WAIT_SECONDS:
+            raise Invalid(
+                f"wait_seconds must be an integer from 0 to {MAX_WAIT_SECONDS}"
+            )
         self.client = client
         self.domain = domain
         self.topic = topic
@@ -296,6 +301,10 @@ class WorkerLoop[Request, Outcome]:
         self.renew_every = renew_every
         self.max_owned = max_owned
         self.poll_interval = poll_interval
+        self.wait_seconds = wait_seconds
+        # Set by step(): the empty result followed a full server-side wait,
+        # which already supplied the idle delay.
+        self._completed_wait = False
         self.stop = stop if stop is not None else Event()
 
     def _consume(self, task: p.Task, tasks: list[p.NewTask], lease: _Lease) -> bool:
@@ -381,17 +390,31 @@ class WorkerLoop[Request, Outcome]:
         if self.stop.is_set():
             return "empty"
         sent = time.monotonic()
+        claim: p.OwnRequest = {
+            "domain": self.domain,
+            "topic": self.topic,
+            "hold_seconds": self.lease,
+        }
+        if self.wait_seconds:
+            claim["wait_seconds"] = self.wait_seconds
         try:
             task = self.client.own(
-                {
-                    "domain": self.domain,
-                    "topic": self.topic,
-                    "hold_seconds": self.lease,
-                },
-                timeout=float(self.lease),
+                claim,
+                # The wait is part of the call, not part of the claimed lease.
+                timeout=float(self.lease + self.wait_seconds),
+                read_timeout=(
+                    float(self.wait_seconds) + MAX_WAIT_GRACE
+                    if self.wait_seconds
+                    else None
+                ),
             )["task"]
         except Empty:
+            self._completed_wait = self._waited(sent)
             return "empty"
+        # A long poll acquires the task at the end of the wait, so the lease
+        # starts when the response arrives. An immediate poll keeps the
+        # conservative send time, so a slow response cannot execute late work.
+        acquired = time.monotonic() if self.wait_seconds else sent
         lease = _Lease(
             self.client,
             task,
@@ -399,7 +422,7 @@ class WorkerLoop[Request, Outcome]:
             self.topic,
             self.lease,
             self.renew_every,
-            sent,
+            acquired,
         )
         if lease.remaining() <= 0:
             return "worked"
@@ -430,6 +453,13 @@ class WorkerLoop[Request, Outcome]:
             lease.close()
         return "worked"
 
+    def _waited(self, started: float) -> bool:
+        """Whether the server held the request for most of its long-poll time."""
+        return (
+            self.wait_seconds > 0
+            and time.monotonic() - started >= self.wait_seconds / 2
+        )
+
     def run(self) -> None:
         """Poll until stopped, acquiring local capacity before every Own."""
         while not self.stop.is_set():
@@ -440,5 +470,11 @@ class WorkerLoop[Request, Outcome]:
                     result = self.step()
             except TransportError:
                 result = "empty"
-            if result == "empty":
+                # A transport failure is not a completed wait: back off.
+                self.stop.wait(self.poll_interval * uniform(0.8, 1.2))
+                continue
+            # A completed server wait already supplied the idle delay. An
+            # immediate empty (wait disabled, waiter cap, or an older service)
+            # still gets the poll interval.
+            if result == "empty" and not self._completed_wait:
                 self.stop.wait(self.poll_interval * uniform(0.8, 1.2))

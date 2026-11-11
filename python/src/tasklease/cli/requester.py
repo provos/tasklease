@@ -19,6 +19,7 @@ from tasklease.cli.common import (
     optional_text,
     output,
     text,
+    wait_seconds,
 )
 from tasklease.client import Client, reject_nonfinite
 from tasklease.errors import ConfigError, TaskleaseError
@@ -81,8 +82,16 @@ def _report_recovery(store: Store, request_id: str) -> None:
         )
 
 
-def _wait_for(store: Store, api: Client, request_id: str, timeout_seconds: int) -> int:
-    reply = store.wait(api, request_id, timeout_seconds=timeout_seconds)
+def _wait_for(
+    store: Store,
+    api: Client,
+    request_id: str,
+    timeout_seconds: int,
+    wait_seconds: int,
+) -> int:
+    reply = store.wait(
+        api, request_id, timeout_seconds=timeout_seconds, wait_seconds=wait_seconds
+    )
     if reply is None:
         output({"request_id": request_id, "timed_out": True})
         message(f"Timed out; request {request_id} remains saved for tl wait")
@@ -93,6 +102,7 @@ def _wait_for(store: Store, api: Client, request_id: str, timeout_seconds: int) 
 
 def _request(args: argparse.Namespace) -> int:
     timeout = duration_seconds(text(args, "timeout"), name="Timeout")
+    wait = wait_seconds(optional_text(args, "wait_seconds") or 30)
     resend = optional_text(args, "resend")
     if resend is not None:
         if any(
@@ -130,7 +140,7 @@ def _request(args: argparse.Namespace) -> int:
                     request_id=request_id,
                 )
             if flag(args, "wait"):
-                return _wait_for(store, api, request_id, timeout)
+                return _wait_for(store, api, request_id, timeout, wait)
         except (TaskleaseError, OSError, ValueError, KeyboardInterrupt):
             _report_recovery(store, request_id)
             raise
@@ -140,9 +150,10 @@ def _request(args: argparse.Namespace) -> int:
 
 def _wait(args: argparse.Namespace) -> int:
     timeout = duration_seconds(text(args, "timeout"), name="Timeout")
+    wait = wait_seconds(optional_text(args, "wait_seconds") or 30)
     store = agent_store(args)
     with client(args) as api:
-        return _wait_for(store, api, text(args, "request_id"), timeout)
+        return _wait_for(store, api, text(args, "request_id"), timeout, wait)
 
 
 def _cancel(args: argparse.Namespace) -> int:
@@ -183,12 +194,20 @@ def configure_parser(
     identifiers.add_argument("--resend", metavar="REQUEST_ID")
     request.add_argument("--wait", action="store_true")
     request.add_argument("--timeout", default="6h", help="Wait duration, e.g. 6h")
+    request.add_argument(
+        "--wait-seconds",
+        help="Long-poll seconds per Own, default 30; 0 or off disables",
+    )
     request.set_defaults(handler=_request)
 
     wait = subparsers.add_parser("wait", help="Wait for a saved request's reply")
     connection_options(wait)
     wait.add_argument("--request-id", required=True)
     wait.add_argument("--timeout", default="6h", help="Wait duration, e.g. 6h")
+    wait.add_argument(
+        "--wait-seconds",
+        help="Long-poll seconds per Own, default 30; 0 or off disables",
+    )
     wait.set_defaults(handler=_wait)
 
     cancel = subparsers.add_parser("cancel", help="Cancel a saved unowned request")

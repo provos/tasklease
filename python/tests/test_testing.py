@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import socket
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError, dataclass
 from pathlib import Path
@@ -652,3 +654,115 @@ def test_number_wire_format_preserves_fixed_and_exponent_boundaries(
             b'"numbers":[0,1,1.5,0.000001,1e-7,100000000000000000000,1e+21]'
             in response.content
         )
+
+
+def test_long_poll_wakes_on_create_without_holding_the_lock(
+    board: FakeBoard,
+) -> None:
+    """A waiting Own releases the lock, so another thread can Create."""
+    board.add_identity("creator", "creator-token", create=["work/wait"])
+    waiter = board.client("token", "waiting-worker")
+    created = threading.Event()
+
+    def create() -> None:
+        time.sleep(0.1)
+        board.client("creator-token").create(
+            {"domain": board.domain, "topic": "work/wait", "data": {"n": 1}}
+        )
+        created.set()
+
+    thread = threading.Thread(target=create)
+    thread.start()
+    started = time.monotonic()
+    task = waiter.own(
+        {
+            "domain": board.domain,
+            "topic": "work/wait",
+            "hold_seconds": 60,
+            "wait_seconds": 1,
+        }
+    )["task"]
+    thread.join()
+    assert created.is_set()
+    assert task["data"] == {"n": 1}
+    assert time.monotonic() - started < 1.5
+
+
+def test_long_poll_times_out_empty_and_zero_is_immediate(board: FakeBoard) -> None:
+    client = board.client("token")
+    started = time.monotonic()
+    with pytest.raises(Empty):
+        client.own(
+            {
+                "domain": board.domain,
+                "topic": "work/idle",
+                "hold_seconds": 60,
+                "wait_seconds": 0,
+            }
+        )
+    assert time.monotonic() - started < 0.5
+    with pytest.raises(Empty):
+        client.own(
+            {
+                "domain": board.domain,
+                "topic": "work/idle",
+                "hold_seconds": 60,
+                "wait_seconds": 1,
+            }
+        )
+    assert time.monotonic() - started < 3
+
+
+def test_long_poll_claims_a_consumed_successor_once(board: FakeBoard) -> None:
+    client = board.client("token")
+    client.create({"domain": board.domain, "topic": "work/a", "data": {}})
+    held = client.own({"domain": board.domain, "topic": "work/a", "hold_seconds": 60})[
+        "task"
+    ]
+
+    def consume() -> None:
+        time.sleep(0.1)
+        board.client("token", "second").consume(
+            {
+                "domain": board.domain,
+                "topic": "work/a",
+                "id": held["id"],
+                "tasks": [{"topic": "work/b", "data": {"step": 2}}],
+            }
+        )
+
+    thread = threading.Thread(target=consume)
+    thread.start()
+    task = client.own(
+        {
+            "domain": board.domain,
+            "topic": "work/b",
+            "hold_seconds": 60,
+            "wait_seconds": 1,
+        }
+    )["task"]
+    thread.join()
+    assert task["data"] == {"step": 2}
+    with pytest.raises(Empty):
+        client.own(
+            {
+                "domain": board.domain,
+                "topic": "work/b",
+                "hold_seconds": 60,
+                "wait_seconds": 0,
+            }
+        )
+
+
+def test_long_poll_rejects_out_of_range_waits(board: FakeBoard) -> None:
+    client = board.client("token")
+    for wait in (-1, 31, 1.5, True, "5"):
+        with pytest.raises(Invalid):
+            client.own(
+                {
+                    "domain": board.domain,
+                    "topic": "work",
+                    "hold_seconds": 60,
+                    "wait_seconds": wait,  # type: ignore[typeddict-item]
+                }
+            )

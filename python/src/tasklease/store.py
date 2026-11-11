@@ -21,7 +21,7 @@ from uuid import uuid4
 from platformdirs import user_data_path
 
 from tasklease import fsio
-from tasklease.client import Client
+from tasklease.client import MAX_WAIT_GRACE, MAX_WAIT_SECONDS, Client
 from tasklease.errors import Empty, NotFound, StoreError, TransportError
 from tasklease.generated import protocol as p
 from tasklease.names import is_domain, is_request_id, is_segment, is_task_id, is_topic
@@ -428,16 +428,30 @@ class Store:
         *,
         deadline: float | None = None,
         request_id: str | None = None,
+        wait_seconds: int = 0,
     ) -> int:
         count = 0
-        for _ in range(_BATCH_SIZE):
+        for index in range(_BATCH_SIZE):
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
                 break
+            # Only the first Own in a drain may wait: a reply that existed
+            # before the call must not be delayed behind a long poll.
+            wait = 0 if index else wait_seconds
+            if remaining is not None and wait:
+                wait = max(0, min(wait, math.floor(remaining)))
+            claim: p.OwnRequest = {
+                "domain": domain,
+                "topic": reply_topic,
+                "hold_seconds": 60,
+            }
+            if wait:
+                claim["wait_seconds"] = wait
             try:
                 response = client.own(
-                    {"domain": domain, "topic": reply_topic, "hold_seconds": 60},
+                    claim,
                     timeout=remaining,
+                    read_timeout=(float(wait) + MAX_WAIT_GRACE if wait else None),
                 )
             except Empty:
                 break
@@ -471,12 +485,13 @@ class Store:
         timeout_seconds: float,
         poll_interval: float = 1.0,
         max_poll_interval: float = 30.0,
+        wait_seconds: int = MAX_WAIT_SECONDS,
     ) -> ReplyRecord | None:
         """Return a local reply, or None at a monotonic timeout; never repost.
 
-        Polls start at ``poll_interval`` and back off by half each round up to
-        ``max_poll_interval``: a quick reply is seen within about a second,
-        while a multi-hour wait makes a few hundred requests, not thousands.
+        With ``wait_seconds``, Own holds each poll for that long, so a reply is
+        seen within about a second without backoff. Zero restores the original
+        ``poll_interval``-to-``max_poll_interval`` exponential backoff.
         """
         if not math.isfinite(timeout_seconds) or timeout_seconds < 0:
             raise StoreError("timeout must be a nonnegative finite number of seconds")
@@ -488,6 +503,10 @@ class Store:
             raise StoreError(
                 "maximum poll interval must be a positive finite number of seconds"
             )
+        if type(wait_seconds) is not int or not 0 <= wait_seconds <= MAX_WAIT_SECONDS:
+            raise StoreError(
+                f"wait_seconds must be an integer from 0 to {MAX_WAIT_SECONDS}"
+            )
         delay = poll_interval
         deadline = time.monotonic() + timeout_seconds
         reply = self.reply(request_id)
@@ -496,6 +515,7 @@ class Store:
         record = self._required_request(request_id)
         self._automatic_prune()
         while time.monotonic() < deadline:
+            started = time.monotonic()
             try:
                 self._drain(
                     client,
@@ -503,6 +523,7 @@ class Store:
                     record.reply_topic,
                     deadline=deadline,
                     request_id=request_id,
+                    wait_seconds=wait_seconds,
                 )
             except TransportError:
                 reply = self.reply(request_id)
@@ -517,6 +538,10 @@ class Store:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
+            # A completed long poll already provided the delay. An immediate
+            # empty (a full waiter queue or an older service) must back off.
+            if wait_seconds and time.monotonic() - started >= wait_seconds - 1:
+                continue
             time.sleep(min(remaining, delay * uniform(0.8, 1.2)))
             delay = min(delay * 1.5, max(poll_interval, max_poll_interval))
         return None

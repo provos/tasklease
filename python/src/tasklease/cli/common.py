@@ -12,7 +12,7 @@ from pathlib import Path
 
 from platformdirs import user_config_path
 
-from tasklease.client import Client
+from tasklease.client import MAX_WAIT_SECONDS, Client
 from tasklease.config import Config, load_config
 from tasklease.errors import ConfigError
 from tasklease.names import is_domain
@@ -55,6 +55,19 @@ def text(args: argparse.Namespace, name: str) -> str:
 def flag(args: argparse.Namespace, name: str) -> bool:
     value: object = getattr(args, name, False)
     return value is True
+
+
+def wait_seconds(value: object) -> int:
+    """Parse a long-poll wait; 0, `off` or `none` disables it."""
+    if value in {"off", "none"}:
+        return 0
+    if type(value) is int and 0 <= value <= MAX_WAIT_SECONDS:
+        return value
+    if isinstance(value, str) and value.isdigit() and int(value) <= MAX_WAIT_SECONDS:
+        return int(value)
+    raise ConfigError(
+        f"wait_seconds must be an integer from 0 to {MAX_WAIT_SECONDS}, or off"
+    )
 
 
 def duration_seconds(value: str, *, name: str = "Duration") -> int:

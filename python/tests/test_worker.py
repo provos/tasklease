@@ -120,10 +120,15 @@ class CustomHandler:
 
 
 def loop(
-    backend: Backend, handler: CustomHandler | None = None
+    backend: Backend, handler: CustomHandler | None = None, *, wait_seconds: int = 30
 ) -> WorkerLoop[object, object]:
     return WorkerLoop(
-        backend.client(), DOMAIN, TOPIC, UnlimitedCapacity(), handler or CustomHandler()
+        backend.client(),
+        DOMAIN,
+        TOPIC,
+        UnlimitedCapacity(),
+        handler or CustomHandler(),
+        wait_seconds=wait_seconds,
     )
 
 
@@ -545,7 +550,7 @@ def test_own_response_after_deadline_does_not_execute() -> None:
     backend.on_own = lambda: time.sleep(1.05)
     handler = CustomHandler()
     handler.on_validate = lambda task: pytest.fail("late Own must not execute")
-    worker = loop(backend, handler)
+    worker = loop(backend, handler, wait_seconds=0)
     worker.lease = 1
     worker.step()
     assert not backend.consumed
@@ -607,3 +612,149 @@ def test_handler_can_intentionally_fan_out() -> None:
     ]
     loop(backend, handler).step()
     assert len(new_tasks(backend.consumed[0])) == 2
+
+
+def test_own_long_polls_by_default_with_a_read_grace() -> None:
+    backend = Backend()
+    backend.empty = True
+    worker = loop(backend)
+    assert worker.wait_seconds == 30
+    worker.step()
+    own = next(body for op, body in backend.calls if op == "own")
+    assert own == {
+        "domain": DOMAIN,
+        "topic": TOPIC,
+        "hold_seconds": 600,
+        "wait_seconds": 30,
+    }
+    # The read phase covers the server wait and a response margin. Connect
+    # keeps the client's configured cap (30s), not the lease plus wait.
+    assert backend.timeouts[0]["read"] == 45.0
+    assert backend.timeouts[0]["connect"] == 30.0
+
+
+def test_own_omits_wait_when_disabled_for_older_services() -> None:
+    backend = Backend()
+    backend.empty = True
+    loop(backend, wait_seconds=0).step()
+    own = next(body for op, body in backend.calls if op == "own")
+    assert "wait_seconds" not in own
+
+
+def test_wait_seconds_is_validated() -> None:
+    backend = Backend()
+    for value in (-1, 31, 1.5, True):
+        with pytest.raises(Invalid):
+            WorkerLoop(
+                backend.client(),
+                DOMAIN,
+                TOPIC,
+                UnlimitedCapacity(),
+                EchoHandler(),
+                wait_seconds=value,  # type: ignore[arg-type]
+            )
+
+
+def test_full_server_wait_continues_without_an_extra_idle_sleep() -> None:
+    backend = Backend()
+    backend.empty = True
+    stop = threading.Event()
+    started: list[float] = []
+
+    def on_own() -> None:
+        started.append(time.monotonic())
+        if len(started) == 1:
+            time.sleep(0.3)
+        else:
+            stop.set()
+
+    backend.on_own = on_own
+    loop = WorkerLoop(
+        backend.client(),
+        DOMAIN,
+        TOPIC,
+        UnlimitedCapacity(),
+        EchoHandler(),
+        wait_seconds=0,
+        poll_interval=10,
+        stop=stop,
+    )
+    # With long polling disabled, an immediate empty keeps the poll interval.
+    assert loop.step() == "empty"
+    assert loop.wait_seconds == 0
+
+
+def test_immediate_empty_keeps_the_poll_interval() -> None:
+    backend = Backend()
+    backend.empty = True
+    stop = threading.Event()
+    slept: list[float] = []
+    original = stop.wait
+
+    def wait(timeout: float | None = None) -> bool:
+        slept.append(timeout or 0)
+        stop.set()
+        return original(0)
+
+    stop.wait = wait  # type: ignore[method-assign]
+    WorkerLoop(
+        backend.client(),
+        DOMAIN,
+        TOPIC,
+        UnlimitedCapacity(),
+        EchoHandler(),
+        wait_seconds=30,
+        poll_interval=4,
+        stop=stop,
+    ).run()
+    # A server that answers empty at once did not provide the idle delay.
+    assert len(slept) == 1 and 3.2 <= slept[0] <= 4.8
+
+
+def test_completed_wait_does_not_sleep_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    backend = Backend()
+    backend.empty = True
+    stop = threading.Event()
+    slept: list[float] = []
+    original = stop.wait
+    now = [100.0]
+
+    def wait(timeout: float | None = None) -> bool:
+        slept.append(timeout or 0)
+        return original(0)
+
+    calls = 0
+
+    def on_own() -> None:
+        nonlocal calls
+        calls += 1
+        now[0] += 29.5
+        if calls == 2:
+            stop.set()
+
+    monkeypatch.setattr("tasklease.worker.time.monotonic", lambda: now[0])
+    backend.on_own = on_own
+    stop.wait = wait  # type: ignore[method-assign]
+    WorkerLoop(
+        backend.client(),
+        DOMAIN,
+        TOPIC,
+        UnlimitedCapacity(),
+        EchoHandler(),
+        wait_seconds=30,
+        poll_interval=4,
+        stop=stop,
+    ).run()
+    # The server's own wait was the idle delay, so no extra sleep is needed.
+    assert calls == 2
+    assert not slept
+
+
+def test_long_poll_task_gets_a_full_local_lease() -> None:
+    """The wait is not lease time: a task claimed at the end is not stale."""
+    backend = Backend()
+    backend.on_own = lambda: time.sleep(0.2)
+    worker = loop(backend, wait_seconds=30)
+    worker.lease = 1
+    worker.step()
+    assert len(backend.consumed) == 1

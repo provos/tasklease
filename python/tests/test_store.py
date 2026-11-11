@@ -793,3 +793,69 @@ def test_locating_corrupt_metadata_refuses_it_without_replacement(
     with pytest.raises(StoreError, match="does not match"):
         Store("agent", tmp_path, initialize=False)
     assert path.read_text() == '{"agent_id":"different"}'
+
+
+def test_wait_long_polls_without_backoff(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+
+    # Each server response takes the full wait and advances the clock, so no
+    # client-side sleep is needed between polls.
+    def full_wait() -> None:
+        clock.now += 30
+
+    backend.on_own = full_wait
+    assert store.wait(client, "request-1", 70, wait_seconds=30) is None
+    assert clock.sleeps == []
+    assert len(backend.owns) == 3
+    # Every round waits on the server; the result records the initial
+    # submission as own[0], so all rounds are long polls capped to the
+    # remaining overall timeout.
+    assert [body["wait_seconds"] for body in backend.owns[-3:]] == [30, 30, 10]
+
+
+def test_wait_caps_a_long_poll_to_the_remaining_timeout(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    assert store.wait(client, "request-1", 12, wait_seconds=30) is None
+    assert backend.owns[0]["wait_seconds"] == 12
+
+
+def test_wait_zero_restores_bounded_backoff(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+    assert store.wait(client, "request-1", 3, wait_seconds=0) is None
+    assert clock.sleeps == [1, 1.5, 0.5]
+    assert all("wait_seconds" not in body for body in backend.owns)
+
+
+def test_wait_immediate_empty_still_backs_off(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    # A full waiter queue or older service answers at once; back off anyway.
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+    assert store.wait(client, "request-1", 3, wait_seconds=30) is None
+    assert clock.sleeps and clock.sleeps[0] >= 1
+
+
+def test_wait_rejects_invalid_wait_seconds(store: Store, client: Client) -> None:
+    for value in (-1, 31, 1.5, True):
+        with pytest.raises(StoreError):
+            store.wait(client, "request-1", 10, wait_seconds=value)  # type: ignore[arg-type]

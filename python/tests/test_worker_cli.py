@@ -128,6 +128,7 @@ def test_echo_once_uses_capacity_and_small_correlated_reply(
                 "domain": DOMAIN,
                 "topic": TOPIC,
                 "hold_seconds": 600,
+                "wait_seconds": 30,
             }
             return _owned()
         assert request.url.path == "/v1/consume"
@@ -180,6 +181,7 @@ def test_settings_and_cli_overrides(cli: CLI) -> None:
         "domain": DOMAIN,
         "topic": TOPIC,
         "hold_seconds": 600,
+        "wait_seconds": 30,
     }
 
 
@@ -361,3 +363,21 @@ def test_active_handler_finishes_before_file_stop_exits(
     assert not stopper.is_alive()
     assert observed.is_set()
     assert [request.url.path for request in cli.requests] == ["/v1/own", "/v1/consume"]
+
+
+def test_wait_seconds_can_be_disabled_and_configured(cli: CLI) -> None:
+    cli.respond = lambda request: _empty()
+    assert cli.run(["--topic", TOPIC, "--once", "--wait-seconds", "off"]) == 0
+    assert "wait_seconds" not in _body(cli.requests[0])
+    assert cli.run(["--topic", TOPIC, "--once", "--wait-seconds", "12"]) == 0
+    assert _body(cli.requests[1])["wait_seconds"] == 12
+
+
+def test_wait_seconds_setting_and_validation(cli: CLI) -> None:
+    with cli.config.open("a") as config:
+        config.write("[worker]\nwait_seconds=5\n")
+    cli.respond = lambda request: _empty()
+    assert cli.run(["--topic", TOPIC, "--once"]) == 0
+    assert _body(cli.requests[0])["wait_seconds"] == 5
+    for value in ("-1", "31", "1.5"):
+        assert cli.run(["--topic", TOPIC, "--once", "--wait-seconds", value]) == 1

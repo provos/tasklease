@@ -16,6 +16,7 @@ from tasklease.client import Client
 from tasklease.errors import (
     API_ERRORS,
     APIError,
+    Empty,
     Invalid,
     ProtocolError,
     TransportError,
@@ -390,3 +391,57 @@ def test_worker_timeout_cap_rejects_invalid_values_without_network(
             client.consume(
                 cast(p.ConsumeRequest, example("consume", "request")), timeout=timeout
             )
+
+
+def test_own_long_poll_extends_read_without_lengthening_other_phases() -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        return httpx.Response(
+            404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
+        )
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Empty):
+            client.own(
+                {
+                    "domain": "acme/pipeline",
+                    "topic": "work/linux",
+                    "hold_seconds": 60,
+                    "wait_seconds": 30,
+                },
+                timeout=60,
+                read_timeout=45,
+            )
+    assert timeouts[0]["read"] == 45
+    # Connect, write and pool keep the client's configured cap.
+    assert timeouts[0]["connect"] == 30
+
+
+def test_own_read_floor_never_exceeds_the_caller_cap() -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        return httpx.Response(
+            404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
+        )
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Empty):
+            client.own(
+                {
+                    "domain": "acme/pipeline",
+                    "topic": "work/linux",
+                    "hold_seconds": 60,
+                    "wait_seconds": 30,
+                },
+                timeout=2,
+                read_timeout=45,
+            )
+    assert timeouts[0]["read"] == 2

@@ -609,3 +609,27 @@ def test_corrupt_existing_reply_is_never_acknowledged(
     assert cli.run(["inbox"]) == 1
     assert capsys.readouterr().out == ""
     assert cli.requests == []
+
+
+def test_wait_seconds_flag_controls_the_own_request(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    owns: list[dict[str, object]] = []
+    replies = [reply({"request_id": "request-1", "answer": "done"}), empty()]
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if operation(request) == "create":
+            return httpx.Response(200, json={"ok": True, "id": TASK_ID})
+        if operation(request) == "own":
+            owns.append(body(request))
+            return replies.pop(0)
+        assert operation(request) == "delete"
+        return httpx.Response(200, json={"ok": True})
+
+    cli.respond = respond
+    assert (
+        cli.run([*request_args(), "--wait", "--timeout", "1m", "--wait-seconds", "12"])
+        == 0
+    )
+    assert owns[0]["wait_seconds"] == 12
+    assert json.loads(capsys.readouterr().out)["request_id"] == "request-1"

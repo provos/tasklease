@@ -20,6 +20,12 @@ from tasklease.errors import API_ERRORS, Invalid, ProtocolError, TransportError
 from tasklease.generated import protocol as p
 from tasklease.names import is_bearer_token, is_worker_label
 
+# The service caps Own's wait at 30 seconds. Clients allow a little more for
+# the response to arrive before the read phase times out.
+MAX_WAIT_SECONDS = 30
+# The response must arrive after the server's own wait expires.
+MAX_WAIT_GRACE = 15.0
+
 # Check the transport envelope and its required top-level members before the
 # generated DTO cast. Full schemas remain a contract-test dependency, rather
 # than adding a runtime JSON Schema dependency to each client installation.
@@ -134,6 +140,7 @@ class Client:
         *,
         timeout: float | None = None,
         total_timeout: float | None = None,
+        read_timeout: float | None = None,
     ) -> httpx.Response:
         if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
             raise Invalid("timeout must be a positive finite number of seconds")
@@ -160,17 +167,27 @@ class Client:
         try:
             url = f"{self._base_url}/v1/{operation}"
             bounded: httpx.Timeout | None = None
-            if timeout is not None:
+            if timeout is not None or read_timeout is not None:
                 configured = self._http.timeout
+                cap = timeout if timeout is not None else math.inf
 
-                def cap(value: float | None) -> float:
-                    return timeout if value is None else min(value, timeout)
+                def limit(value: float | None) -> float:
+                    return cap if value is None else min(value, cap)
 
+                # A long poll needs a read allowance beyond its wait, but never
+                # past the caller's overall cap. Other phases keep that cap.
+                read = limit(configured.read)
+                if read_timeout is not None:
+                    read = (
+                        math.inf
+                        if math.isinf(read)
+                        else min(cap, max(read, read_timeout))
+                    )
                 bounded = httpx.Timeout(
-                    connect=cap(configured.connect),
-                    read=cap(configured.read),
-                    write=cap(configured.write),
-                    pool=cap(configured.pool),
+                    connect=limit(configured.connect),
+                    read=None if math.isinf(read) else read,
+                    write=limit(configured.write),
+                    pool=limit(configured.pool),
                 )
             request = self._http.build_request(
                 method,
@@ -218,6 +235,7 @@ class Client:
         *,
         timeout: float | None = None,
         total_timeout: float | None = None,
+        read_timeout: float | None = None,
     ) -> dict[str, object]:
         try:
             content = json.dumps(
@@ -226,7 +244,12 @@ class Client:
         except (TypeError, ValueError, UnicodeError, RecursionError):
             raise Invalid("Request must contain valid JSON values") from None
         response = self._send(
-            "POST", operation, content, timeout=timeout, total_timeout=total_timeout
+            "POST",
+            operation,
+            content,
+            timeout=timeout,
+            total_timeout=total_timeout,
+            read_timeout=read_timeout,
         )
         body = self._decode(response)
         if body.get("ok") is False:
@@ -255,10 +278,21 @@ class Client:
         return cast(p.CreateResponse, self._post("create", request))
 
     def own(
-        self, request: p.OwnRequest, *, timeout: float | None = None
+        self,
+        request: p.OwnRequest,
+        *,
+        timeout: float | None = None,
+        read_timeout: float | None = None,
     ) -> p.OwnResponse:
-        """Own a task, optionally capping each configured HTTP timeout in seconds."""
-        return cast(p.OwnResponse, self._post("own", request, timeout=timeout))
+        """Own a task, optionally capping each configured HTTP timeout in seconds.
+
+        ``read_timeout`` is a floor for the read phase only, so a long poll's
+        ``wait_seconds`` is not cut off by the default 30-second read limit.
+        """
+        return cast(
+            p.OwnResponse,
+            self._post("own", request, timeout=timeout, read_timeout=read_timeout),
+        )
 
     def renew(
         self, request: p.RenewRequest, *, timeout: float | None = None

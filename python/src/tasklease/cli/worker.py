@@ -20,7 +20,9 @@ from tasklease.cli.common import (
     optional_text,
     output,
     text,
+    wait_seconds,
 )
+from tasklease.client import MAX_WAIT_SECONDS
 from tasklease.errors import ConfigError
 from tasklease.worker import (
     EchoHandler,
@@ -120,6 +122,7 @@ def _run(args: argparse.Namespace) -> int:
     lease = _seconds(_setting(args, settings, "lease", 600), "lease")
     renew = _seconds(_setting(args, settings, "renew_every", 180), "renew_every")
     poll = _seconds(_setting(args, settings, "poll_interval", 30), "poll_interval")
+    wait = wait_seconds(_setting(args, settings, "wait_seconds", MAX_WAIT_SECONDS))
     if poll > TIMEOUT_MAX / 1.2:
         raise ConfigError("worker poll_interval exceeds this platform's timer limit")
     maximum = _setting(args, settings, "max_owned", 3)
@@ -146,6 +149,7 @@ def _run(args: argparse.Namespace) -> int:
                 renew_every=renew,
                 max_owned=maximum,
                 poll_interval=poll,
+                wait_seconds=wait,
                 stop=control.stop,
             )
             if flag(args, "once"):
@@ -171,6 +175,10 @@ def configure_parser(
     parser.add_argument("--renew-every", help="Renew interval, default 180s")
     parser.add_argument("--max-owned", type=int)
     parser.add_argument("--poll-interval", help="Idle poll duration, default 30s")
+    parser.add_argument(
+        "--wait-seconds",
+        help="Long-poll wait per Own, default 30; 0 or off disables",
+    )
     parser.add_argument("--once", action="store_true", help="Own at most one task")
     parser.add_argument("--state-dir", type=Path)
     parser.set_defaults(handler=_run)
