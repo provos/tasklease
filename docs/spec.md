@@ -200,7 +200,7 @@ Success is `200 {"ok": true, ...}`. Failure is
 | `unauthenticated` | 401 | missing or unknown token |
 | `forbidden` | 403 | scope, holder rule, or conditional Delete refused it |
 | `not_found` | 404 | no task with this domain, topic and ID |
-| `empty` | 404 | Own found no available task |
+| `empty` | 404 | Own found no available task, or its wait ended |
 | `exists` | 409 | Identity Add for a name already in use |
 | `too_large` | 413 | `data` over 256 KiB, more than 16 new tasks, or a blob over 2 GiB |
 
@@ -216,7 +216,7 @@ Posts a task with `lease_until = now − 5 s`, `owned_count = 0`,
 
 ### 4.2 Own
 
-`own {domain, topic, hold_seconds}` → `{task}`
+`own {domain, topic, hold_seconds, wait_seconds?}` → `{task}`
 
 Picks the available task in the topic with the oldest `created_at` (ties
 broken by ID). A caller cannot choose which task it gets.
@@ -226,13 +226,24 @@ Atomically, it retires the task and posts a copy with a new ID,
 `owner = {caller, worker label}`. It returns the whole new task, data
 included.
 
-`hold_seconds` is between 1 and 86400. If no task is available it returns
-`empty`.
+`hold_seconds` is between 1 and 86400.
 
-Every Own, including one that returns `empty`, updates the caller's entry in
-the topic's poller list (§4.9).
+`wait_seconds`, when present, is between 0 and 30 and defaults to 0. With 0,
+Own answers at once. With a positive value and no available task, Own holds
+the request until a task becomes available in that topic or the wait ends,
+then returns the task or `empty`. A task becomes available when a Create or
+Consume posts it, or when a held task's lease expires. The caller's scopes and
+the domain are checked before the wait begins and are not rechecked.
 
-Own always answers at once. Workers poll (§7.3).
+The wait is a hint to wake early, never a reservation: concurrent waiters
+race, and each Own transaction still decides the winner. Fencing is unchanged.
+A waiter that disappears (a disconnected client, an evicted Durable Object, or
+a deployment) gets no response, and the caller may retry; a held request is
+never a guarantee of a later answer. A full topic queue answers `empty` at
+once instead of holding the request.
+
+Every Own, including one that returns `empty` or waits, updates the caller's
+entry in the topic's poller list (§4.9).
 
 ### 4.3 Renew
 
@@ -318,7 +329,8 @@ registration step. A worker that waits for local capacity before polling
 (§6.1) only shows up while it is able to take work. `tl request` uses it to
 warn when no worker is serving the topic. `last_polled_at` is accurate to
 about a minute: an empty Own refreshes it only once it is a minute old, so
-idle polls usually write nothing. `last_owned_at` is exact.
+idle polls usually write nothing. A long wait records its start time, so a
+waiting worker remains listed. `last_owned_at` is exact.
 
 ### 4.10 Blob Put URL
 
@@ -767,14 +779,20 @@ operator's job (§9).
 
 ### 7.3 Polling cost
 
-Version 1 has no held requests: Own answers at once, and an idle worker polls
-every 30–120 seconds. Each poll is one short request, so the Durable Object
-can sleep between them.
+Own accepts a bounded wait (§4.2). A client that uses none polls at once and
+sleeps between polls. A client that waits holds one request open per poll, so
+it picks up a new task within a round trip instead of after its sleep.
 
-Holding an Own open until a task arrives would cut the delay before a worker
-picks up a task. It is a possible future change, not part of version 1. The
-cost to weigh: a request held open keeps the Durable Object awake and billed
-for that time, and with about ten workers waiting it may never sleep.
+The cost to weigh is that a held request keeps the Durable Object awake and
+billed for its duration. A domain that polls every 30 seconds is resident
+either way; a domain whose only worker polls every ten minutes becomes
+resident if it waits. Request counts substitute for sleep: one 30-second wait
+makes the same number of requests as a 30-second poll, while a 20-second wait
+makes more. Use `wait_seconds = 0` for a deliberately cold worker, and size
+the wait to the polling cadence being replaced.
+
+Waiters are held in memory, are capped per topic, and are dropped when the
+object is evicted. A dropped waiter costs a retry, not a task.
 
 ## 8. Blobs (R2)
 

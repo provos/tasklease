@@ -60,7 +60,11 @@ package name; see [PyPI's pending-project documentation](https://docs.pypi.org/t
    the clean installed-wheel checks on Linux, and the isolated Cloudflare/R2
    checks from the implementation checklist. For subsequent releases, test
    upgrading from the previous published service bundle to this candidate
-   while preserving state and credentials. For the first release, test fresh
+   while preserving state and credentials. A release that changes the wire
+   request schema must also test both directions: the previous client against
+   the new service (omitted or old fields still work), and the new client
+   against the previous service (the documented error, or the opt-out setting
+   that restores the old request). For the first release, test fresh
    bootstrap and the earlier-bundle upgrade flow. Record the candidate commit,
    artifact hashes, commands, results and any expected skips in the review log;
    retain the reports with the release evidence.

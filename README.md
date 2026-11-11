@@ -40,8 +40,8 @@ and you want no servers to operate:
 - **Jobs:** platform builds, verification runs, GPU work, classification
   stages or requests for advice, taking seconds to hours. A worker holds a
   task for up to 24 hours per Own or Renew and keeps renewing while it works.
-  Idle workers poll every 30 seconds by default, so that pickup delay must be
-  acceptable.
+  An idle worker holds one 30-second long-poll open, so it picks up new work
+  within a round trip instead of waiting for its next poll.
 - **Machines:** laptops, desktops and home or office servers on macOS, Linux
   and Windows. Workers need only outbound HTTPS, including R2 uploads through
   presigned URLs, so they run behind NAT without a VPN, open ports or a
@@ -288,6 +288,7 @@ file = "worker.token"
 [worker]
 topic = "work/echo"
 handler = "echo"
+# wait_seconds = 30  # long-poll per Own; 0 or "off" polls immediately
 ```
 
 On macOS/Linux, set private modes after saving the configs and tokens:
@@ -328,7 +329,7 @@ Python `tasklease.client.Client` has a method for each. The
 | Operation | What it does | Needs |
 | --- | --- | --- |
 | Create | Posts a task to a topic. | `create` on the topic |
-| Own | Leases the oldest available task for 1 second to 24 hours and gives it a new ID. | `own` on the topic |
+| Own | Leases the oldest available task for 1 second to 24 hours and gives it a new ID; optionally waits up to 30 seconds for one. | `own` on the topic |
 | Renew | Extends the lease and keeps the ID. | `own`, and holding the task |
 | Consume | Retires the held task and posts up to 16 successors, atomically. | `own` on the task's topic, `create` on each successor's topic |
 | Delete | Removes a task: its holder's, or its creator's before anyone owned it. | the holder rule |
@@ -501,13 +502,21 @@ Each domain is one Durable Object with one database, so a domain's requests
 and tasks share one object's capacity. Count tasks across all its topics,
 including work, replies, and errors.
 
-**Workers.** An idle worker polls every 30 seconds, so 1,000 idle workers
-send about 33 requests a second to their domain. A load test against a
+**Workers.** An idle worker holds one 30-second `Own` open, so 1,000 idle
+workers send about 33 requests a second to their domain. A load test against a
 deployed service (below) handled 5,000 workers without errors, and a single
 domain served about 1,000 requests a second, Cloudflare's documented soft
 limit for one Durable Object: roughly 30,000 idle workers, less the requests
 their actual work adds. An idle poll usually writes nothing, which keeps it
-cheap. Workers with their own tokens added about 65 ms per request compared
+cheap. A held poll keeps the Durable Object resident: request counts match a
+30-second short poll, so a domain already polled continuously costs the same
+in compute. A worker that polls deliberately rarely should set
+`wait_seconds = 0`, or it will keep the domain resident. One topic retains up
+to 10,000 waiters; beyond that, Own answers `empty` at once and clients fall
+back to their short-poll sleep, so a larger idle fleet degrades to the old
+behavior rather than growing the object without bound.
+
+Workers with their own tokens added about 65 ms per request compared
 with shared tokens: each Worker instance caches a token's identity for a
 minute, and with many tokens most requests miss that cache and ask the
 shared identity registry. Split independent workloads into separate domains to add

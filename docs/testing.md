@@ -50,6 +50,12 @@ assertions; changing a snapshot cannot change the board. Injected clocks must
 be safe to call from every thread using the board. Omit `clock` to use wall
 time, or advance an injected clock to test expiry without sleeping.
 
+Own's `wait_seconds` long-poll is emulated with the same semantics as the
+service: Create, Consume and Renew wake waiting callers, a wait ends at its
+deadline with `Empty`, and a frozen injected clock falls back to wall time so
+an offline test always terminates. The board releases its lock while waiting,
+so a Create or Consume on another thread can wake a waiter.
+
 `blob_transport()` creates a fresh blob-only `httpx.MockTransport`; use
 `board.blob_base_url` as its base URL. A custom `httpx.BaseTransport` can wrap
 this transport to inspect, fail or delay a PUT before forwarding it. Intercept

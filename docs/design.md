@@ -188,6 +188,17 @@ storage, with the tables in spec §7.2.
   `lease_until` so lease filtering can use index entries before fetching a
   task's payload. Topic aggregates use the same index and supply the live
   topic names for both listing and monitor snapshots.
+- **Long-poll Own:** with `wait_seconds` set, Own registers an in-memory
+  waiter for the topic, runs the same claim transaction again, and parks on a
+  timer for the earlier of the wait deadline and the topic's next lease
+  expiry. Create, Consume and Renew signal waiters after their transaction
+  commits, one hint per newly available task. A hint only wakes the waiter
+  to retry the transaction; the hint is never consulted for availability, so
+  a race costs one extra query and cannot double-claim. The recheck after
+  registration closes the gap between an empty attempt and the waiter being
+  visible. Waiters hold no task state and are capped per topic; an evicted
+  object drops them and the client retries. Nothing is persisted, so no
+  schema migration or alarm change is needed.
 - **Statistics:** every operation that counts (spec §4.15) upserts its
   topic's row in `stats_hourly` inside its own transaction, with
   `INSERT … ON CONFLICT(topic, hour) DO UPDATE SET created = created + 1, …`.
@@ -432,14 +443,22 @@ the `lost` event, `finish` with the fallback to `<topic>/error`, and the
 
 `WorkerLoop.step() -> Literal["worked", "empty"]` is the single-step entry
 point: it owns at most one task, finishes it and returns. After `"worked"`
-the caller polls again at once (there may be a backlog); after `"empty"` it
-sleeps for the poll interval with jitter. `run()` is that loop with
-`Capacity` taken around each step.
+the caller polls again at once (there may be a backlog). After `"empty"` it
+sleeps for the poll interval with jitter unless the empty followed a
+completed server-side wait, which already supplied the idle delay; `step()`
+records that privately so `run()` can distinguish an immediate refusal (wait
+disabled, waiter cap, or an older service) from a full wait. `run()` is that
+loop with `Capacity` taken around each step. `step()` sends `wait_seconds` unless it is zero, where the
+wire request stays byte-for-byte the pre-long-poll shape. The client raises
+only the read-phase timeout, to the wait plus a response margin and still
+within the caller's per-call cap when one is supplied, so an overall
+deadline still bounds the poll.
 
 For FluxShot, the profiles run each step under `tests.verify_lock run`
 (profiles §3.2), so the outer loop lives outside the lock and calls
-`step()` in a short-lived process. At a 30–120 second poll interval, one
-Python start and TLS handshake per poll is cheap. Taking the lock in-process
+`step()` in a short-lived process. With a long-poll wait, each process start
+covers up to 30 seconds of idle time, so the per-poll Python start and TLS
+handshake are spread thinner than with a short poll. Taking the lock in-process
 instead, as a `Capacity`, would avoid it; whether that fits FluxShot's import
 layers and the lock's held-variable rule for child processes is a question
 for the FluxShot worker design. The library supports both shapes.
@@ -457,6 +476,11 @@ exits immediately without invoking the callback again.
 The hash uses the store's first 32 lowercase hexadecimal SHA-256 characters,
 so case-sensitive labels, Windows device names and long labels are portable.
 `tl worker stop --worker <label>` creates the file without needing credentials.
+A stop requested while an Own long poll is in flight takes effect when that
+poll returns: the wait is bounded by `wait_seconds` (at most 30 seconds). A
+task claimed by that poll counts as current work and is finished before exit.
+Use `wait_seconds = 0` where an immediate stop matters more than pickup
+latency.
 The empty marker is transient: exclusive creation publishes the entire signal,
 and the watcher removes it. It does not use immutable durable publication,
 because removal can race a publisher's final flush. On Windows a sharing

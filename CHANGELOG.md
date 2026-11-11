@@ -6,6 +6,32 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+### Added
+
+- `Own` accepts an optional `wait_seconds` from 0 to 30. With a positive
+  value, a poll holds the request until a task is available in the topic or
+  the wait ends, returning the task or `empty`. A worker that is idle picks
+  up new work within a round trip instead of waiting for its next poll.
+- `tl worker` and `WorkerLoop` long-poll by default with a 30-second wait.
+  Configure it with the `[worker] wait_seconds` setting or `--wait-seconds`;
+  `0` or `off` restores immediate polling. `tl request` and the durable
+  requester also wait on the server, so a reply is seen within about a
+  second instead of after backoff.
+
+### Compatibility and deployment
+
+- Long-polling clients require service version 0.4.0 or later. An older
+  service rejects the new Own field with `invalid`; no automatic downgrade is
+  attempted. Upgrade the service first, or set `wait_seconds = 0` on older
+  services. Existing clients and protocol `/v1/` requests without the field
+  behave exactly as before.
+- A held poll keeps a Durable Object resident and so bills compute duration
+  for that time. Request counts for a 30-second wait match a 30-second short
+  poll; a client that polls deliberately rarely should set `wait_seconds = 0`.
+- Held waiters are in memory and bounded per topic. They are lost when the
+  object is evicted or the service is deployed; clients retry, and no task
+  state depends on them.
+
 ## [0.3.0] - 2026-11-10
 
 ### Changed

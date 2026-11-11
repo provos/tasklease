@@ -186,12 +186,15 @@ async def worker_loop(
 ) -> None:
     await wait_or_stop(stop, random.uniform(0, args.poll_seconds))
     while not stop.is_set():
-        outcome, value = await service.call(
-            "own",
-            {"domain": domain, "topic": TOPIC, "hold_seconds": args.hold_seconds},
-            token,
-            label,
-        )
+        body: dict[str, object] = {
+            "domain": domain,
+            "topic": TOPIC,
+            "hold_seconds": args.hold_seconds,
+        }
+        if args.wait_seconds:
+            body["wait_seconds"] = args.wait_seconds
+        started = time.monotonic()
+        outcome, value = await service.call("own", body, token, label)
         task = value.get("task") if value else None
         if isinstance(task, dict):
             await asyncio.sleep(args.work_seconds)
@@ -202,7 +205,14 @@ async def worker_loop(
                 label,
             )
             continue
-        await wait_or_stop(stop, args.poll_seconds * random.uniform(0.8, 1.2))
+        # A completed long poll already supplied the idle delay. An immediate
+        # empty or a timeout still needs the poll interval.
+        if not (
+            args.wait_seconds
+            and outcome in {"404", "404 empty"}
+            and time.monotonic() - started >= args.wait_seconds - 1
+        ):
+            await wait_or_stop(stop, args.poll_seconds * random.uniform(0.8, 1.2))
 
 
 async def producer_loop(
@@ -252,7 +262,8 @@ def client(url: str, connections: int) -> httpx.AsyncClient:
     limits = httpx.Limits(
         max_connections=connections, max_keepalive_connections=connections
     )
-    return httpx.AsyncClient(base_url=url.rstrip("/"), limits=limits, timeout=60)
+    # A held poll can outlast the fixed 60-second limit.
+    return httpx.AsyncClient(base_url=url.rstrip("/"), limits=limits, timeout=120)
 
 
 @dataclass(frozen=True)
@@ -295,7 +306,11 @@ async def load_shard(shard: Shard, args: argparse.Namespace) -> Recorder:
         )
         await asyncio.sleep(shard.started + args.duration - time.time())
         stop.set()
-        await asyncio.gather(producer, *workers)
+        # Cancel in-flight long polls instead of waiting out their server hold.
+        tasks = [producer, *workers]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
     return recorder
 
 
@@ -356,10 +371,10 @@ def run(args: argparse.Namespace, admin: str) -> dict[str, object]:
     tokens = [identities[i % len(identities)][1] for i in range(args.workers)]
     recorder = Recorder(started=time.time() + 2)
     try:
+        cycle = max(args.poll_seconds, args.wait_seconds)
         print(
             f"Running {args.workers} workers in {args.processes} processes for "
-            f"{args.duration}s (offered ~{args.workers / args.poll_seconds:.0f} "
-            "idle polls/s)",
+            f"{args.duration}s (offered ~{args.workers / cycle:.0f} idle polls/s)",
             flush=True,
         )
         shards = [
@@ -398,6 +413,7 @@ def run(args: argparse.Namespace, admin: str) -> dict[str, object]:
                 "workers",
                 "identities",
                 "poll_seconds",
+                "wait_seconds",
                 "duration",
                 "create_rate",
                 "work_seconds",
@@ -406,7 +422,9 @@ def run(args: argparse.Namespace, admin: str) -> dict[str, object]:
                 "processes",
             )
         },
-        "offered_idle_polls_per_s": round(args.workers / args.poll_seconds, 1),
+        "offered_idle_polls_per_s": round(
+            args.workers / max(args.poll_seconds, args.wait_seconds or 0), 1
+        ),
         "elapsed_s": round(elapsed, 1),
         "operations": {
             op: stats.summary(elapsed) for op, stats in sorted(recorder.ops.items())
@@ -426,6 +444,12 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=1000)
     parser.add_argument("--identities", type=int, default=0, help="default: workers")
     parser.add_argument("--poll-seconds", type=float, default=30)
+    parser.add_argument(
+        "--wait-seconds",
+        type=int,
+        default=0,
+        help="Own long-poll seconds; 0 keeps immediate polling",
+    )
     parser.add_argument("--duration", type=float, default=240)
     parser.add_argument("--create-rate", type=float, default=2)
     parser.add_argument("--work-seconds", type=float, default=2)
@@ -445,6 +469,7 @@ def main() -> None:
         args.workers < 1
         or args.identities < 1
         or args.poll_seconds <= 0
+        or not 0 <= args.wait_seconds <= 30
         or not 1 <= args.processes <= args.workers
     ):
         parser.error(
