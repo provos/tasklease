@@ -59,15 +59,24 @@ def flag(args: argparse.Namespace, name: str) -> bool:
 
 def wait_seconds(value: object) -> int:
     """Parse a long-poll wait; 0, `off` or `none` disables it."""
-    if value in {"off", "none"}:
-        return 0
+    if isinstance(value, str):
+        if value.lower() in {"off", "none"}:
+            return 0
+        if re.fullmatch(r"[0-9]+", value):
+            value = int(value)
     if type(value) is int and 0 <= value <= MAX_WAIT_SECONDS:
         return value
-    if isinstance(value, str) and value.isdigit() and int(value) <= MAX_WAIT_SECONDS:
-        return int(value)
     raise ConfigError(
         f"wait_seconds must be an integer from 0 to {MAX_WAIT_SECONDS}, or off"
     )
+
+
+def requester_wait_seconds(args: argparse.Namespace) -> int:
+    """`--wait-seconds`, else the config's top-level `wait_seconds`, else 30."""
+    value: object = optional_text(args, "wait_seconds")
+    if value is None:
+        value = configuration(args).values.get("wait_seconds", MAX_WAIT_SECONDS)
+    return wait_seconds(value)
 
 
 def duration_seconds(value: str, *, name: str = "Duration") -> int:

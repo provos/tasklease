@@ -16,7 +16,13 @@ from typing import NoReturn, Self, cast
 import httpx
 
 from tasklease.config import validate_url
-from tasklease.errors import API_ERRORS, Invalid, ProtocolError, TransportError
+from tasklease.errors import (
+    API_ERRORS,
+    Empty,
+    Invalid,
+    ProtocolError,
+    TransportError,
+)
 from tasklease.generated import protocol as p
 from tasklease.names import is_bearer_token, is_worker_label
 
@@ -169,23 +175,24 @@ class Client:
             bounded: httpx.Timeout | None = None
             if timeout is not None or read_timeout is not None:
                 configured = self._http.timeout
-                cap = timeout if timeout is not None else math.inf
+                cap = timeout
 
-                def limit(value: float | None) -> float:
+                def limit(value: float | None) -> float | None:
+                    # Without a cap, an unlimited phase stays unlimited.
+                    if cap is None:
+                        return value
                     return cap if value is None else min(value, cap)
 
                 # A long poll needs a read allowance beyond its wait, but never
-                # past the caller's overall cap. Other phases keep that cap.
+                # past the caller's cap. Other phases keep their limits.
                 read = limit(configured.read)
-                if read_timeout is not None:
-                    read = (
-                        math.inf
-                        if math.isinf(read)
-                        else min(cap, max(read, read_timeout))
-                    )
+                if read_timeout is not None and read is not None:
+                    read = max(read, read_timeout)
+                    if cap is not None:
+                        read = min(read, cap)
                 bounded = httpx.Timeout(
                     connect=limit(configured.connect),
-                    read=None if math.isinf(read) else read,
+                    read=read,
                     write=limit(configured.write),
                     pool=limit(configured.pool),
                 )
@@ -263,7 +270,12 @@ class Client:
                     and isinstance(message, str)
                     and response.status_code == error_type.status_code
                 ):
-                    raise error_type(message.replace(self._token, "[redacted]"))
+                    message = message.replace(self._token, "[redacted]")
+                    if error_type is Empty:
+                        raise Empty(
+                            message, wait_refused=details.get("wait_refused") is True
+                        )
+                    raise error_type(message)
             raise ProtocolError("The service returned an invalid error envelope")
         if response.status_code != 200 or body.get("ok") is not True:
             raise ProtocolError("The service returned an invalid success envelope")
@@ -278,20 +290,23 @@ class Client:
         return cast(p.CreateResponse, self._post("create", request))
 
     def own(
-        self,
-        request: p.OwnRequest,
-        *,
-        timeout: float | None = None,
-        read_timeout: float | None = None,
+        self, request: p.OwnRequest, *, timeout: float | None = None
     ) -> p.OwnResponse:
         """Own a task, optionally capping each configured HTTP timeout in seconds.
 
-        ``read_timeout`` is a floor for the read phase only, so a long poll's
-        ``wait_seconds`` is not cut off by the default 30-second read limit.
+        A long poll's ``wait_seconds`` raises the read timeout to the wait plus
+        a response margin, still within ``timeout``, so the default 30-second
+        read limit does not cut off the service's answer.
         """
+        wait = request.get("wait_seconds")
+        read = (
+            float(wait) + MAX_WAIT_GRACE
+            if isinstance(wait, int) and not isinstance(wait, bool) and wait > 0
+            else None
+        )
         return cast(
             p.OwnResponse,
-            self._post("own", request, timeout=timeout, read_timeout=read_timeout),
+            self._post("own", request, timeout=timeout, read_timeout=read),
         )
 
     def renew(

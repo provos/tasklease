@@ -122,7 +122,10 @@ def _run(args: argparse.Namespace) -> int:
     lease = _seconds(_setting(args, settings, "lease", 600), "lease")
     renew = _seconds(_setting(args, settings, "renew_every", 180), "renew_every")
     poll = _seconds(_setting(args, settings, "poll_interval", 30), "poll_interval")
-    wait = wait_seconds(_setting(args, settings, "wait_seconds", MAX_WAIT_SECONDS))
+    configured_wait = _setting(args, settings, "wait_seconds", None)
+    wait = wait_seconds(
+        MAX_WAIT_SECONDS if configured_wait is None else configured_wait
+    )
     if poll > TIMEOUT_MAX / 1.2:
         raise ConfigError("worker poll_interval exceeds this platform's timer limit")
     maximum = _setting(args, settings, "max_owned", 3)
@@ -153,8 +156,13 @@ def _run(args: argparse.Namespace) -> int:
                 stop=control.stop,
             )
             if flag(args, "once"):
+                # A one-shot step usually runs under an outer machine lock
+                # (FluxShot's verify lock), which an idle wait would keep from
+                # other work. Wait only when a wait is configured explicitly.
                 with capacity.acquire():
-                    result = loop.step()
+                    result = loop.step(
+                        wait_seconds=0 if configured_wait is None else wait
+                    )
                 output({"status": result})
             else:
                 loop.run()

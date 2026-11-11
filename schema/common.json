@@ -87,6 +87,10 @@
         },
         "message": {
           "type": "string"
+        },
+        "wait_refused": {
+          "const": true,
+          "description": "Only on an Own empty: the service answered at once without holding a requested wait, because the topic already has its maximum number of waiters. Back off before polling again."
         }
       },
       "required": ["code", "message"],

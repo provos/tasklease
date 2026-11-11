@@ -188,17 +188,25 @@ storage, with the tables in spec §7.2.
   `lease_until` so lease filtering can use index entries before fetching a
   task's payload. Topic aggregates use the same index and supply the live
   topic names for both listing and monitor snapshots.
-- **Long-poll Own:** with `wait_seconds` set, Own registers an in-memory
-  waiter for the topic, runs the same claim transaction again, and parks on a
-  timer for the earlier of the wait deadline and the topic's next lease
-  expiry. Create, Consume and Renew signal waiters after their transaction
-  commits, one hint per newly available task. A hint only wakes the waiter
-  to retry the transaction; the hint is never consulted for availability, so
-  a race costs one extra query and cannot double-claim. The recheck after
-  registration closes the gap between an empty attempt and the waiter being
-  visible. Waiters hold no task state and are capped per topic; an evicted
-  object drops them and the client retries. Nothing is persisted, so no
-  schema migration or alarm change is needed.
+- **Long-poll Own:** the Worker drives the wait. Each Domain Object call
+  registers an in-memory waiter for the topic, makes one claim attempt, and
+  if that is empty parks until a hint or the remaining wait ends. A parked
+  call never claims: a hint answers `retry`, and the Worker makes a fresh
+  call, so every claim happens at the start of a call. A client that
+  disconnects cancels its Worker, which then never makes that call, so no
+  task is leased to a caller that is gone. Create and Consume hint one waiter
+  per newly available task after their transaction commits. One timer per
+  topic, armed for the next lease expiry (Own and Renew move it earlier when
+  they write a sooner lease), hints one waiter per task that became available,
+  so an expiry does not wake every waiter. A woken waiter always gets one more
+  attempt, even at its deadline. Registration before the attempt closes the
+  gap between an empty attempt and the waiter being visible, and a hint the
+  waiter did not use passes to the next waiter. The hint is never consulted
+  for availability, so a race costs one extra call and cannot double-claim.
+  Waiters hold no task state and are capped per topic; a full topic still
+  makes the claim attempt (and records the poll) but answers at once. An
+  evicted object drops its waiters and the client retries. Nothing is
+  persisted, so no schema migration or alarm change is needed.
 - **Statistics:** every operation that counts (spec §4.15) upserts its
   topic's row in `stats_hourly` inside its own transaction, with
   `INSERT … ON CONFLICT(topic, hour) DO UPDATE SET created = created + 1, …`.
@@ -444,21 +452,30 @@ the `lost` event, `finish` with the fallback to `<topic>/error`, and the
 `WorkerLoop.step() -> Literal["worked", "empty"]` is the single-step entry
 point: it owns at most one task, finishes it and returns. After `"worked"`
 the caller polls again at once (there may be a backlog). After `"empty"` it
-sleeps for the poll interval with jitter unless the empty followed a
-completed server-side wait, which already supplied the idle delay; `step()`
-records that privately so `run()` can distinguish an immediate refusal (wait
-disabled, waiter cap, or an older service) from a full wait. `run()` is that
-loop with `Capacity` taken around each step. `step()` sends `wait_seconds` unless it is zero, where the
-wire request stays byte-for-byte the pre-long-poll shape. The client raises
+sleeps for the rest of the poll interval, with jitter: the time the service
+held the empty poll counts toward the interval. With the default 30-second
+wait and interval it polls again at once; a 600-second interval keeps its
+cadence (a 30-second wait, then about 570 seconds of sleep); an immediate
+empty (wait disabled or refused) sleeps the whole interval. `step()` records
+the empty poll's duration privately for `run()`. `run()` is that
+loop with `Capacity` taken around each step. Because that capacity is held
+across Own, `run()` long-polls only with `UnlimitedCapacity`; a real capacity
+polls at once and sleeps outside it, so an idle wait never keeps a lock from
+other work. `step(wait_seconds=...)` overrides the wait for one call. `step()`
+sends `wait_seconds` unless it is zero, where the wire request stays
+byte-for-byte the pre-long-poll shape. The local lease still starts at the
+send time, because the service may claim at any point during the wait; the
+wait is therefore capped at half the gap between `renew_every` and the lease,
+so the first renewal comes well before that conservative deadline. The client raises
 only the read-phase timeout, to the wait plus a response margin and still
 within the caller's per-call cap when one is supplied, so an overall
 deadline still bounds the poll.
 
 For FluxShot, the profiles run each step under `tests.verify_lock run`
 (profiles §3.2), so the outer loop lives outside the lock and calls
-`step()` in a short-lived process. With a long-poll wait, each process start
-covers up to 30 seconds of idle time, so the per-poll Python start and TLS
-handshake are spread thinner than with a short poll. Taking the lock in-process
+`step()` in a short-lived process. `tl worker --once` therefore polls at once
+unless a wait is configured explicitly: a long poll there would hold the
+verify lock through the idle wait. Taking the lock in-process
 instead, as a `Capacity`, would avoid it; whether that fits FluxShot's import
 layers and the lock's held-variable rule for child processes is a question
 for the FluxShot worker design. The library supports both shapes.

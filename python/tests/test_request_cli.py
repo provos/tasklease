@@ -633,3 +633,27 @@ def test_wait_seconds_flag_controls_the_own_request(
     )
     assert owns[0]["wait_seconds"] == 12
     assert json.loads(capsys.readouterr().out)["request_id"] == "request-1"
+
+
+def test_config_wait_seconds_disables_the_requester_long_poll(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The opt-out for an older service, which rejects wait_seconds.
+    with cli.config.open("a") as config:
+        config.write('wait_seconds = "off"\n')
+    owns: list[dict[str, object]] = []
+    replies = [reply({"request_id": "request-1", "answer": "done"}), empty()]
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if operation(request) == "create":
+            return httpx.Response(200, json={"ok": True, "id": TASK_ID})
+        if operation(request) == "own":
+            owns.append(body(request))
+            return replies.pop(0)
+        assert operation(request) == "delete"
+        return httpx.Response(200, json={"ok": True})
+
+    cli.respond = respond
+    assert cli.run([*request_args(), "--wait", "--timeout", "1m"]) == 0
+    assert "wait_seconds" not in owns[0]
+    assert json.loads(capsys.readouterr().out)["request_id"] == "request-1"

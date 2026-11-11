@@ -119,6 +119,14 @@ def cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CLI:
     return command
 
 
+def test_once_polls_immediately_unless_a_wait_is_configured(cli: CLI) -> None:
+    # A one-shot step usually runs under an outer machine lock, which an idle
+    # long poll would keep from other work.
+    cli.respond = lambda request: _empty()
+    assert cli.run(["--topic", TOPIC, "--once"]) == 0
+    assert "wait_seconds" not in _body(cli.requests[0])
+
+
 def test_echo_once_uses_capacity_and_small_correlated_reply(
     cli: CLI, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -128,7 +136,6 @@ def test_echo_once_uses_capacity_and_small_correlated_reply(
                 "domain": DOMAIN,
                 "topic": TOPIC,
                 "hold_seconds": 600,
-                "wait_seconds": 30,
             }
             return _owned()
         assert request.url.path == "/v1/consume"
@@ -181,7 +188,6 @@ def test_settings_and_cli_overrides(cli: CLI) -> None:
         "domain": DOMAIN,
         "topic": TOPIC,
         "hold_seconds": 600,
-        "wait_seconds": 30,
     }
 
 
@@ -379,5 +385,5 @@ def test_wait_seconds_setting_and_validation(cli: CLI) -> None:
     cli.respond = lambda request: _empty()
     assert cli.run(["--topic", TOPIC, "--once"]) == 0
     assert _body(cli.requests[0])["wait_seconds"] == 5
-    for value in ("-1", "31", "1.5"):
+    for value in ("-1", "31", "1.5", "\u00b3"):
         assert cli.run(["--topic", TOPIC, "--once", "--wait-seconds", value]) == 1

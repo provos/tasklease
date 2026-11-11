@@ -17748,7 +17748,7 @@ function validate125(
       errors++;
     }
     for (const key0 in data) {
-      if (!(key0 === "code" || key0 === "message")) {
+      if (!(key0 === "code" || key0 === "message" || key0 === "wait_refused")) {
         const err2 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -17824,8 +17824,25 @@ function validate125(
         errors++;
       }
     }
+    if (data.wait_refused !== void 0) {
+      if (true !== data.wait_refused) {
+        const err6 = {
+          instancePath: instancePath + "/wait_refused",
+          schemaPath: "#/properties/wait_refused/const",
+          keyword: "const",
+          params: { allowedValue: true },
+          message: "must be equal to constant",
+        };
+        if (vErrors === null) {
+          vErrors = [err6];
+        } else {
+          vErrors.push(err6);
+        }
+        errors++;
+      }
+    }
   } else {
-    const err6 = {
+    const err7 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -17833,9 +17850,9 @@ function validate125(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err6];
+      vErrors = [err7];
     } else {
-      vErrors.push(err6);
+      vErrors.push(err7);
     }
     errors++;
   }

@@ -43,6 +43,7 @@ type ErrorCode = Literal[
 class Error(TypedDict):
     code: ErrorCode
     message: str
+    wait_refused: NotRequired[Literal[True]]
 
 
 class ErrorResponse(TypedDict):

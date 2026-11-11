@@ -414,7 +414,6 @@ def test_own_long_poll_extends_read_without_lengthening_other_phases() -> None:
                     "wait_seconds": 30,
                 },
                 timeout=60,
-                read_timeout=45,
             )
     assert timeouts[0]["read"] == 45
     # Connect, write and pool keep the client's configured cap.
@@ -442,6 +441,82 @@ def test_own_read_floor_never_exceeds_the_caller_cap() -> None:
                     "wait_seconds": 30,
                 },
                 timeout=2,
-                read_timeout=45,
             )
     assert timeouts[0]["read"] == 2
+
+
+def test_own_long_poll_extends_read_without_a_caller_cap() -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        return httpx.Response(
+            404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
+        )
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Empty):
+            client.own(
+                {
+                    "domain": "acme/pipeline",
+                    "topic": "work/linux",
+                    "hold_seconds": 60,
+                    "wait_seconds": 30,
+                }
+            )
+    # The default 30-second read limit would end exactly at the server's wait.
+    assert timeouts[0] == {"connect": 30, "read": 45, "write": 30, "pool": 30}
+
+
+def test_own_long_poll_keeps_unlimited_phases_unlimited() -> None:
+    timeouts: list[dict[str, float | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float | None], request.extensions["timeout"]))
+        return httpx.Response(
+            404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
+        )
+
+    with Client(
+        "https://tasks.example",
+        TOKEN,
+        transport=httpx.MockTransport(handler),
+        timeout=None,
+    ) as client:
+        with pytest.raises(Empty):
+            client.own(
+                {
+                    "domain": "acme/pipeline",
+                    "topic": "work/linux",
+                    "hold_seconds": 60,
+                    "wait_seconds": 30,
+                }
+            )
+    # Infinite phase limits would raise OverflowError in the socket layer.
+    assert timeouts[0] == {"connect": None, "read": None, "write": None, "pool": None}
+
+
+@pytest.mark.parametrize("refused", [True, False])
+def test_own_empty_reports_a_refused_wait(refused: bool) -> None:
+    error: dict[str, object] = {"code": "empty", "message": "empty"}
+    if refused:
+        error["wait_refused"] = True
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"ok": False, "error": error})
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Empty) as raised:
+            client.own(
+                {
+                    "domain": "acme/pipeline",
+                    "topic": "work/linux",
+                    "hold_seconds": 60,
+                    "wait_seconds": 30,
+                }
+            )
+    assert raised.value.wait_refused is refused

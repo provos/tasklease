@@ -37,8 +37,19 @@ class NotFound(APIError):
 
 
 class Empty(APIError):
+    """Own found no task.
+
+    ``wait_refused`` is true when the service answered a long poll at once
+    without holding it (its topic has the maximum number of waiters), so the
+    caller should back off rather than poll again straight away.
+    """
+
     code = "empty"
     status_code = 404
+
+    def __init__(self, message: str = "empty", *, wait_refused: bool = False) -> None:
+        super().__init__(message)
+        self.wait_refused = wait_refused
 
 
 class Exists(APIError):

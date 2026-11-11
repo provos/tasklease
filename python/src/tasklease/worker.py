@@ -15,7 +15,7 @@ from random import uniform
 from threading import TIMEOUT_MAX, Condition, Event, Thread
 from typing import Literal, Protocol, cast
 
-from tasklease.client import MAX_WAIT_GRACE, MAX_WAIT_SECONDS, Client
+from tasklease.client import MAX_WAIT_SECONDS, Client
 from tasklease.errors import (
     Empty,
     Forbidden,
@@ -302,9 +302,9 @@ class WorkerLoop[Request, Outcome]:
         self.max_owned = max_owned
         self.poll_interval = poll_interval
         self.wait_seconds = wait_seconds
-        # Set by step(): the empty result followed a full server-side wait,
-        # which already supplied the idle delay.
-        self._completed_wait = False
+        # Set by step(): how long the last empty Own took. A held long poll
+        # counts toward the idle poll interval.
+        self._empty_seconds = 0.0
         self.stop = stop if stop is not None else Event()
 
     def _consume(self, task: p.Task, tasks: list[p.NewTask], lease: _Lease) -> bool:
@@ -385,36 +385,34 @@ class WorkerLoop[Request, Outcome]:
         except Exception as error:
             self._fallback(task, outcome, _error(error), lease)
 
-    def step(self) -> Literal["worked", "empty"]:
-        """Own at most one task; callers may already hold external capacity."""
+    def step(self, *, wait_seconds: int | None = None) -> Literal["worked", "empty"]:
+        """Own at most one task; callers may already hold external capacity.
+
+        ``wait_seconds`` overrides the loop's long-poll wait for this call. A
+        caller holding a lock that other work needs should pass 0, so an idle
+        wait does not keep the lock.
+        """
         if self.stop.is_set():
             return "empty"
+        wait = self._effective_wait(
+            self.wait_seconds if wait_seconds is None else wait_seconds
+        )
         sent = time.monotonic()
         claim: p.OwnRequest = {
             "domain": self.domain,
             "topic": self.topic,
             "hold_seconds": self.lease,
         }
-        if self.wait_seconds:
-            claim["wait_seconds"] = self.wait_seconds
+        if wait:
+            claim["wait_seconds"] = wait
         try:
-            task = self.client.own(
-                claim,
-                # The wait is part of the call, not part of the claimed lease.
-                timeout=float(self.lease + self.wait_seconds),
-                read_timeout=(
-                    float(self.wait_seconds) + MAX_WAIT_GRACE
-                    if self.wait_seconds
-                    else None
-                ),
-            )["task"]
+            task = self.client.own(claim, timeout=float(self.lease))["task"]
         except Empty:
-            self._completed_wait = self._waited(sent)
+            self._empty_seconds = time.monotonic() - sent
             return "empty"
-        # A long poll acquires the task at the end of the wait, so the lease
-        # starts when the response arrives. An immediate poll keeps the
-        # conservative send time, so a slow response cannot execute late work.
-        acquired = time.monotonic() if self.wait_seconds else sent
+        # The service may claim at any point during the wait, so the local
+        # lease conservatively starts at the send time. _effective_wait keeps
+        # the wait short enough that the first renewal still comes in time.
         lease = _Lease(
             self.client,
             task,
@@ -422,7 +420,7 @@ class WorkerLoop[Request, Outcome]:
             self.topic,
             self.lease,
             self.renew_every,
-            acquired,
+            sent,
         )
         if lease.remaining() <= 0:
             return "worked"
@@ -453,28 +451,42 @@ class WorkerLoop[Request, Outcome]:
             lease.close()
         return "worked"
 
-    def _waited(self, started: float) -> bool:
-        """Whether the server held the request for most of its long-poll time."""
-        return (
-            self.wait_seconds > 0
-            and time.monotonic() - started >= self.wait_seconds / 2
-        )
+    def _effective_wait(self, wait: int) -> int:
+        """Bound a long poll so a task claimed at its end keeps a usable lease.
+
+        The local lease counts from the send time, so a wait shortens the first
+        lease window. Half the gap between renew_every and the lease leaves the
+        first renewal that much margin before the conservative deadline.
+        """
+        if type(wait) is not int or not 0 <= wait <= MAX_WAIT_SECONDS:
+            raise Invalid(
+                f"wait_seconds must be an integer from 0 to {MAX_WAIT_SECONDS}"
+            )
+        return max(0, min(wait, int((self.lease - self.renew_every) // 2)))
 
     def run(self) -> None:
-        """Poll until stopped, acquiring local capacity before every Own."""
+        """Poll until stopped, acquiring local capacity before every Own.
+
+        Only an unlimited capacity long-polls. A real capacity is held across
+        each Own, so a wait would keep it from other work while idle; such a
+        loop polls at once and sleeps outside the capacity instead.
+        """
+        wait = self.wait_seconds if isinstance(self.capacity, UnlimitedCapacity) else 0
         while not self.stop.is_set():
             try:
                 with self.capacity.acquire():
                     if self.stop.is_set():
                         return
-                    result = self.step()
+                    result = self.step(wait_seconds=wait)
             except TransportError:
-                result = "empty"
                 # A transport failure is not a completed wait: back off.
                 self.stop.wait(self.poll_interval * uniform(0.8, 1.2))
                 continue
-            # A completed server wait already supplied the idle delay. An
-            # immediate empty (wait disabled, waiter cap, or an older service)
-            # still gets the poll interval.
-            if result == "empty" and not self._completed_wait:
-                self.stop.wait(self.poll_interval * uniform(0.8, 1.2))
+            # Time the service held an empty poll counts toward the poll
+            # interval: the default 30-second wait and interval poll again at
+            # once, a longer interval keeps its cadence, and an immediate empty
+            # (wait disabled or refused) sleeps the whole interval.
+            if result == "empty":
+                idle = max(0.0, self.poll_interval - self._empty_seconds)
+                if idle > 0:
+                    self.stop.wait(idle * uniform(0.8, 1.2))

@@ -14,16 +14,26 @@ Release preparation and verification are documented in
   up new work within a round trip instead of waiting for its next poll.
 - `tl worker` and `WorkerLoop` long-poll by default with a 30-second wait.
   Configure it with the `[worker] wait_seconds` setting or `--wait-seconds`;
-  `0` or `off` restores immediate polling. `tl request` and the durable
-  requester also wait on the server, so a reply is seen within about a
-  second instead of after backoff.
+  `0` or `off` restores immediate polling. Time a poll spends waiting counts
+  toward `poll_interval`, so a worker configured to poll every 600 seconds
+  still sends one Own about every 600 seconds. `tl worker --once` and a
+  `WorkerLoop` whose capacity is a real lock poll at once, so an idle wait
+  never holds a machine lock. `tl request --wait`, `tl wait` and the durable
+  requester also wait on the server, so a reply is seen within about a second
+  instead of after backoff; set the top-level `wait_seconds` setting or pass
+  `--wait-seconds` to change it.
+- When a topic already has the maximum number of waiters, a long-polled Own
+  answers `empty` at once with `"wait_refused": true` in its error object;
+  the Python client exposes it as `Empty.wait_refused`, and the requester
+  backs off instead of polling again straight away.
 
 ### Compatibility and deployment
 
 - Long-polling clients require service version 0.4.0 or later. An older
   service rejects the new Own field with `invalid`; no automatic downgrade is
   attempted. Upgrade the service first, or set `wait_seconds = 0` on older
-  services. Existing clients and protocol `/v1/` requests without the field
+  services: in the `[worker]` table for workers, and at the top level for
+  `tl request` and `tl wait`. Existing clients and protocol `/v1/` requests without the field
   behave exactly as before.
 - A held poll keeps a Durable Object resident and so bills compute duration
   for that time. Request counts for a 30-second wait match a 30-second short

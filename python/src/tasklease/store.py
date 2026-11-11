@@ -21,7 +21,7 @@ from uuid import uuid4
 from platformdirs import user_data_path
 
 from tasklease import fsio
-from tasklease.client import MAX_WAIT_GRACE, MAX_WAIT_SECONDS, Client
+from tasklease.client import MAX_WAIT_SECONDS, Client
 from tasklease.errors import Empty, NotFound, StoreError, TransportError
 from tasklease.generated import protocol as p
 from tasklease.names import is_domain, is_request_id, is_segment, is_task_id, is_topic
@@ -429,7 +429,14 @@ class Store:
         deadline: float | None = None,
         request_id: str | None = None,
         wait_seconds: int = 0,
-    ) -> int:
+    ) -> tuple[int, bool]:
+        """Return the saved count and whether to poll again without a pause.
+
+        Polling again at once is right after replies arrived or after the
+        service held a long poll. An immediate empty, including a wait the
+        service refused (``Empty.wait_refused``), calls for the caller's
+        backoff instead.
+        """
         count = 0
         for index in range(_BATCH_SIZE):
             remaining = None if deadline is None else deadline - time.monotonic()
@@ -447,14 +454,19 @@ class Store:
             }
             if wait:
                 claim["wait_seconds"] = wait
+            sent = time.monotonic()
             try:
-                response = client.own(
-                    claim,
-                    timeout=remaining,
-                    read_timeout=(float(wait) + MAX_WAIT_GRACE if wait else None),
+                response = client.own(claim, timeout=remaining)
+            except Empty as error:
+                # The service's hint marks a refused wait. Requiring half the
+                # wait to have passed also guards against a server that answers
+                # a wait at once without holding it, which must not spin.
+                held = (
+                    wait > 0
+                    and not error.wait_refused
+                    and time.monotonic() - sent >= wait / 2
                 )
-            except Empty:
-                break
+                return count, count > 0 or held
             task = response["task"]
             saved = self._save_reply(task, domain, reply_topic)
             count += 1
@@ -470,13 +482,13 @@ class Store:
                 pass  # The durable local reply already survives ID rotation.
             if request_id is not None and saved.request_id == request_id:
                 break
-        return count
+        return count, count > 0
 
     def drain(self, client: Client, domain: str, reply_topic: str) -> int:
         """Drain a bounded batch, durably saving every reply before Delete."""
         domain, reply_topic = _name(domain, domain=True), _name(reply_topic)
         self._automatic_prune()
-        return self._drain(client, domain, reply_topic)
+        return self._drain(client, domain, reply_topic)[0]
 
     def wait(
         self,
@@ -515,9 +527,8 @@ class Store:
         record = self._required_request(request_id)
         self._automatic_prune()
         while time.monotonic() < deadline:
-            started = time.monotonic()
             try:
-                self._drain(
+                _, again = self._drain(
                     client,
                     record.domain,
                     record.reply_topic,
@@ -538,9 +549,9 @@ class Store:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
-            # A completed long poll already provided the delay. An immediate
-            # empty (a full waiter queue or an older service) must back off.
-            if wait_seconds and time.monotonic() - started >= wait_seconds - 1:
+            # A held long poll already provided the delay. An immediate empty,
+            # including a wait the service refused, backs off.
+            if again:
                 continue
             time.sleep(min(remaining, delay * uniform(0.8, 1.2)))
             delay = min(delay * 1.5, max(poll_interval, max_poll_interval))

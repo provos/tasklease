@@ -18,8 +18,8 @@ from tasklease.cli.common import (
     message,
     optional_text,
     output,
+    requester_wait_seconds,
     text,
-    wait_seconds,
 )
 from tasklease.client import Client, reject_nonfinite
 from tasklease.errors import ConfigError, TaskleaseError
@@ -102,7 +102,7 @@ def _wait_for(
 
 def _request(args: argparse.Namespace) -> int:
     timeout = duration_seconds(text(args, "timeout"), name="Timeout")
-    wait = wait_seconds(optional_text(args, "wait_seconds") or 30)
+    wait = requester_wait_seconds(args)
     resend = optional_text(args, "resend")
     if resend is not None:
         if any(
@@ -150,7 +150,7 @@ def _request(args: argparse.Namespace) -> int:
 
 def _wait(args: argparse.Namespace) -> int:
     timeout = duration_seconds(text(args, "timeout"), name="Timeout")
-    wait = wait_seconds(optional_text(args, "wait_seconds") or 30)
+    wait = requester_wait_seconds(args)
     store = agent_store(args)
     with client(args) as api:
         return _wait_for(store, api, text(args, "request_id"), timeout, wait)
@@ -196,7 +196,8 @@ def configure_parser(
     request.add_argument("--timeout", default="6h", help="Wait duration, e.g. 6h")
     request.add_argument(
         "--wait-seconds",
-        help="Long-poll seconds per Own, default 30; 0 or off disables",
+        help="Long-poll seconds per Own, default 30 or config wait_seconds; "
+        "0 or off disables",
     )
     request.set_defaults(handler=_request)
 
@@ -206,7 +207,8 @@ def configure_parser(
     wait.add_argument("--timeout", default="6h", help="Wait duration, e.g. 6h")
     wait.add_argument(
         "--wait-seconds",
-        help="Long-poll seconds per Own, default 30; 0 or off disables",
+        help="Long-poll seconds per Own, default 30 or config wait_seconds; "
+        "0 or off disables",
     )
     wait.set_defaults(handler=_wait)
 

@@ -270,6 +270,7 @@ Give the requester this `requester.toml`:
 url = "https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev"
 domain = "demo"
 agent_id = "agent"
+# wait_seconds = 30  # long-poll per reply check; 0 or "off" polls immediately
 
 [token]
 file = "requester.token"
@@ -510,10 +511,12 @@ limit for one Durable Object: roughly 30,000 idle workers, less the requests
 their actual work adds. An idle poll usually writes nothing, which keeps it
 cheap. A held poll keeps the Durable Object resident: request counts match a
 30-second short poll, so a domain already polled continuously costs the same
-in compute. A worker that polls deliberately rarely should set
-`wait_seconds = 0`, or it will keep the domain resident. One topic retains up
-to 10,000 waiters; beyond that, Own answers `empty` at once and clients fall
-back to their short-poll sleep, so a larger idle fleet degrades to the old
+in compute. A worker with a longer `poll_interval` keeps that request
+cadence, because the wait counts toward the interval, but each wait still
+keeps the domain resident for up to 30 seconds; set `wait_seconds = 0` to let
+a deliberately cold domain sleep. One topic retains up to 10,000 waiters;
+beyond that, Own answers `empty` at once (marked `wait_refused`) and clients
+fall back to their short-poll sleep, so a larger idle fleet degrades to the old
 behavior rather than growing the object without bound.
 
 Workers with their own tokens added about 65 ms per request compared

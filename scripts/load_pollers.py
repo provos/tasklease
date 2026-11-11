@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import random
@@ -194,7 +195,10 @@ async def worker_loop(
         if args.wait_seconds:
             body["wait_seconds"] = args.wait_seconds
         started = time.monotonic()
-        outcome, value = await service.call("own", body, token, label)
+        result = await own_or_stop(service, body, token, label, stop)
+        if result is None:
+            return  # Shutdown abandoned an idle long poll; nothing was claimed.
+        outcome, value = result
         task = value.get("task") if value else None
         if isinstance(task, dict):
             await asyncio.sleep(args.work_seconds)
@@ -205,14 +209,40 @@ async def worker_loop(
                 label,
             )
             continue
-        # A completed long poll already supplied the idle delay. An immediate
-        # empty or a timeout still needs the poll interval.
-        if not (
-            args.wait_seconds
-            and outcome in {"404", "404 empty"}
-            and time.monotonic() - started >= args.wait_seconds - 1
-        ):
-            await wait_or_stop(stop, args.poll_seconds * random.uniform(0.8, 1.2))
+        # As in WorkerLoop, time the service held an empty poll counts toward
+        # the poll interval; a timeout or error sleeps the whole interval.
+        idle = args.poll_seconds
+        if outcome == "404 empty":
+            idle = max(0.0, idle - (time.monotonic() - started))
+        if idle > 0:
+            await wait_or_stop(stop, idle * random.uniform(0.8, 1.2))
+
+
+async def own_or_stop(
+    service: Service,
+    body: dict[str, object],
+    token: str,
+    label: str,
+    stop: asyncio.Event,
+) -> tuple[str, dict[str, object] | None] | None:
+    """Own, abandoning the request if shutdown begins while it is held.
+
+    Closing a held poll's connection cancels its Worker before any claim, so
+    abandoning it cannot strand a task. A claim that already returned is
+    finished normally, so the final drain sees every task.
+    """
+    own = asyncio.create_task(service.call("own", body, token, label))
+    stopped = asyncio.create_task(stop.wait())
+    try:
+        await asyncio.wait({own, stopped}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        stopped.cancel()
+    if own.done():
+        return own.result()
+    own.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await own
+    return None
 
 
 async def producer_loop(
@@ -306,11 +336,9 @@ async def load_shard(shard: Shard, args: argparse.Namespace) -> Recorder:
         )
         await asyncio.sleep(shard.started + args.duration - time.time())
         stop.set()
-        # Cancel in-flight long polls instead of waiting out their server hold.
-        tasks = [producer, *workers]
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        # Workers abandon only idle long polls; work in progress and pending
+        # Creates finish, and any loop failure still fails the run.
+        await asyncio.gather(producer, *workers)
     return recorder
 
 
@@ -423,7 +451,7 @@ def run(args: argparse.Namespace, admin: str) -> dict[str, object]:
             )
         },
         "offered_idle_polls_per_s": round(
-            args.workers / max(args.poll_seconds, args.wait_seconds or 0), 1
+            args.workers / max(args.poll_seconds, args.wait_seconds), 1
         ),
         "elapsed_s": round(elapsed, 1),
         "operations": {

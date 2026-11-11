@@ -237,10 +237,15 @@ the domain are checked before the wait begins and are not rechecked.
 
 The wait is a hint to wake early, never a reservation: concurrent waiters
 race, and each Own transaction still decides the winner. Fencing is unchanged.
-A waiter that disappears (a disconnected client, an evicted Durable Object, or
-a deployment) gets no response, and the caller may retry; a held request is
-never a guarantee of a later answer. A full topic queue answers `empty` at
-once instead of holding the request.
+A held request claims only while its client is connected: a client that
+disconnects during the wait leaves no task leased on its behalf. A waiter
+that disappears (an evicted Durable Object or a deployment) gets no response,
+and the caller may retry; a held request is never a guarantee of a later
+answer. When a topic already holds the maximum number of waiters, Own still
+attempts the claim but answers `empty` at once instead of holding the
+request, with `"wait_refused": true` in the error object. That field appears
+only then, so a client can back off instead of treating the answer as a
+completed wait and polling again straight away.
 
 Every Own, including one that returns `empty` or waits, updates the caller's
 entry in the topic's poller list (§4.9).
@@ -496,7 +501,7 @@ LEASE = 600 s; RENEW_EVERY = 180 s; MAX_OWNED = 3
 while not stopping:
     wait for local capacity                        # before Own, never after
     task = own(domain, topic, LEASE)
-    if empty: release capacity; sleep(poll interval); continue
+    if empty: release capacity; sleep(poll interval − time Own held); continue
     start renewer(task.id):
         every RENEW_EVERY: renew(task.id, LEASE)
             network error, timeout, 5xx: retry until the local lease deadline

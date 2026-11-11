@@ -12,6 +12,7 @@ from typing import cast
 import httpx
 import pytest
 
+import tasklease.worker as worker_module
 from tasklease.client import Client
 from tasklease.errors import Forbidden, Invalid, NotFound, TooLarge, TransportError
 from tasklease.generated import protocol as p
@@ -750,11 +751,111 @@ def test_completed_wait_does_not_sleep_again(monkeypatch: pytest.MonkeyPatch) ->
     assert not slept
 
 
-def test_long_poll_task_gets_a_full_local_lease() -> None:
-    """The wait is not lease time: a task claimed at the end is not stale."""
+def test_long_poll_counts_toward_a_longer_poll_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A worker set to poll every 600 s keeps that cadence with a 30 s wait."""
     backend = Backend()
-    backend.on_own = lambda: time.sleep(0.2)
-    worker = loop(backend, wait_seconds=30)
-    worker.lease = 1
-    worker.step()
+    backend.empty = True
+    stop = threading.Event()
+    slept: list[float] = []
+    original = stop.wait
+    now = [100.0]
+
+    def wait(timeout: float | None = None) -> bool:
+        slept.append(timeout or 0)
+        stop.set()
+        return original(0)
+
+    def held() -> None:
+        now[0] += 30
+
+    monkeypatch.setattr("tasklease.worker.time.monotonic", lambda: now[0])
+    monkeypatch.setattr("tasklease.worker.uniform", lambda low, high: 1.0)
+    backend.on_own = held
+    stop.wait = wait  # type: ignore[method-assign]
+    WorkerLoop(
+        backend.client(),
+        DOMAIN,
+        TOPIC,
+        UnlimitedCapacity(),
+        EchoHandler(),
+        wait_seconds=30,
+        poll_interval=600,
+        stop=stop,
+    ).run()
+    assert slept == [570]
+
+
+def test_long_poll_lease_starts_conservatively_at_send_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The service may claim early in the wait, so arrival is not the start."""
+    backend = Backend()
+    backend.on_own = lambda: time.sleep(0.3)
+    deadlines: list[float] = []
+
+    class RecordingLease(worker_module._Lease):
+        def start(self) -> None:
+            deadlines.append(self.deadline)
+            super().start()
+
+    monkeypatch.setattr(worker_module, "_Lease", RecordingLease)
+    sent = time.monotonic()
+    loop(backend).step()
     assert len(backend.consumed) == 1
+    # A deadline counted from arrival would be at least 0.3 s later.
+    assert deadlines[0] - 600 < sent + 0.2
+
+
+def test_long_poll_wait_leaves_the_first_renewal_in_time() -> None:
+    backend = Backend()
+    backend.empty = True
+    worker = WorkerLoop(
+        backend.client(),
+        DOMAIN,
+        TOPIC,
+        UnlimitedCapacity(),
+        CustomHandler(),
+        lease=60,
+        renew_every=40,
+        wait_seconds=30,
+    )
+    worker.step()
+    # Half the gap between renewal and lease expiry: (60 - 40) / 2.
+    assert backend.calls[0][1]["wait_seconds"] == 10
+    worker.lease, worker.renew_every = 2, 1
+    worker.step()
+    assert "wait_seconds" not in backend.calls[1][1]
+
+
+def test_run_does_not_long_poll_while_holding_real_capacity() -> None:
+    backend = Backend()
+    backend.empty = True
+    stop = threading.Event()
+    held: list[bool] = []
+    lock = threading.Lock()
+
+    class LockCapacity:
+        @contextmanager
+        def acquire(self) -> Iterator[None]:
+            with lock:
+                yield
+
+    def on_own() -> None:
+        held.append(lock.locked())
+        stop.set()
+
+    backend.on_own = on_own
+    WorkerLoop(
+        backend.client(),
+        DOMAIN,
+        TOPIC,
+        LockCapacity(),
+        CustomHandler(),
+        wait_seconds=30,
+        stop=stop,
+    ).run()
+    assert held == [True]
+    # An idle wait under the lock would keep it from other work.
+    assert "wait_seconds" not in backend.calls[0][1]

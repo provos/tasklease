@@ -95,6 +95,10 @@ export interface Data {
 export interface Error {
   code: ErrorCode;
   message: string;
+  /**
+   * Only on an Own empty: the service answered at once without holding a requested wait, because the topic already has its maximum number of waiters. Back off before polling again.
+   */
+  wait_refused?: true;
 }
 export interface ErrorResponse {
   ok: false;
