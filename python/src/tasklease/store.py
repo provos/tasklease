@@ -34,6 +34,8 @@ _RETENTION_SECONDS = 7 * 86400
 _BATCH_SIZE = 100
 # Seconds a long poll leaves for its answer before the overall deadline.
 _WAIT_MARGIN = 5.0
+# Seconds of consecutive transport failures a wait rides out before raising.
+_TRANSPORT_PATIENCE = 300.0
 
 
 def default_root() -> Path:
@@ -509,8 +511,8 @@ class Store:
         With ``wait_seconds``, Own holds each poll for that long, so a reply is
         seen within about a second without backoff. Zero restores the original
         ``poll_interval``-to-``max_poll_interval`` exponential backoff. A
-        ``TransportError`` backs off the same way and is retried until the
-        timeout, so a service deployment does not end the wait.
+        ``TransportError`` backs off the same way and is retried, so a service
+        deployment does not end the wait; failures lasting five minutes raise.
         """
         if not math.isfinite(timeout_seconds) or timeout_seconds < 0:
             raise StoreError("timeout must be a nonnegative finite number of seconds")
@@ -527,6 +529,7 @@ class Store:
                 f"wait_seconds must be an integer from 0 to {MAX_WAIT_SECONDS}"
             )
         delay = poll_interval
+        failing_since: float | None = None
         deadline = time.monotonic() + timeout_seconds
         reply = self.reply(request_id)
         if reply is not None:
@@ -545,10 +548,16 @@ class Store:
                 )
             except TransportError:
                 # A deployment or network failure ends the held poll; back off
-                # and retry until the deadline. Own never reposts the request,
-                # and a reply claimed by a lost answer reappears after its
-                # 60-second hold.
+                # and retry. Own never reposts the request, and a reply claimed
+                # by a lost answer reappears after its 60-second hold. Failures
+                # that persist (a wrong URL, a long outage) are reported.
+                now = time.monotonic()
+                failing_since = now if failing_since is None else failing_since
+                if now - failing_since >= _TRANSPORT_PATIENCE:
+                    raise
                 again = False
+            else:
+                failing_since = None
             reply = self.reply(request_id)
             if reply is not None:
                 return reply

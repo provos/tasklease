@@ -598,7 +598,7 @@ def test_own_names_an_old_service_and_the_opt_out() -> None:
     assert isinstance(raised.value, Invalid)
 
 
-@pytest.mark.parametrize("version", ["0.4.0", "1.2.3"])
+@pytest.mark.parametrize("version", ["0.4.0", "1.2.3", "0.4.0rc1", "0.4.0+local"])
 def test_own_invalid_from_a_current_service_stays_invalid(version: str) -> None:
     with Client(
         "https://tasks.example",
@@ -622,3 +622,34 @@ def test_own_invalid_keeps_its_error_when_the_version_is_unavailable() -> None:
         with pytest.raises(Invalid) as raised:
             client.own(WAIT_REQUEST)
     assert type(raised.value) is Invalid
+
+
+def test_own_client_side_invalid_does_not_ask_for_the_version() -> None:
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return old_service("0.3.0")(request)
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Invalid) as raised:
+            client.own(cast(p.OwnRequest, {**WAIT_REQUEST, "bad": float("nan")}))
+    assert type(raised.value) is Invalid
+    assert paths == []
+
+
+def test_own_version_lookup_keeps_within_the_caller_cap() -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        return old_service("0.3.0")(request)
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(WaitUnsupported):
+            client.own(WAIT_REQUEST, timeout=3)
+    assert timeouts[1] == {"connect": 3, "read": 3, "write": 3, "pool": 3}

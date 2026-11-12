@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from collections.abc import Iterator
 from types import TracebackType
@@ -35,6 +36,10 @@ MAX_WAIT_SECONDS = 30
 MAX_WAIT_GRACE = 15.0
 # The first service release that accepts Own's wait_seconds.
 WAIT_SERVICE_VERSION = (0, 4, 0)
+# The service's message for a request that fails its schema.
+_INVALID_BODY = "Invalid request body"
+# The version lookup explaining a refused long poll is brief.
+_VERSION_TIMEOUT = 10.0
 
 # Check the transport envelope and its required top-level members before the
 # generated DTO cast. Full schemas remain a contract-test dependency, rather
@@ -316,20 +321,26 @@ class Client:
                 self._post("own", request, timeout=timeout, read_timeout=read),
             )
         except Invalid as error:
-            if waiting and type(error) is Invalid:
-                self._check_wait_support(error)
+            # Only the service's schema refusal can mean an unknown field.
+            if waiting and type(error) is Invalid and str(error) == _INVALID_BODY:
+                self._check_wait_support(error, timeout)
             raise
 
-    def _check_wait_support(self, error: Invalid) -> None:
+    def _check_wait_support(self, error: Invalid, timeout: float | None) -> None:
         """Explain an Invalid long poll if the service predates wait_seconds."""
         try:
-            reported = self.version()["service_version"]
+            reported = self.version(
+                timeout=_VERSION_TIMEOUT
+                if timeout is None
+                else min(timeout, _VERSION_TIMEOUT)
+            )["service_version"]
         except TaskleaseError:
             return
-        parts = reported.split(".")[:3]
-        if len(parts) == 3 and all(part.isdigit() for part in parts):
-            if tuple(int(part) for part in parts) >= WAIT_SERVICE_VERSION:
-                return
+        release = re.match(r"([0-9]+)\.([0-9]+)\.([0-9]+)", reported)
+        if release is None:
+            return
+        if tuple(int(part) for part in release.groups()) >= WAIT_SERVICE_VERSION:
+            return
         required = ".".join(str(part) for part in WAIT_SERVICE_VERSION)
         raise WaitUnsupported(
             f"The tasklease service (version {reported}) rejected Own's "
@@ -432,8 +443,9 @@ class Client:
     ) -> p.MonitorSnapshotResponse:
         return cast(p.MonitorSnapshotResponse, self._post("monitor.snapshot", request))
 
-    def version(self) -> p.VersionResponse:
-        response = self._send("GET", "version")
+    def version(self, *, timeout: float | None = None) -> p.VersionResponse:
+        """The service version, optionally capping each HTTP timeout in seconds."""
+        response = self._send("GET", "version", timeout=timeout)
         body = self._decode(response)
         if (
             response.status_code != 200

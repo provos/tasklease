@@ -708,6 +708,20 @@ def test_wait_retries_a_transport_failure_until_the_reply(
     assert clock.sleeps == [1, 1.5]
 
 
+def test_wait_reports_transport_failures_that_persist(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A wrong URL or long outage is reported, not ridden out for hours."""
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    backend.on_own = lost_response
+    with pytest.raises(TransportError):
+        store.wait(client, "request-1", 6 * 3600)
+    assert 300 <= clock.now - 100 < 400
+
+
 def test_wait_transport_failures_end_at_the_timeout(
     store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
 ) -> None:

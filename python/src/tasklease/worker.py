@@ -29,7 +29,7 @@ from tasklease.generated import protocol as p
 from tasklease.names import error_topic, is_domain, is_topic
 
 _ERROR_LIMIT = 128 * 1024
-# A hand-back after stop is best effort and must not delay shutdown for long.
+# A hand-back after stop is best effort; this caps each of its HTTP phases.
 _HAND_BACK_TIMEOUT = 10.0
 
 

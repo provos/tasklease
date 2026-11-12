@@ -195,9 +195,11 @@ storage, with the tables in spec §7.2.
   never claims. After `retry` the Worker makes an ordinary `own` call, the
   only place a claim happens, and parks again if it lost the race. An idle
   wait is therefore one call, as before, and a claim after a wait is two.
-  Because a park call claims nothing, a park that throws (a deployment or a
-  reset object) is answered `empty` with `wait_refused`, while a failure in
-  the `own` call stays an ambiguous 500. Rounds per request are capped, so a
+  Because a park call claims nothing, a park that fails transiently (a
+  deployment, a reset or overloaded object: the error's `durableObjectReset`,
+  `retryable` or `overloaded` flag) is logged and answered `empty` with
+  `wait_refused`. Any other park error, and any failure in the `own` call,
+  stays a 500. Rounds per request are capped, so a
   waiter that keeps losing races stays within the subrequest limit.
   Create and Consume hint one waiter per newly available task after their
   transaction commits. One timer per topic, armed for the next lease expiry
@@ -207,9 +209,11 @@ storage, with the tables in spec §7.2.
   when a client disconnects, so the oldest waiter may belong to a Worker
   that is gone and answer `retry` to nobody. Every delivered hint therefore
   arms that timer for one second later, when it counts available tasks
-  again and hints the next waiters. This keeps one hint per task (a burst
-  does not wake every waiter, as waking all would) and bounds a lost hint
-  to about a second; no Worker call is needed to detect it. Registration
+  again. If a task is still available after a hint, the hinted waiters were
+  gone and the next ones may be too, so that recheck wakes every waiter.
+  This keeps one hint per task in the normal case (a burst does not wake
+  every waiter) and bounds lost hints to about a second however many dead
+  waiters are queued; no Worker call is needed to detect them. Registration
   before the first await closes the gap between a Create and the waiter
   being visible, and the availability check and timer arming run in one
   synchronous turn after the last await, so no lease expiry falls between
@@ -420,9 +424,13 @@ checks the store, drains, then sleeps with jitter until a reply arrives or
 the timeout passes. With a long poll the first Own of each drain waits on the
 server instead, ending at least five seconds before the timeout so its answer
 arrives within it. A transport failure, such as a deployment ending a held
-poll, backs off like an empty poll and is retried until the timeout: Own
-never reposts the request, and a reply claimed by a lost answer is owned
-again after its 60-second hold.
+poll, backs off like an empty poll and is retried: Own never reposts the
+request, and a reply claimed by a lost answer is owned again after its
+60-second hold. Transport failures lasting five minutes in a row (a wrong
+URL, a long outage) raise, so a misconfiguration is not ridden out for hours.
+When a long poll is refused as `invalid`, the client asks `/v1/version`
+(within the call's timeout) and raises `WaitUnsupported` if the service
+predates 0.4.0.
 
 **Request states** are read from the files, never stored:
 

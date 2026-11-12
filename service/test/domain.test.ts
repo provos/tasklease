@@ -1096,6 +1096,15 @@ describe("long-poll Own", () => {
       ),
       "empty",
     );
+    // The routed path sends a zero wait straight to a single claim.
+    error(
+      await ownWithWait(
+        stub,
+        { domain, topic, hold_seconds: 60, wait_seconds: 0 },
+        worker,
+      ),
+      "empty",
+    );
     expect(Date.now() - started).toBeLessThan(1_000);
   });
 
@@ -1298,6 +1307,31 @@ describe("long-poll Own", () => {
     expect(Date.now() - started).toBeLessThan(5_000);
   });
 
+  it("wakes every waiter once hints are lost to several gone Workers", async () => {
+    const { domain, stub } = fixture("wait-lost-hints");
+    const topic = "work/lost-many";
+    const gone = [0, 1, 2].map((index) =>
+      stub.park(
+        poll(domain, topic),
+        { ...worker, worker: `gone-${index}` },
+        10_000,
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const started = Date.now();
+    const live = ownWithWait(
+      stub,
+      { ...poll(domain, topic), wait_seconds: 10 },
+      { ...worker, worker: "live" },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
+    expect(success(await live).task.owner?.worker).toBe("live");
+    // One hint per second would reach the live waiter after about 3 s.
+    expect(Date.now() - started).toBeLessThan(2_500);
+    expect(await Promise.all(gone)).toEqual(["retry", "retry", "retry"]);
+  });
+
   it("wakes a waiter when Renew shortens a lease", async () => {
     const { domain, stub } = fixture("wait-renew");
     const topic = "work/renewed";
@@ -1336,12 +1370,12 @@ describe("long-poll Own", () => {
     expect(await first).toBe("timeout");
   });
 
-  it("answers an unheld empty when a park call fails", async () => {
+  it("answers an unheld empty when a park call is reset", async () => {
     const own = vi.fn();
-    const failing: WaitStub = {
-      own,
-      park: () => Promise.reject(new Error("Durable Object reset")),
-    };
+    const reset = Object.assign(new Error("Durable Object reset"), {
+      durableObjectReset: true,
+    });
+    const failing: WaitStub = { own, park: () => Promise.reject(reset) };
     expect(
       await ownWithWait(failing, poll("domain-tests/reset", "work/x"), worker),
     ).toEqual({
@@ -1349,6 +1383,16 @@ describe("long-poll Own", () => {
       error: { code: "empty", message: "empty", wait_refused: true },
     });
     expect(own).not.toHaveBeenCalled();
+  });
+
+  it("lets a park fault that is not transient fail the request", async () => {
+    const failing: WaitStub = {
+      own: vi.fn(),
+      park: () => Promise.reject(new Error("SQLITE_FULL")),
+    };
+    await expect(
+      ownWithWait(failing, poll("domain-tests/fault", "work/x"), worker),
+    ).rejects.toThrow("SQLITE_FULL");
   });
 
   it("lets a failed claim after a hint fail the request", async () => {

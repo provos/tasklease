@@ -126,6 +126,8 @@ type TopicWaiters = {
   timer: ReturnType<typeof setTimeout> | null;
   /** When the armed timer fires. */
   at: number;
+  /** A hint was delivered since the timer last fired. */
+  hinted: boolean;
 };
 
 /**
@@ -158,11 +160,26 @@ function waitRefused(): Result<never> {
   return { ...result, error: { ...result.error, wait_refused: true } };
 }
 
+/** Durable Object errors flag transient failures, including code updates. */
+function resetOrRetryable(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const flags = error as {
+    retryable?: unknown;
+    overloaded?: unknown;
+    durableObjectReset?: unknown;
+  };
+  return (
+    flags.retryable === true ||
+    flags.overloaded === true ||
+    flags.durableObjectReset === true
+  );
+}
+
 /**
  * Worker side of a long poll. Parking and claiming are separate Domain
- * Object calls: a park call never claims, so a park that fails (a deployment
- * or reset object) leased nothing and answers an unheld `empty`, while a
- * failed claim stays an ambiguous 500. A woken waiter always makes one claim
+ * Object calls: a park call never claims, so a park that fails transiently
+ * (a deployment or reset object) leased nothing and answers an unheld
+ * `empty`, while a failed claim stays an ambiguous 500. A woken waiter always makes one claim
  * attempt, even when its wait has just ended.
  */
 export async function ownWithWait(
@@ -181,8 +198,13 @@ export async function ownWithWait(
         caller,
         Math.max(0, deadline - Date.now()),
       );
-    } catch {
-      return waitRefused();
+    } catch (error) {
+      // A park claims nothing, so an object reset (a deployment) or an
+      // overloaded object safely ends the wait unheld. Anything else is a
+      // fault that should surface as a 500.
+      console.error({ event: "park_failed", error: String(error) });
+      if (resetOrRetryable(error)) return waitRefused();
+      throw error;
     }
     if (parked === "timeout") return failure("empty");
     const result = await stub.own(request, caller);
@@ -456,7 +478,13 @@ export class DomainObject extends DurableObject<Env> {
       wake: null,
     };
     if (!state) {
-      state = { waiters: new Set(), identities: new Map(), timer: null, at: 0 };
+      state = {
+        waiters: new Set(),
+        identities: new Map(),
+        timer: null,
+        at: 0,
+        hinted: false,
+      };
       this.waiting.set(topic, state);
     }
     state.waiters.add(waiter);
@@ -532,6 +560,7 @@ export class DomainObject extends DurableObject<Env> {
       count--;
     }
     if (delivered) {
+      state.hinted = true;
       this.scheduleLease(topic, state, Date.now() + HINT_RECHECK_MS);
     }
   }
@@ -572,8 +601,17 @@ export class DomainObject extends DurableObject<Env> {
     state.timer = null;
     if (this.waiting.get(topic) !== state) return;
     const now = Date.now();
+    // A task still available a second after a hint means the hinted waiters
+    // were gone, and the next ones may be too: wake every waiter rather than
+    // one more per second.
+    const lost = state.hinted;
+    state.hinted = false;
     try {
-      this.notify(topic, this.available(topic, now, state.waiters.size));
+      const available = this.available(topic, now, state.waiters.size);
+      this.notify(
+        topic,
+        lost && available > 0 ? state.waiters.size : available,
+      );
       this.scheduleLease(topic, state, this.nextLease(topic, now));
     } catch (error) {
       // Without the count, let every waiter retry its own claim.

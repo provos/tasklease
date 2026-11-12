@@ -39,8 +39,10 @@ Release preparation and verification are documented in
 ### Changed
 
 - `Store.wait`, and so `tl request --wait` and `tl wait`, retries a transport
-  failure with backoff until its timeout instead of failing, so a service
-  deployment during a long wait does not end it.
+  failure with backoff instead of failing at once, so a service deployment
+  during a long wait does not end it. Failures that persist for five minutes
+  still raise.
+- `Client.version()` accepts a per-call `timeout` cap.
 
 ### Compatibility and deployment
 

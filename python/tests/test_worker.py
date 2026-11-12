@@ -919,7 +919,11 @@ def test_stop_during_a_board_long_poll_exits_without_running() -> None:
         worker = WorkerLoop(api, DOMAIN, TOPIC, UnlimitedCapacity(), handler, stop=stop)
         thread = threading.Thread(target=worker.run)
         thread.start()
-        time.sleep(0.3)
+        # The board records the poll when the held Own starts.
+        listed = time.monotonic() + 5
+        while not board.pollers:
+            assert time.monotonic() < listed
+            time.sleep(0.01)
         stop.set()
         time.sleep(0.2)
         requester.create({"domain": DOMAIN, "topic": TOPIC, "data": {}})
