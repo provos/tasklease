@@ -25,10 +25,11 @@ Release preparation and verification are documented in
   instead of after backoff; set the top-level `wait_seconds` setting or pass
   `--wait-seconds` to change it.
 - When a long-polled Own cannot hold its wait (the topic already has the
-  maximum number of waiters, or a deployment ends the wait before any claim),
-  it answers `empty` with `"wait_refused": true` in its error object; the
-  Python client exposes it as `Empty.wait_refused`, and the requester backs
-  off instead of polling again straight away.
+  maximum number of waiters, a deployment ends the wait before any claim, or
+  the wait loses every claim race it is allowed), it answers `empty` with
+  `"wait_refused": true` in its error object; the Python client exposes it
+  as `Empty.wait_refused`, and `WorkerLoop` and the requester sleep their
+  whole poll interval instead of polling again straight away.
 - `FakeBoard(max_waiters=...)` limits held long polls per topic, so offline
   tests can reach `wait_refused`; `0` refuses every wait.
 

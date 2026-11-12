@@ -5,7 +5,13 @@ import {
   runInDurableObject,
 } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
-import { DomainObject, ownWithWait, type RpcTask } from "../src/domain_do";
+import {
+  DomainObject,
+  ownWithWait,
+  type ParkResult,
+  type RpcTask,
+} from "../src/domain_do";
+import { failure } from "../src/errors";
 import type { Data, HourlyStats } from "../src/generated/protocol";
 import { newTaskId } from "../src/ids";
 import type { Caller, Result } from "../src/types";
@@ -1327,8 +1333,8 @@ describe("long-poll Own", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
     expect(success(await live).task.owner?.worker).toBe("live");
-    // One hint per second would reach the live waiter after about 3 s.
-    expect(Date.now() - started).toBeLessThan(2_500);
+    // One hint per window would reach the live waiter after about 6 s.
+    expect(Date.now() - started).toBeLessThan(4_000);
     expect(await Promise.all(gone)).toEqual(["retry", "retry", "retry"]);
   });
 
@@ -1352,6 +1358,127 @@ describe("long-poll Own", () => {
     );
     expect(success(await waiting).task.owner?.identity).toBe("worker-two");
     expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  /** A stub that records each park result and can delay its claim call. */
+  function recording(
+    stub: WaitStub,
+    parks: Map<string, ParkResult[]>,
+    label: string,
+    claimDelay = 0,
+  ): WaitStub {
+    return {
+      own: async (request, caller) => {
+        await new Promise((resolve) => setTimeout(resolve, claimDelay));
+        return stub.own(request, caller);
+      },
+      park: async (request, caller, waitMs) => {
+        const result = await stub.park(request, caller, waitMs);
+        parks.set(label, [...(parks.get(label) ?? []), result]);
+        return result;
+      },
+    };
+  }
+
+  it("does not wake every waiter while a claim is still in flight", async () => {
+    const { domain, stub } = fixture("wait-in-flight");
+    const topic = "work/in-flight";
+    const parks = new Map<string, ParkResult[]>();
+    const request = { ...poll(domain, topic), wait_seconds: 6 };
+    const first = ownWithWait(recording(stub, parks, "first"), request, {
+      ...worker,
+      worker: "first",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // A slow Worker: its claim arrives 1.5 s after its hint.
+    const slow = ownWithWait(recording(stub, parks, "slow", 1_500), request, {
+      ...worker,
+      worker: "slow",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const idle = [0, 1].map((index) =>
+      ownWithWait(
+        recording(stub, parks, `idle-${index}`),
+        { ...request, wait_seconds: 5 },
+        { ...worker, worker: `idle-${index}` },
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
+    expect(success(await first).task.data).toEqual({ n: 1 });
+    // The second task's claim is still in flight when the first hint's
+    // recheck runs; that is not a lost hint.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    success(await stub.create({ domain, topic, data: { n: 2 } }, creator));
+    expect(success(await slow).task.data).toEqual({ n: 2 });
+    for (const result of await Promise.all(idle)) {
+      expect(result).toEqual({
+        ok: false,
+        error: { code: "empty", message: "empty" },
+      });
+    }
+    expect(parks.get("idle-0")).toEqual(["timeout"]);
+    expect(parks.get("idle-1")).toEqual(["timeout"]);
+  }, 10_000);
+
+  it("hints one waiter for a lease that ends soon after a claimed hint", async () => {
+    const { domain, stub } = fixture("wait-expiry-after-hint");
+    const topic = "work/expiry-after-hint";
+    success(await stub.create({ domain, topic, data: { n: 0 } }, creator));
+    success(
+      await stub.own(
+        { domain, topic, hold_seconds: 1 },
+        {
+          ...worker,
+          worker: "holder",
+        },
+      ),
+    );
+    const parks = new Map<string, ParkResult[]>();
+    const request = { ...poll(domain, topic), wait_seconds: 4 };
+    const waiters = ["first", "idle-0", "idle-1"].map((label) =>
+      ownWithWait(recording(stub, parks, label), request, {
+        ...worker,
+        worker: label,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Claimed at once; the held lease then ends within the recheck window.
+    success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
+    const results = await Promise.all(waiters);
+    expect(results.filter((result) => result.ok)).toHaveLength(2);
+    const retries = [...parks.values()]
+      .flat()
+      .filter((result) => result === "retry");
+    expect(retries).toHaveLength(2);
+  }, 10_000);
+
+  it("answers wait_refused when every round loses its race", async () => {
+    const own = vi.fn(() => Promise.resolve(failure("empty")));
+    const racing: WaitStub = { own, park: () => Promise.resolve("retry") };
+    expect(
+      await ownWithWait(racing, poll("domain-tests/race", "work/x"), worker),
+    ).toEqual({
+      ok: false,
+      error: { code: "empty", message: "empty", wait_refused: true },
+    });
+    expect(own).toHaveBeenCalledTimes(20);
+  });
+
+  it("makes no claim for a client that has gone", async () => {
+    const own = vi.fn();
+    const hinted: WaitStub = { own, park: () => Promise.resolve("retry") };
+    const gone = new AbortController();
+    gone.abort();
+    expect(
+      await ownWithWait(
+        hinted,
+        poll("domain-tests/gone", "work/x"),
+        worker,
+        gone.signal,
+      ),
+    ).toEqual({ ok: false, error: { code: "empty", message: "empty" } });
+    expect(own).not.toHaveBeenCalled();
   });
 
   it("limits parked waiters per identity", async () => {

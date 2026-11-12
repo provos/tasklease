@@ -137,10 +137,22 @@ def test_competing_long_polls_claim_each_task_once(
     threads = [threading.Thread(target=waiter, args=(index,)) for index in range(3)]
     for thread in threads:
         thread.start()
-    time.sleep(0.2)
     # Four tasks for three waiters: every waiter claims one, and exactly one
     # task remains for a later short poll.
     with target.client(token, "creator") as creator:
+        # Each poll is recorded before it parks; wait until all three are.
+        listed = time.monotonic() + 10
+        while (
+            len(
+                creator.topic_pollers({"domain": domain, "topic": "work/compete"})[
+                    "pollers"
+                ]
+            )
+            < 3
+        ):
+            assert time.monotonic() < listed
+            time.sleep(0.05)
+        time.sleep(0.2)
         for value in range(4):
             creator.create(
                 {"domain": domain, "topic": "work/compete", "data": {"n": value}}

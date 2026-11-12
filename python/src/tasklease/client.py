@@ -314,15 +314,26 @@ class Client:
         waiting = (
             isinstance(wait, int | float) and not isinstance(wait, bool) and wait > 0
         )
-        read = float(cast(float, wait)) + MAX_WAIT_GRACE if waiting else None
+        # The service holds at most MAX_WAIT_SECONDS and rejects more at once,
+        # so an out-of-range wait never needs (or overflows) a longer limit.
+        read = (
+            float(min(cast(float, wait), MAX_WAIT_SECONDS)) + MAX_WAIT_GRACE
+            if waiting
+            else None
+        )
         try:
             return cast(
                 p.OwnResponse,
                 self._post("own", request, timeout=timeout, read_timeout=read),
             )
         except Invalid as error:
-            # Only the service's schema refusal can mean an unknown field.
-            if waiting and type(error) is Invalid and str(error) == _INVALID_BODY:
+            # Only the service's schema refusal can mean an unknown field; an
+            # older service rejects the field even when it is zero.
+            if (
+                "wait_seconds" in request
+                and type(error) is Invalid
+                and str(error) == _INVALID_BODY
+            ):
                 self._check_wait_support(error, timeout)
             raise
 
@@ -347,7 +358,8 @@ class Client:
             f"wait_seconds: long-polling needs service {required} or later. "
             "Upgrade the service, or disable long-polling with wait_seconds = 0 "
             "(--wait-seconds 0; in the config, [worker] wait_seconds for tl "
-            "worker and top-level wait_seconds for tl request and tl wait)."
+            "worker and top-level wait_seconds for tl request and tl wait). "
+            "A direct Client.own call must omit wait_seconds."
         ) from error
 
     def renew(

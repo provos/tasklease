@@ -471,6 +471,7 @@ class FakeBoard:
         """End a live task's lease now; an unknown fencing ID raises KeyError."""
         with self._lock:
             self._tasks[task_id]["lease_until"] = self._now()
+            self._wake()
 
     def _handle_api(self, request: httpx.Request) -> httpx.Response:
         with self._lock:
@@ -600,17 +601,18 @@ class FakeBoard:
         """
         topic = cast(str, body["topic"])
         with self._changed:
-            response = self._operate("own", body, caller, worker, self._now())
+            # Whichever clock has advanced furthest measures elapsed wait time:
+            # an injected clock lets a test jump the deadline, while a frozen
+            # one still terminates on wall time. Both start with the first
+            # attempt, before a test can see the poll and jump the clock.
+            start_wall, start_clock = time.monotonic(), self._now()
+            response = self._operate("own", body, caller, worker, start_clock)
             if response.status_code != 404:
                 return response
             if self._waiters.get(topic, 0) >= self._max_waiters:
                 return _refused()
             self._waiters[topic] = self._waiters.get(topic, 0) + 1
         try:
-            # Whichever clock has advanced furthest measures elapsed wait time:
-            # an injected clock lets a test jump the deadline, while a frozen
-            # one still terminates on wall time.
-            start_wall, start_clock = time.monotonic(), self._now()
             while True:
                 with self._changed:
                     elapsed = max(

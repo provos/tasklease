@@ -735,6 +735,96 @@ def test_wait_transport_failures_end_at_the_timeout(
     assert store.request("request-1") is not None
 
 
+def test_wait_returns_a_saved_reply_after_persistent_failures(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reply saved before a failing Delete is returned, not lost to patience."""
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+
+    # The outage ends just inside the five-minute patience; the Own that
+    # saves the reply is slow, and its Delete fails after the patience.
+    def recovers() -> None:
+        if clock.now < 370:
+            raise httpx.ConnectError("outage")
+        clock.now += 30
+        backend.replies.append(task({"request_id": "request-1", "result": "ok"}))
+
+    backend.on_own = recovers
+    backend.on_delete = lost_response
+    reply = store.wait(client, "request-1", 6 * 3600)
+    assert reply is not None and reply.data["result"] == "ok"
+
+
+def test_wait_cut_short_by_its_deadline_returns_none(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A last attempt that the wait's deadline cut off is a timeout."""
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    failed = False
+
+    def late_failures() -> None:
+        nonlocal failed
+        if clock.now < 390:
+            return
+        if not failed:
+            failed = True
+            raise httpx.ConnectError("deploy")
+        clock.now = 700
+        raise httpx.ReadTimeout("deadline")
+
+    backend.on_own = late_failures
+    assert store.wait(client, "request-1", 600) is None
+
+
+def test_wait_patience_counts_the_first_failed_attempt(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+
+    def blackholed() -> None:
+        clock.now += 40
+        raise httpx.ConnectTimeout("blackholed")
+
+    backend.on_own = blackholed
+    with pytest.raises(TransportError):
+        store.wait(client, "request-1", 310)
+
+
+def test_wait_backoff_starts_over_after_a_held_poll(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+    rounds = iter(["fail", "fail", "fail", "held", "immediate"])
+
+    def scripted() -> None:
+        step = next(rounds, "reply")
+        if step == "fail":
+            raise httpx.ReadError("deploy")
+        if step == "held":
+            clock.now += 30
+        elif step == "reply":
+            backend.replies.append(task({"request_id": "request-1", "result": "ok"}))
+
+    backend.on_own = scripted
+    assert store.wait(client, "request-1", 3600, wait_seconds=30) is not None
+    assert clock.sleeps == [1, 1.5, 2.25, 1]
+
+
 def test_wait_delivers_durable_reply_when_delete_response_is_lost(
     store: Store, client: Client, backend: Backend
 ) -> None:

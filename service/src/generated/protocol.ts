@@ -96,7 +96,7 @@ export interface Error {
   code: ErrorCode;
   message: string;
   /**
-   * Only on an Own empty: the service could not hold a requested wait, because the topic (or the caller's identity within it) already has its maximum number of waiters, or because a deployment or reset ended the wait before any claim. Back off before polling again.
+   * Only on an Own empty: the service could not hold a requested wait, because the topic (or the caller's identity within it) already has its maximum number of waiters, because a deployment or reset ended the wait before any claim, or because the wait lost every claim race it was allowed. Back off before polling again.
    */
   wait_refused?: true;
 }

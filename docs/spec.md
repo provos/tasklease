@@ -248,8 +248,9 @@ A held request is never a guarantee of a later answer from the same waiter.
 When the wait cannot be held, Own answers `empty` with `"wait_refused": true`
 in the error object: when a topic already holds the maximum number of
 waiters, or the caller's identity its maximum within the topic (Own still
-attempts the claim first), or when a deployment or a reset Durable Object
-ends a wait before any claim. A failure during a claim stays
+attempts the claim first), when a deployment or a reset Durable Object
+ends a wait before any claim, or when a wait loses the bounded number of
+claim races it is allowed before its deadline. A failure during a claim stays
 an ambiguous `500`. `wait_refused` appears only on such answers, so a client
 can back off instead of treating the answer as a completed wait and polling
 again straight away.

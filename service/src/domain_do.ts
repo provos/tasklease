@@ -94,10 +94,12 @@ const MAX_WAITERS_PER_IDENTITY = 1_000;
 const MAX_WAIT_MS = 30_000;
 /**
  * After a hint, recheck the topic this long later. A hinted waiter whose
- * Worker has gone (its client disconnected) answers `retry` to nobody; the
- * recheck hands the still-available task to the next waiter.
+ * Worker has gone (its client disconnected) answers `retry` to nobody, so a
+ * task still available a whole window after it became available goes to the
+ * remaining waiters. A live Worker claims within a few hundred milliseconds;
+ * the window leaves room for a slow claim on a busy object.
  */
-const HINT_RECHECK_MS = 1_000;
+const HINT_RECHECK_MS = 2_000;
 /**
  * Park and claim rounds per long poll. Each round is two Worker-to-object
  * subrequests; a waiter that keeps losing races answers `empty` instead.
@@ -126,8 +128,8 @@ type TopicWaiters = {
   timer: ReturnType<typeof setTimeout> | null;
   /** When the armed timer fires. */
   at: number;
-  /** A hint was delivered since the timer last fired. */
-  hinted: boolean;
+  /** When the timer last fired; leases ending later have not been hinted. */
+  checked: number;
 };
 
 /**
@@ -180,12 +182,15 @@ function resetOrRetryable(error: unknown): boolean {
  * Object calls: a park call never claims, so a park that fails transiently
  * (a deployment or reset object) leased nothing and answers an unheld
  * `empty`, while a failed claim stays an ambiguous 500. A woken waiter always makes one claim
- * attempt, even when its wait has just ended.
+ * attempt, even when its wait has just ended, unless `signal` reports that
+ * its client has gone. A wait that ends early after `MAX_WAIT_ROUNDS` lost
+ * races says it was not held.
  */
 export async function ownWithWait(
   stub: OwnStub,
   request: OwnRequest,
   caller: Caller,
+  signal?: AbortSignal,
 ): Promise<Result<RpcTaskResponse<OwnResponse>>> {
   const wait = request.wait_seconds ?? 0;
   if (wait <= 0) return stub.own(request, caller);
@@ -207,6 +212,8 @@ export async function ownWithWait(
       throw error;
     }
     if (parked === "timeout") return failure("empty");
+    // Nobody would read the answer; leave the task to the next waiter.
+    if (signal?.aborted) return failure("empty");
     const result = await stub.own(request, caller);
     // A full topic still makes the claim attempt (and records the poll), but
     // an empty answer says the wait was not held.
@@ -215,14 +222,10 @@ export async function ownWithWait(
         ? waitRefused()
         : result;
     }
-    if (
-      result.ok ||
-      result.error.code !== "empty" ||
-      Date.now() >= deadline ||
-      round >= MAX_WAIT_ROUNDS
-    ) {
+    if (result.ok || result.error.code !== "empty" || Date.now() >= deadline) {
       return result;
     }
+    if (round >= MAX_WAIT_ROUNDS) return waitRefused();
   }
 }
 
@@ -483,7 +486,7 @@ export class DomainObject extends DurableObject<Env> {
         identities: new Map(),
         timer: null,
         at: 0,
-        hinted: false,
+        checked: Date.now(),
       };
       this.waiting.set(topic, state);
     }
@@ -525,6 +528,38 @@ export class DomainObject extends DurableObject<Env> {
       .one().available;
   }
 
+  /**
+   * What a recheck needs about a topic's available tasks: how many leases
+   * ended after `since` (never hinted), how many tasks have been available
+   * since `stale` or earlier (their hints were lost), and when the newest
+   * other task became available. A task becomes available when it is created
+   * or when its lease ends, whichever is later; new tasks are written with a
+   * lease already in the past.
+   */
+  private recheck(
+    topic: string,
+    now: number,
+    since: number,
+    stale: number,
+  ): { expired: number; stale: number; fresh: number | null } {
+    return this.ctx.storage.sql
+      .exec<{ expired: number; stale: number; fresh: number | null }>(
+        `SELECT COALESCE(SUM(lease_until > created_at AND lease_until > ?), 0) AS expired,
+           COALESCE(SUM(available_at <= ?), 0) AS stale,
+           MIN(CASE WHEN available_at > ? THEN available_at END) AS fresh
+         FROM (SELECT created_at, lease_until,
+             MAX(created_at, lease_until) AS available_at
+           FROM tasks WHERE topic = ? AND lease_until <= ? LIMIT ?)`,
+        since,
+        stale,
+        stale,
+        topic,
+        now,
+        MAX_WAITERS_PER_TOPIC,
+      )
+      .one();
+  }
+
   /** Remove a finished waiter, passing on a hint it received but did not use. */
   private release(topic: string, waiter: Waiter, used: boolean): void {
     waiter.wake = null;
@@ -545,7 +580,7 @@ export class DomainObject extends DurableObject<Env> {
    * Wake waiters for `count` newly available tasks. One hint per task keeps a
    * burst from waking every waiter; losers wait again for the next hint. A
    * hint to a waiter whose Worker is gone is lost, so any delivered hint arms
-   * a recheck that hints again while a task is still available.
+   * a recheck for a task that is still available a window later.
    */
   private notify(topic: string, count = 1): void {
     const state = this.waiting.get(topic);
@@ -560,7 +595,6 @@ export class DomainObject extends DurableObject<Env> {
       count--;
     }
     if (delivered) {
-      state.hinted = true;
       this.scheduleLease(topic, state, Date.now() + HINT_RECHECK_MS);
     }
   }
@@ -593,28 +627,29 @@ export class DomainObject extends DurableObject<Env> {
   }
 
   /**
-   * One timer per topic replaces a timer per waiter: at a lease expiry or a
-   * hint recheck, wake one waiter per available task rather than every
-   * waiter on the topic.
+   * One timer per topic replaces a timer per waiter: at a lease expiry, hint
+   * one waiter per lease that ended since the last check (a Create hints its
+   * own task). A task that has stayed available for a whole recheck window
+   * lost its hint to a gone Worker, and the next waiters may be gone too, so
+   * every waiter is woken rather than one more per window.
    */
   private leaseExpired(topic: string, state: TopicWaiters): void {
     state.timer = null;
     if (this.waiting.get(topic) !== state) return;
     const now = Date.now();
-    // A task still available a second after a hint means the hinted waiters
-    // were gone, and the next ones may be too: wake every waiter rather than
-    // one more per second.
-    const lost = state.hinted;
-    state.hinted = false;
+    const since = state.checked;
+    state.checked = now;
     try {
-      const available = this.available(topic, now, state.waiters.size);
-      this.notify(
-        topic,
-        lost && available > 0 ? state.waiters.size : available,
-      );
+      const due = this.recheck(topic, now, since, now - HINT_RECHECK_MS);
+      this.notify(topic, due.stale > 0 ? state.waiters.size : due.expired);
       this.scheduleLease(topic, state, this.nextLease(topic, now));
+      // A task whose claim may still be in flight is checked once its
+      // window has passed.
+      if (due.fresh !== null) {
+        this.scheduleLease(topic, state, due.fresh + HINT_RECHECK_MS);
+      }
     } catch (error) {
-      // Without the count, let every waiter retry its own claim.
+      // Without the counts, let every waiter retry its own claim.
       console.error({ event: "lease_timer", topic, error: String(error) });
       this.notify(topic, state.waiters.size);
     }

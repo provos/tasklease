@@ -120,12 +120,12 @@ class Service:
             if response.status_code == 200 and isinstance(decoded, dict):
                 outcome, value = "200", decoded
             else:
-                code = (
-                    decoded.get("error", {}).get("code")
-                    if isinstance(decoded, dict)
-                    else None
-                )
+                error = decoded.get("error", {}) if isinstance(decoded, dict) else {}
+                code = error.get("code") if isinstance(error, dict) else None
                 outcome = f"{response.status_code} {code or 'non-json'}"
+                # A refused wait was not held; report it apart from an empty.
+                if isinstance(error, dict) and error.get("wait_refused") is True:
+                    outcome += " wait_refused"
         self.recorder.record(op, outcome, (time.perf_counter() - started) * 1000)
         return outcome, value
 
@@ -210,7 +210,8 @@ async def worker_loop(
             )
             continue
         # As in WorkerLoop, time the service held an empty poll counts toward
-        # the poll interval; a timeout or error sleeps the whole interval.
+        # the poll interval; a refused wait, a timeout or an error sleeps the
+        # whole interval.
         idle = args.poll_seconds
         if outcome == "404 empty":
             idle = max(0.0, idle - (time.monotonic() - started))
@@ -501,8 +502,9 @@ def main() -> None:
         or not 1 <= args.processes <= args.workers
     ):
         parser.error(
-            "workers, identities and poll seconds must be positive, and "
-            "processes between 1 and the worker count"
+            "workers, identities and poll seconds must be positive, "
+            "--wait-seconds between 0 and 30, and processes between 1 and the "
+            "worker count"
         )
     admin = os.environ.get("TL_ADMIN_TOKEN")
     if not admin:

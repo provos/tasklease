@@ -537,6 +537,7 @@ class Store:
         record = self._required_request(request_id)
         self._automatic_prune()
         while time.monotonic() < deadline:
+            attempted = time.monotonic()
             try:
                 _, again = self._drain(
                     client,
@@ -550,9 +551,17 @@ class Store:
                 # A deployment or network failure ends the held poll; back off
                 # and retry. Own never reposts the request, and a reply claimed
                 # by a lost answer reappears after its 60-second hold. Failures
-                # that persist (a wrong URL, a long outage) are reported.
+                # that persist (a wrong URL, a long outage) are reported, unless
+                # the reply was saved first or the wait's own deadline cut the
+                # last attempt short.
+                if failing_since is None:
+                    failing_since = attempted
+                reply = self.reply(request_id)
+                if reply is not None:
+                    return reply
                 now = time.monotonic()
-                failing_since = now if failing_since is None else failing_since
+                if now >= deadline:
+                    return None
                 if now - failing_since >= _TRANSPORT_PATIENCE:
                     raise
                 again = False
@@ -564,10 +573,12 @@ class Store:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
-            # A held long poll already provided the delay. An immediate empty,
-            # including a wait the service refused, and a transport failure
-            # back off.
+            # A held long poll already provided the delay, and the backoff
+            # starts over. An immediate empty, including a wait the service
+            # refused, and a transport failure back off.
             if again:
+                if wait_seconds:
+                    delay = poll_interval
                 continue
             time.sleep(min(remaining, delay * uniform(0.8, 1.2)))
             delay = min(delay * 1.5, max(poll_interval, max_poll_interval))

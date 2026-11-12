@@ -59,6 +59,7 @@ class Backend:
         self.on_renew: Callable[[], None] = lambda: None
         self.on_consume: Callable[[dict[str, object]], None] = lambda request: None
         self.empty = False
+        self.wait_refused = False
         self.renew_errors: list[Exception] = []
         self.consume_errors: list[Exception] = []
         self.timeouts: list[dict[str, float]] = []
@@ -71,10 +72,10 @@ class Backend:
         if operation == "own":
             self.on_own()
             if self.empty:
-                return httpx.Response(
-                    404,
-                    json={"ok": False, "error": {"code": "empty", "message": "empty"}},
-                )
+                error: dict[str, object] = {"code": "empty", "message": "empty"}
+                if self.wait_refused:
+                    error["wait_refused"] = True
+                return httpx.Response(404, json={"ok": False, "error": error})
             response: object = {"ok": True, "task": self.task}
         elif operation == "renew":
             self.on_renew()
@@ -789,6 +790,71 @@ def test_long_poll_counts_toward_a_longer_poll_interval(
         stop=stop,
     ).run()
     assert slept == [570]
+
+
+def test_refused_wait_sleeps_the_whole_poll_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deployment ends every held poll at once; none may reconnect at once."""
+    backend = Backend()
+    backend.empty = True
+    backend.wait_refused = True
+    stop = threading.Event()
+    slept: list[float] = []
+    original = stop.wait
+    now = [100.0]
+
+    def wait(timeout: float | None = None) -> bool:
+        slept.append(timeout or 0)
+        stop.set()
+        return original(0)
+
+    calls = 0
+
+    def held_then_refused() -> None:
+        nonlocal calls
+        calls += 1
+        now[0] += 25
+        if calls == 2:
+            stop.set()
+
+    monkeypatch.setattr("tasklease.worker.time.monotonic", lambda: now[0])
+    monkeypatch.setattr("tasklease.worker.uniform", lambda low, high: 1.0)
+    backend.on_own = held_then_refused
+    stop.wait = wait  # type: ignore[method-assign]
+    WorkerLoop(
+        backend.client(),
+        DOMAIN,
+        TOPIC,
+        UnlimitedCapacity(),
+        EchoHandler(),
+        wait_seconds=30,
+        poll_interval=10,
+        stop=stop,
+    ).run()
+    assert calls == 1
+    assert slept == [10]
+
+
+def test_slow_own_answer_renews_before_the_send_time_deadline() -> None:
+    """The first renewal fits in what remains of a lease counted from send."""
+    backend = Backend()
+    backend.on_own = lambda: time.sleep(1.0)
+    renewed = threading.Event()
+    backend.on_renew = renewed.set
+    handler = CustomHandler()
+    held: list[bool] = []
+
+    def run(request: object, lost: threading.Event) -> object:
+        held.append(renewed.wait(1.5) and not lost.is_set())
+        return {}
+
+    handler.on_run = run
+    worker = loop(backend, handler)
+    worker.lease = 2
+    worker.renew_every = 1.5
+    worker.step()
+    assert held == [True]
 
 
 def test_long_poll_lease_starts_conservatively_at_send_time(

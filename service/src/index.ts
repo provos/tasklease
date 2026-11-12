@@ -35,6 +35,8 @@ type Run<T> = (
   caller: Caller,
   env: Env,
   identity: Identity,
+  /** Aborts when the client disconnects, where the runtime reports it. */
+  signal: AbortSignal,
 ) => Outcome | Promise<Outcome>;
 
 const MAX_DATA_BYTES = 256 * 1024;
@@ -148,6 +150,7 @@ function identityRoute<T>(validator: ValidateFunction<T>, run: Run<T>): Route {
         },
         env,
         identity,
+        request.signal,
       );
     },
   };
@@ -158,12 +161,12 @@ function domainRoute<T extends { domain: string }>(
   authorized: (body: T, caller: Caller) => boolean,
   run: Run<T>,
 ): Route {
-  return identityRoute(validator, (body, caller, env, identity) => {
+  return identityRoute(validator, (body, caller, env, identity, signal) => {
     if (!identity.domains.includes(body.domain))
       return failure("forbidden", "Domain access denied");
     if (!caller.operator && !authorized(body, caller))
       return failure("forbidden", "Scope access denied");
-    return run(body, caller, env, identity);
+    return run(body, caller, env, identity, signal);
   });
 }
 
@@ -280,8 +283,8 @@ const routes: Record<Operation, Route> = {
   own: domainRoute(
     validators.validateOwnRequest,
     (body, caller) => allows(caller.scopes, "own", body.topic),
-    (body, caller, env) =>
-      ownWithWait(env.DOMAINS.getByName(body.domain), body, caller),
+    (body, caller, env, _identity, signal) =>
+      ownWithWait(env.DOMAINS.getByName(body.domain), body, caller, signal),
   ),
   renew: domainRoute(
     validators.validateRenewRequest,

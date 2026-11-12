@@ -199,20 +199,29 @@ storage, with the tables in spec §7.2.
   deployment, a reset or overloaded object: the error's `durableObjectReset`,
   `retryable` or `overloaded` flag) is logged and answered `empty` with
   `wait_refused`. Any other park error, and any failure in the `own` call,
-  stays a 500. Rounds per request are capped, so a
-  waiter that keeps losing races stays within the subrequest limit.
+  stays a 500. Rounds per request are capped, so a waiter that keeps
+  losing races stays within the subrequest limit; it then answers `empty`
+  with `wait_refused`, because the wait was not held to its end. A Worker
+  that sees `request.signal` aborted (where the runtime reports a
+  disconnect) skips the claim after a hint.
   Create and Consume hint one waiter per newly available task after their
   transaction commits. One timer per topic, armed for the next lease expiry
   (Own and Renew move it earlier when they write a sooner lease), hints one
-  waiter per task that became available, so an expiry does not wake every
-  waiter. A hint can be lost: Workers RPC gives the object no cancellation
-  when a client disconnects, so the oldest waiter may belong to a Worker
-  that is gone and answer `retry` to nobody. Every delivered hint therefore
-  arms that timer for one second later, when it counts available tasks
-  again. If a task is still available after a hint, the hinted waiters were
-  gone and the next ones may be too, so that recheck wakes every waiter.
-  This keeps one hint per task in the normal case (a burst does not wake
-  every waiter) and bounds lost hints to about a second however many dead
+  waiter per lease that ended since it last fired, so an expiry does not
+  wake every waiter. A hint can be lost: Workers RPC gives the object no
+  cancellation when a client disconnects, so the oldest waiter may belong to
+  a Worker that is gone and answer `retry` to nobody. Every delivered hint
+  therefore arms that timer for two seconds later. A task becomes available
+  when it is created or its lease ends, whichever is later
+  (`MAX(created_at, lease_until)`); one that has stayed available for the
+  whole two seconds lost its hint, and the next waiters may be gone too, so
+  the recheck wakes every waiter. A task that became available more
+  recently may have its claim in flight, so the recheck instead re-arms for
+  the end of that task's window. A live Worker claims within a few hundred
+  milliseconds; the window leaves room for a slow claim on a busy object,
+  so steady traffic and ordinary expiries never wake every waiter. This
+  keeps one hint per task in the normal case (a burst does not wake every
+  waiter) and bounds lost hints to about two seconds however many dead
   waiters are queued; no Worker call is needed to detect them. Registration
   before the first await closes the gap between a Create and the waiter
   being visible, and the availability check and timer arming run in one

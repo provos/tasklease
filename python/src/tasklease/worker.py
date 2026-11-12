@@ -208,7 +208,9 @@ class _Lease:
                 self._condition.wait(remaining)
 
     def _renew(self) -> None:
-        delay = self.renew_every
+        # The lease counts from the Own's send time, so a slow answer leaves
+        # less than a full interval: renew by half the remaining time at most.
+        delay = min(self.renew_every, max(0.01, self.remaining() / 2))
         while not self._stop_renew.wait(delay):
             remaining = self.remaining()
             if remaining <= 0:
@@ -410,8 +412,11 @@ class WorkerLoop[Request, Outcome]:
             claim["wait_seconds"] = wait
         try:
             task = self.client.own(claim, timeout=float(self.lease))["task"]
-        except Empty:
-            self._empty_seconds = time.monotonic() - sent
+        except Empty as error:
+            # A refused wait was not held, however long it took: a deployment
+            # ends every held poll at once, and the whole fleet must not
+            # reconnect at the same instant.
+            self._empty_seconds = 0.0 if error.wait_refused else time.monotonic() - sent
             return "empty"
         if self.stop.is_set():
             # A stop that arrived during the Own must not start new work.

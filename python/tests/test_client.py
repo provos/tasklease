@@ -547,6 +547,30 @@ def test_own_float_wait_also_extends_the_read_phase() -> None:
     assert timeouts[0]["read"] == 45
 
 
+@pytest.mark.parametrize(
+    "wait", [3600, 10**400, float("inf")], ids=["hour", "huge", "inf"]
+)
+def test_own_out_of_range_wait_keeps_a_bounded_read_phase(wait: float) -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        return httpx.Response(
+            400,
+            json={
+                "ok": False,
+                "error": {"code": "invalid", "message": "Invalid request body"},
+            },
+        )
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Invalid):
+            client.own(cast(p.OwnRequest, {**WAIT_REQUEST, "wait_seconds": wait}))
+    assert all(timeout["read"] <= 45 for timeout in timeouts)
+
+
 def old_service(version: str) -> Callable[[httpx.Request], httpx.Response]:
     """A service that rejects Own's wait_seconds, as 0.3.0 does."""
 
@@ -595,7 +619,18 @@ def test_own_names_an_old_service_and_the_opt_out() -> None:
     assert "wait_seconds" in message
     assert "version 0.3.0" in message and "0.4.0 or later" in message
     assert "wait_seconds = 0" in message and "--wait-seconds 0" in message
+    assert "must omit wait_seconds" in message
     assert isinstance(raised.value, Invalid)
+
+
+def test_own_explicit_zero_wait_also_names_an_old_service() -> None:
+    with Client(
+        "https://tasks.example",
+        TOKEN,
+        transport=httpx.MockTransport(old_service("0.3.0")),
+    ) as client:
+        with pytest.raises(WaitUnsupported, match="must omit wait_seconds"):
+            client.own({**WAIT_REQUEST, "wait_seconds": 0})
 
 
 @pytest.mark.parametrize("version", ["0.4.0", "1.2.3", "0.4.0rc1", "0.4.0+local"])
