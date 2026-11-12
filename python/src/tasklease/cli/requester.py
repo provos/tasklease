@@ -102,7 +102,8 @@ def _wait_for(
 
 def _request(args: argparse.Namespace) -> int:
     timeout = duration_seconds(text(args, "timeout"), name="Timeout")
-    wait = requester_wait_seconds(args)
+    # Validated before Create, but only when this request will wait.
+    wait = requester_wait_seconds(args) if flag(args, "wait") else 0
     resend = optional_text(args, "resend")
     if resend is not None:
         if any(

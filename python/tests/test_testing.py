@@ -766,3 +766,50 @@ def test_long_poll_rejects_out_of_range_waits(board: FakeBoard) -> None:
                     "wait_seconds": wait,  # type: ignore[typeddict-item]
                 }
             )
+
+
+def test_long_poll_refuses_a_wait_beyond_max_waiters() -> None:
+    board = FakeBoard("example/project", max_waiters=0)
+    board.add_identity("worker", "token", own=["work/full"])
+    client = board.client("token")
+    started = time.monotonic()
+    with pytest.raises(Empty) as raised:
+        client.own(
+            {
+                "domain": board.domain,
+                "topic": "work/full",
+                "hold_seconds": 60,
+                "wait_seconds": 30,
+            }
+        )
+    assert raised.value.wait_refused
+    assert time.monotonic() - started < 1
+    # An immediate poll is never refused.
+    with pytest.raises(Empty) as immediate:
+        client.own({"domain": board.domain, "topic": "work/full", "hold_seconds": 60})
+    assert not immediate.value.wait_refused
+
+
+def test_long_poll_is_not_cut_short_by_frequent_wakeups(
+    board: FakeBoard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Creates on other topics wake every waiter; only the deadline ends one."""
+    wakeups = [0]
+
+    def woken(timeout: float | None = None) -> bool:
+        wakeups[0] += 1
+        return True
+
+    monkeypatch.setattr(board._changed, "wait", woken)
+    started = time.monotonic()
+    with pytest.raises(Empty):
+        board.client("token").own(
+            {
+                "domain": board.domain,
+                "topic": "work/quiet",
+                "hold_seconds": 60,
+                "wait_seconds": 1,
+            }
+        )
+    assert time.monotonic() - started >= 0.9
+    assert wakeups[0] > 1000

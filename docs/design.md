@@ -188,25 +188,40 @@ storage, with the tables in spec §7.2.
   `lease_until` so lease filtering can use index entries before fetching a
   task's payload. Topic aggregates use the same index and supply the live
   topic names for both listing and monitor snapshots.
-- **Long-poll Own:** the Worker drives the wait. Each Domain Object call
-  registers an in-memory waiter for the topic, makes one claim attempt, and
-  if that is empty parks until a hint or the remaining wait ends. A parked
-  call never claims: a hint answers `retry`, and the Worker makes a fresh
-  call, so every claim happens at the start of a call. A client that
-  disconnects cancels its Worker, which then never makes that call, so no
-  task is leased to a caller that is gone. Create and Consume hint one waiter
-  per newly available task after their transaction commits. One timer per
-  topic, armed for the next lease expiry (Own and Renew move it earlier when
-  they write a sooner lease), hints one waiter per task that became available,
-  so an expiry does not wake every waiter. A woken waiter always gets one more
-  attempt, even at its deadline. Registration before the attempt closes the
-  gap between an empty attempt and the waiter being visible, and a hint the
-  waiter did not use passes to the next waiter. The hint is never consulted
-  for availability, so a race costs one extra call and cannot double-claim.
-  Waiters hold no task state and are capped per topic; a full topic still
-  makes the claim attempt (and records the poll) but answers at once. An
-  evicted object drops its waiters and the client retries. Nothing is
-  persisted, so no schema migration or alarm change is needed.
+- **Long-poll Own:** the Worker drives the wait with two kinds of Domain
+  Object call. A `park` call registers an in-memory waiter for the topic,
+  records the poll, and returns `retry` at once if a task is available;
+  otherwise it parks until a hint or the remaining wait ends (`timeout`). It
+  never claims. After `retry` the Worker makes an ordinary `own` call, the
+  only place a claim happens, and parks again if it lost the race. An idle
+  wait is therefore one call, as before, and a claim after a wait is two.
+  Because a park call claims nothing, a park that throws (a deployment or a
+  reset object) is answered `empty` with `wait_refused`, while a failure in
+  the `own` call stays an ambiguous 500. Rounds per request are capped, so a
+  waiter that keeps losing races stays within the subrequest limit.
+  Create and Consume hint one waiter per newly available task after their
+  transaction commits. One timer per topic, armed for the next lease expiry
+  (Own and Renew move it earlier when they write a sooner lease), hints one
+  waiter per task that became available, so an expiry does not wake every
+  waiter. A hint can be lost: Workers RPC gives the object no cancellation
+  when a client disconnects, so the oldest waiter may belong to a Worker
+  that is gone and answer `retry` to nobody. Every delivered hint therefore
+  arms that timer for one second later, when it counts available tasks
+  again and hints the next waiters. This keeps one hint per task (a burst
+  does not wake every waiter, as waking all would) and bounds a lost hint
+  to about a second; no Worker call is needed to detect it. Registration
+  before the first await closes the gap between a Create and the waiter
+  being visible, and the availability check and timer arming run in one
+  synchronous turn after the last await, so no lease expiry falls between
+  them. A hint the waiter did not use passes to the next waiter. The hint is
+  never consulted for availability, so a race costs one extra call and
+  cannot double-claim. Avoiding a claim for a gone client is best effort: a
+  client whose connection drops silently can still have its Worker claim,
+  leaving that task held until its lease expires. Waiters hold no task
+  state and are capped per topic and per identity within a topic, so one
+  identity cannot fill a topic; a refused wait still makes the claim
+  attempt but answers at once. Nothing is persisted, so no schema migration
+  or alarm change is needed.
 - **Statistics:** every operation that counts (spec §4.15) upserts its
   topic's row in `stats_hourly` inside its own transaction, with
   `INSERT … ON CONFLICT(topic, hour) DO UPDATE SET created = created + 1, …`.
@@ -402,7 +417,12 @@ agent ID, so `tl inbox --all` and `tl monitor` can show it.
 
 `drain(client, reply_topic)` runs the own → save → delete loop. `wait(...)`
 checks the store, drains, then sleeps with jitter until a reply arrives or
-the timeout passes.
+the timeout passes. With a long poll the first Own of each drain waits on the
+server instead, ending at least five seconds before the timeout so its answer
+arrives within it. A transport failure, such as a deployment ending a held
+poll, backs off like an empty poll and is retried until the timeout: Own
+never reposts the request, and a reply claimed by a lost answer is owned
+again after its 60-second hold.
 
 **Request states** are read from the files, never stored:
 
@@ -459,11 +479,13 @@ cadence (a 30-second wait, then about 570 seconds of sleep); an immediate
 empty (wait disabled or refused) sleeps the whole interval. `step()` records
 the empty poll's duration privately for `run()`. `run()` is that
 loop with `Capacity` taken around each step. Because that capacity is held
-across Own, `run()` long-polls only with `UnlimitedCapacity`; a real capacity
-polls at once and sleeps outside it, so an idle wait never keeps a lock from
-other work. `step(wait_seconds=...)` overrides the wait for one call. `step()`
-sends `wait_seconds` unless it is zero, where the wire request stays
-byte-for-byte the pre-long-poll shape. The local lease still starts at the
+across Own, `run()` long-polls only with `UnlimitedCapacity`, passing the
+loop's `wait_seconds`; a real capacity polls at once and sleeps outside it,
+so an idle wait never keeps a lock from other work. `step()` itself polls at
+once unless called with `step(wait_seconds=...)`, so a caller that wraps it in
+its own lock does not hold that lock through an idle wait. `step()` sends
+`wait_seconds` unless it is zero, where the wire request stays byte-for-byte
+the pre-long-poll shape. The local lease still starts at the
 send time, because the service may claim at any point during the wait; the
 wait is therefore capped at half the gap between `renew_every` and the lease,
 so the first renewal comes well before that conservative deadline. The client raises
@@ -495,9 +517,11 @@ so case-sensitive labels, Windows device names and long labels are portable.
 `tl worker stop --worker <label>` creates the file without needing credentials.
 A stop requested while an Own long poll is in flight takes effect when that
 poll returns: the wait is bounded by `wait_seconds` (at most 30 seconds). A
-task claimed by that poll counts as current work and is finished before exit.
-Use `wait_seconds = 0` where an immediate stop matters more than pickup
-latency.
+task claimed by that poll is not started: `step()` renews it for one second,
+so another worker can own it almost at once, and returns `"empty"` (spec
+§6.1). A failed hand-back leaves the task to its lease. A task already
+running when the stop arrives is still finished before exit. Use
+`wait_seconds = 0` where an immediate stop matters more than pickup latency.
 The empty marker is transient: exclusive creation publishes the entire signal,
 and the watcher removes it. It does not use immutable durable publication,
 because removal can race a publisher's final flush. On Windows a sharing

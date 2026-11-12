@@ -29,6 +29,8 @@ from tasklease.generated import protocol as p
 from tasklease.names import error_topic, is_domain, is_topic
 
 _ERROR_LIMIT = 128 * 1024
+# A hand-back after stop is best effort and must not delay shutdown for long.
+_HAND_BACK_TIMEOUT = 10.0
 
 
 class Capacity(Protocol):
@@ -385,18 +387,19 @@ class WorkerLoop[Request, Outcome]:
         except Exception as error:
             self._fallback(task, outcome, _error(error), lease)
 
-    def step(self, *, wait_seconds: int | None = None) -> Literal["worked", "empty"]:
+    def step(self, *, wait_seconds: int = 0) -> Literal["worked", "empty"]:
         """Own at most one task; callers may already hold external capacity.
 
-        ``wait_seconds`` overrides the loop's long-poll wait for this call. A
-        caller holding a lock that other work needs should pass 0, so an idle
-        wait does not keep the lock.
+        By default the Own answers at once, so a caller holding a lock that
+        other work needs never keeps it through an idle wait. A positive
+        ``wait_seconds`` long-polls; ``run()`` passes the loop's
+        ``wait_seconds`` when its capacity is unlimited. A task that arrives
+        after ``stop`` was set is handed back unrun and the step reports
+        ``"empty"``.
         """
         if self.stop.is_set():
             return "empty"
-        wait = self._effective_wait(
-            self.wait_seconds if wait_seconds is None else wait_seconds
-        )
+        wait = self._effective_wait(wait_seconds)
         sent = time.monotonic()
         claim: p.OwnRequest = {
             "domain": self.domain,
@@ -408,6 +411,11 @@ class WorkerLoop[Request, Outcome]:
         try:
             task = self.client.own(claim, timeout=float(self.lease))["task"]
         except Empty:
+            self._empty_seconds = time.monotonic() - sent
+            return "empty"
+        if self.stop.is_set():
+            # A stop that arrived during the Own must not start new work.
+            self._hand_back(task)
             self._empty_seconds = time.monotonic() - sent
             return "empty"
         # The service may claim at any point during the wait, so the local
@@ -450,6 +458,25 @@ class WorkerLoop[Request, Outcome]:
         finally:
             lease.close()
         return "worked"
+
+    def _hand_back(self, task: p.Task) -> None:
+        """Shorten an unstarted task's lease so another worker can own it soon.
+
+        Renew keeps the ID and the raised ``owned_count``. If it fails, the
+        task simply becomes available again when its lease expires.
+        """
+        try:
+            self.client.renew(
+                {
+                    "domain": self.domain,
+                    "topic": self.topic,
+                    "id": task["id"],
+                    "hold_seconds": 1,
+                },
+                timeout=_HAND_BACK_TIMEOUT,
+            )
+        except TaskleaseError:
+            pass
 
     def _effective_wait(self, wait: int) -> int:
         """Bound a long poll so a task claimed at its end keeps a usable lease.

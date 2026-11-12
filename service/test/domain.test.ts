@@ -1041,8 +1041,11 @@ function internals(instance: DomainObject) {
   return instance as unknown as {
     waiting: Map<string, unknown>;
     maxWaitersPerTopic: number;
+    maxWaitersPerIdentity: number;
   };
 }
+
+type WaitStub = Parameters<typeof ownWithWait>[0];
 
 describe("long-poll Own", () => {
   const poll = (domain: string, topic: string) => ({
@@ -1207,10 +1210,10 @@ describe("long-poll Own", () => {
     const { domain, stub } = fixture("wait-no-ghost");
     const topic = "work/ghost";
     // A Worker whose client disconnected never makes the follow-up attempt.
-    const parked = stub.ownOrPark(poll(domain, topic), worker, 5_000);
+    const parked = stub.park(poll(domain, topic), worker, 5_000);
     await new Promise((resolve) => setTimeout(resolve, 50));
     success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
-    expect(await parked).toEqual({ retry: true });
+    expect(await parked).toBe("retry");
     const [summary] = success(
       await stub.topicsList({ domain }, creator),
     ).topics;
@@ -1247,18 +1250,114 @@ describe("long-poll Own", () => {
     const topic = "work/herd";
     success(await stub.create({ domain, topic, data: {} }, creator));
     success(await stub.own({ domain, topic, hold_seconds: 1 }, worker));
+    const parks: string[] = [];
+    const counting: WaitStub = {
+      own: (request, caller) => stub.own(request, caller),
+      park: async (request, caller, waitMs) => {
+        const result = await stub.park(request, caller, waitMs);
+        parks.push(result);
+        return result;
+      },
+    };
     const results = await Promise.all(
       [0, 1, 2].map((index) =>
-        stub.ownOrPark(
-          poll(domain, topic),
+        ownWithWait(
+          counting,
+          { ...poll(domain, topic), wait_seconds: 3 },
           { ...worker, worker: `herd-${index}` },
-          2_500,
         ),
       ),
     );
-    expect(results.filter((result) => "retry" in result)).toHaveLength(1);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    // The recheck after the hint finds the task claimed and wakes no one.
+    expect(parks.filter((result) => result === "retry")).toHaveLength(1);
+    expect(parks.filter((result) => result === "timeout")).toHaveLength(2);
+  });
+
+  it("passes a hint lost to a gone Worker on to a live waiter", async () => {
+    const { domain, stub } = fixture("wait-lost-hint");
+    const topic = "work/lost";
+    // The oldest waiter's Worker is gone: it never makes the claim call.
+    const gone = stub.park(
+      poll(domain, topic),
+      { ...worker, worker: "gone" },
+      10_000,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const started = Date.now();
+    const live = ownWithWait(
+      stub,
+      { ...poll(domain, topic), wait_seconds: 10 },
+      { ...worker, worker: "live" },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
+    expect(await gone).toBe("retry");
+    const claimed = success(await live).task;
+    expect(claimed.owner?.worker).toBe("live");
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("wakes a waiter when Renew shortens a lease", async () => {
+    const { domain, stub } = fixture("wait-renew");
+    const topic = "work/renewed";
+    success(await stub.create({ domain, topic, data: {} }, creator));
+    const held = success(
+      await stub.own({ domain, topic, hold_seconds: 60 }, worker),
+    ).task;
+    const started = Date.now();
+    const other: Caller = { ...worker, identity: "worker-two", worker: "w2" };
+    const waiting = ownWithWait(
+      stub,
+      { ...poll(domain, topic), wait_seconds: 10 },
+      other,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(
+      await stub.renew({ domain, topic, id: held.id, hold_seconds: 1 }, worker),
+    );
+    expect(success(await waiting).task.owner?.identity).toBe("worker-two");
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("limits parked waiters per identity", async () => {
+    const { domain, stub } = fixture("wait-identity");
+    const topic = "work/identity";
+    await runInDurableObject(stub, (instance: DomainObject) => {
+      internals(instance).maxWaitersPerIdentity = 1;
+    });
+    const first = stub.park(poll(domain, topic), worker, 1_000);
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(
-      results.filter((result) => !("retry" in result) && !result.ok),
-    ).toHaveLength(2);
+      await stub.park(poll(domain, topic), { ...worker, worker: "w2" }, 1_000),
+    ).toBe("refused");
+    const other: Caller = { ...worker, identity: "worker-two", worker: "w3" };
+    expect(await stub.park(poll(domain, topic), other, 500)).toBe("timeout");
+    expect(await first).toBe("timeout");
+  });
+
+  it("answers an unheld empty when a park call fails", async () => {
+    const own = vi.fn();
+    const failing: WaitStub = {
+      own,
+      park: () => Promise.reject(new Error("Durable Object reset")),
+    };
+    expect(
+      await ownWithWait(failing, poll("domain-tests/reset", "work/x"), worker),
+    ).toEqual({
+      ok: false,
+      error: { code: "empty", message: "empty", wait_refused: true },
+    });
+    expect(own).not.toHaveBeenCalled();
+  });
+
+  it("lets a failed claim after a hint fail the request", async () => {
+    const failing: WaitStub = {
+      own: () => Promise.reject(new Error("Durable Object reset")),
+      park: () => Promise.resolve("retry"),
+    };
+    await expect(
+      ownWithWait(failing, poll("domain-tests/reset", "work/x"), worker),
+    ).rejects.toThrow("Durable Object reset");
   });
 });

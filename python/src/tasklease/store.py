@@ -32,6 +32,8 @@ type CancelResult = Literal["cancelled", "not_found", "submission_unknown"]
 _HASH = re.compile(r"[0-9a-f]{32}\Z")
 _RETENTION_SECONDS = 7 * 86400
 _BATCH_SIZE = 100
+# Seconds a long poll leaves for its answer before the overall deadline.
+_WAIT_MARGIN = 5.0
 
 
 def default_root() -> Path:
@@ -446,7 +448,10 @@ class Store:
             # before the call must not be delayed behind a long poll.
             wait = 0 if index else wait_seconds
             if remaining is not None and wait:
-                wait = max(0, min(wait, math.floor(remaining)))
+                # Leave the response a margin inside the deadline, which also
+                # caps the read timeout: a reply claimed at the end of a wait
+                # must still arrive rather than stay held unseen.
+                wait = max(0, min(wait, math.floor(remaining - _WAIT_MARGIN)))
             claim: p.OwnRequest = {
                 "domain": domain,
                 "topic": reply_topic,
@@ -503,7 +508,9 @@ class Store:
 
         With ``wait_seconds``, Own holds each poll for that long, so a reply is
         seen within about a second without backoff. Zero restores the original
-        ``poll_interval``-to-``max_poll_interval`` exponential backoff.
+        ``poll_interval``-to-``max_poll_interval`` exponential backoff. A
+        ``TransportError`` backs off the same way and is retried until the
+        timeout, so a service deployment does not end the wait.
         """
         if not math.isfinite(timeout_seconds) or timeout_seconds < 0:
             raise StoreError("timeout must be a nonnegative finite number of seconds")
@@ -537,12 +544,11 @@ class Store:
                     wait_seconds=wait_seconds,
                 )
             except TransportError:
-                reply = self.reply(request_id)
-                if reply is not None:
-                    return reply
-                if time.monotonic() >= deadline:
-                    return None
-                raise
+                # A deployment or network failure ends the held poll; back off
+                # and retry until the deadline. Own never reposts the request,
+                # and a reply claimed by a lost answer reappears after its
+                # 60-second hold.
+                again = False
             reply = self.reply(request_id)
             if reply is not None:
                 return reply
@@ -550,7 +556,8 @@ class Store:
             if remaining <= 0:
                 break
             # A held long poll already provided the delay. An immediate empty,
-            # including a wait the service refused, backs off.
+            # including a wait the service refused, and a transport failure
+            # back off.
             if again:
                 continue
             time.sleep(min(remaining, delay * uniform(0.8, 1.2)))

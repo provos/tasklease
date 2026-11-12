@@ -21,6 +21,14 @@ class Invalid(APIError):
     status_code = 400
 
 
+class WaitUnsupported(Invalid):
+    """The service predates long-poll Own and rejected ``wait_seconds``.
+
+    The message names the service version and the ``wait_seconds = 0``
+    opt-out. Upgrading the service, or disabling the wait, resolves it.
+    """
+
+
 class Unauthenticated(APIError):
     code = "unauthenticated"
     status_code = 401
@@ -40,8 +48,9 @@ class Empty(APIError):
     """Own found no task.
 
     ``wait_refused`` is true when the service answered a long poll at once
-    without holding it (its topic has the maximum number of waiters), so the
-    caller should back off rather than poll again straight away.
+    without holding it (its topic has the maximum number of waiters, or the
+    service restarted during the wait), so the caller should back off rather
+    than poll again straight away.
     """
 
     code = "empty"

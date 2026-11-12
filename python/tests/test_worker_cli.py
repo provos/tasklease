@@ -387,3 +387,30 @@ def test_wait_seconds_setting_and_validation(cli: CLI) -> None:
     assert _body(cli.requests[0])["wait_seconds"] == 5
     for value in ("-1", "31", "1.5", "\u00b3"):
         assert cli.run(["--topic", TOPIC, "--once", "--wait-seconds", value]) == 1
+
+
+def test_worker_names_an_old_service_and_the_opt_out(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/version":
+            return httpx.Response(
+                200, json={"service_version": "0.3.0", "protocol": "v1"}
+            )
+        if "wait_seconds" in _body(request):
+            return httpx.Response(
+                400,
+                json={
+                    "ok": False,
+                    "error": {"code": "invalid", "message": "Invalid request body"},
+                },
+            )
+        return _empty()
+
+    cli.respond = respond
+    assert cli.run(["--topic", TOPIC]) == 1
+    error = capsys.readouterr().err
+    assert "wait_seconds" in error and "version 0.3.0" in error
+    assert "[worker] wait_seconds" in error
+    # The documented opt-out restores the old request.
+    assert cli.run(["--topic", TOPIC, "--once", "--wait-seconds", "0"]) == 0

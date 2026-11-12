@@ -20,6 +20,7 @@ from tasklease.errors import (
     Invalid,
     ProtocolError,
     TransportError,
+    WaitUnsupported,
 )
 from tasklease.generated import protocol as p
 
@@ -520,3 +521,104 @@ def test_own_empty_reports_a_refused_wait(refused: bool) -> None:
                 }
             )
     assert raised.value.wait_refused is refused
+
+
+def test_own_float_wait_also_extends_the_read_phase() -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        return httpx.Response(
+            404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
+        )
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Empty):
+            request = {
+                "domain": "acme/pipeline",
+                "topic": "work/linux",
+                "hold_seconds": 60,
+                "wait_seconds": 30.0,
+            }
+            client.own(cast(p.OwnRequest, request))
+    # The service holds 30.0 like 30, so the answer must not be cut off.
+    assert timeouts[0]["read"] == 45
+
+
+def old_service(version: str) -> Callable[[httpx.Request], httpx.Response]:
+    """A service that rejects Own's wait_seconds, as 0.3.0 does."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/version":
+            return httpx.Response(
+                200, json={"service_version": version, "protocol": "v1"}
+            )
+        if "wait_seconds" in json.loads(request.content):
+            return httpx.Response(
+                400,
+                json={
+                    "ok": False,
+                    "error": {"code": "invalid", "message": "Invalid request body"},
+                },
+            )
+        return httpx.Response(
+            404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
+        )
+
+    return handler
+
+
+WAIT_REQUEST: p.OwnRequest = {
+    "domain": "acme/pipeline",
+    "topic": "work/linux",
+    "hold_seconds": 60,
+    "wait_seconds": 30,
+}
+
+
+def test_own_names_an_old_service_and_the_opt_out() -> None:
+    with Client(
+        "https://tasks.example",
+        TOKEN,
+        transport=httpx.MockTransport(old_service("0.3.0")),
+    ) as client:
+        with pytest.raises(WaitUnsupported) as raised:
+            client.own(WAIT_REQUEST)
+        # The opt-out omits the field, which every service accepts.
+        with pytest.raises(Empty):
+            client.own(
+                {"domain": "acme/pipeline", "topic": "work/linux", "hold_seconds": 60}
+            )
+    message = str(raised.value)
+    assert "wait_seconds" in message
+    assert "version 0.3.0" in message and "0.4.0 or later" in message
+    assert "wait_seconds = 0" in message and "--wait-seconds 0" in message
+    assert isinstance(raised.value, Invalid)
+
+
+@pytest.mark.parametrize("version", ["0.4.0", "1.2.3"])
+def test_own_invalid_from_a_current_service_stays_invalid(version: str) -> None:
+    with Client(
+        "https://tasks.example",
+        TOKEN,
+        transport=httpx.MockTransport(old_service(version)),
+    ) as client:
+        with pytest.raises(Invalid) as raised:
+            client.own(WAIT_REQUEST)
+    assert type(raised.value) is Invalid
+
+
+def test_own_invalid_keeps_its_error_when_the_version_is_unavailable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/version":
+            return httpx.Response(503)
+        return old_service("0.3.0")(request)
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Invalid) as raised:
+            client.own(WAIT_REQUEST)
+    assert type(raised.value) is Invalid

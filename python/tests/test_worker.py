@@ -16,6 +16,7 @@ import tasklease.worker as worker_module
 from tasklease.client import Client
 from tasklease.errors import Forbidden, Invalid, NotFound, TooLarge, TransportError
 from tasklease.generated import protocol as p
+from tasklease.testing import FakeBoard
 from tasklease.worker import (
     EchoHandler,
     Rejection,
@@ -615,13 +616,16 @@ def test_handler_can_intentionally_fan_out() -> None:
     assert len(new_tasks(backend.consumed[0])) == 2
 
 
-def test_own_long_polls_by_default_with_a_read_grace() -> None:
+def test_step_polls_at_once_unless_asked_to_wait() -> None:
     backend = Backend()
     backend.empty = True
     worker = loop(backend)
     assert worker.wait_seconds == 30
+    # A caller holding a lock around step() must not keep it through a wait.
     worker.step()
-    own = next(body for op, body in backend.calls if op == "own")
+    assert "wait_seconds" not in backend.calls[0][1]
+    worker.step(wait_seconds=30)
+    own = backend.calls[1][1]
     assert own == {
         "domain": DOMAIN,
         "topic": TOPIC,
@@ -630,8 +634,8 @@ def test_own_long_polls_by_default_with_a_read_grace() -> None:
     }
     # The read phase covers the server wait and a response margin. Connect
     # keeps the client's configured cap (30s), not the lease plus wait.
-    assert backend.timeouts[0]["read"] == 45.0
-    assert backend.timeouts[0]["connect"] == 30.0
+    assert backend.timeouts[1]["read"] == 45.0
+    assert backend.timeouts[1]["connect"] == 30.0
 
 
 def test_own_omits_wait_when_disabled_for_older_services() -> None:
@@ -802,7 +806,7 @@ def test_long_poll_lease_starts_conservatively_at_send_time(
 
     monkeypatch.setattr(worker_module, "_Lease", RecordingLease)
     sent = time.monotonic()
-    loop(backend).step()
+    loop(backend).step(wait_seconds=30)
     assert len(backend.consumed) == 1
     # A deadline counted from arrival would be at least 0.3 s later.
     assert deadlines[0] - 600 < sent + 0.2
@@ -821,11 +825,11 @@ def test_long_poll_wait_leaves_the_first_renewal_in_time() -> None:
         renew_every=40,
         wait_seconds=30,
     )
-    worker.step()
+    worker.step(wait_seconds=30)
     # Half the gap between renewal and lease expiry: (60 - 40) / 2.
     assert backend.calls[0][1]["wait_seconds"] == 10
     worker.lease, worker.renew_every = 2, 1
-    worker.step()
+    worker.step(wait_seconds=30)
     assert "wait_seconds" not in backend.calls[1][1]
 
 
@@ -859,3 +863,69 @@ def test_run_does_not_long_poll_while_holding_real_capacity() -> None:
     assert held == [True]
     # An idle wait under the lock would keep it from other work.
     assert "wait_seconds" not in backend.calls[0][1]
+
+
+def test_stop_during_a_held_poll_hands_back_the_task_unrun() -> None:
+    backend = Backend()
+    stop = threading.Event()
+    # The stop arrives while the Own is held; the service then claims a task.
+    backend.on_own = stop.set
+    handler = CustomHandler()
+    handler.on_validate = lambda task: pytest.fail("a stopped worker started work")
+    WorkerLoop(
+        backend.client(),
+        DOMAIN,
+        TOPIC,
+        UnlimitedCapacity(),
+        handler,
+        stop=stop,
+    ).run()
+    assert [op for op, _ in backend.calls] == ["own", "renew"]
+    assert backend.calls[0][1]["wait_seconds"] == 30
+    # The short lease returns the task to the topic within a second.
+    assert backend.calls[1][1] == {
+        "domain": DOMAIN,
+        "topic": TOPIC,
+        "id": backend.task["id"],
+        "hold_seconds": 1,
+    }
+
+
+def test_failed_hand_back_leaves_the_task_to_its_lease() -> None:
+    backend = Backend()
+    stop = threading.Event()
+    backend.on_own = stop.set
+    backend.renew_errors = [httpx.ConnectError("down")]
+    handler = CustomHandler()
+    handler.on_validate = lambda task: pytest.fail("a stopped worker started work")
+    worker = WorkerLoop(
+        backend.client(), DOMAIN, TOPIC, UnlimitedCapacity(), handler, stop=stop
+    )
+    assert worker.step(wait_seconds=30) == "empty"
+    assert not backend.consumed
+
+
+def test_stop_during_a_board_long_poll_exits_without_running() -> None:
+    board = FakeBoard(DOMAIN)
+    board.add_identity("worker", "worker-token", own=[TOPIC])
+    board.add_identity("requester", "requester-token", create=[TOPIC])
+    stop = threading.Event()
+    handler = CustomHandler()
+    handler.on_validate = lambda task: pytest.fail("a stopped worker started work")
+    with (
+        board.client("worker-token", "w") as api,
+        board.client("requester-token") as requester,
+    ):
+        worker = WorkerLoop(api, DOMAIN, TOPIC, UnlimitedCapacity(), handler, stop=stop)
+        thread = threading.Thread(target=worker.run)
+        thread.start()
+        time.sleep(0.3)
+        stop.set()
+        time.sleep(0.2)
+        requester.create({"domain": DOMAIN, "topic": TOPIC, "data": {}})
+        thread.join(5)
+        assert not thread.is_alive()
+    (held,) = board.tasks.values()
+    assert held["owned_count"] == 1
+    # Handed back with a one-second lease rather than the 600-second one.
+    assert held["lease_until"] - cast(int, held["owned_at"]) < 5000

@@ -208,6 +208,17 @@ def _failure(code: p.ErrorCode, message: str | None = None) -> httpx.Response:
     )
 
 
+def _refused() -> httpx.Response:
+    """An empty long poll that was answered without holding its wait."""
+    return httpx.Response(
+        404,
+        json={
+            "ok": False,
+            "error": {"code": "empty", "message": "empty", "wait_refused": True},
+        },
+    )
+
+
 def _success(body: object) -> httpx.Response:
     # ASCII escaping can represent lone surrogates accepted by JSON.parse.
     return httpx.Response(
@@ -305,10 +316,22 @@ class FakeBoard:
     base_url = "https://api.tasklease.invalid"
     blob_base_url = "https://blobs.tasklease.invalid"
 
-    def __init__(self, domain: str, *, clock: Callable[[], int] | None = None) -> None:
+    def __init__(
+        self,
+        domain: str,
+        *,
+        clock: Callable[[], int] | None = None,
+        max_waiters: int = 10_000,
+    ) -> None:
         if not is_domain(domain):
             raise ValueError("Invalid domain")
+        if type(max_waiters) is not int or max_waiters < 0:
+            raise ValueError("max_waiters must be a nonnegative integer")
         self.domain = domain
+        # Long polls held per topic, as on the service. Beyond it, Own answers
+        # at once with wait_refused; 0 refuses every wait.
+        self._max_waiters = max_waiters
+        self._waiters: dict[str, int] = {}
         self._clock = (
             clock if clock is not None else lambda: time.time_ns() // 1_000_000
         )
@@ -572,27 +595,41 @@ class FakeBoard:
         """Repeat the real atomic claim until it succeeds or the wait ends.
 
         The lock is released between attempts, so Create and Consume on other
-        threads can make progress and notify this waiter.
+        threads can make progress and notify this waiter. A topic already
+        holding ``max_waiters`` waiters answers at once with ``wait_refused``.
         """
-        # Whichever clock has advanced furthest measures elapsed wait time: an
-        # injected clock lets a test jump the deadline, while a frozen one
-        # still terminates on wall time.
-        start_wall, start_clock = time.monotonic(), self._now()
-        for _ in range(1000):
+        topic = cast(str, body["topic"])
+        with self._changed:
+            response = self._operate("own", body, caller, worker, self._now())
+            if response.status_code != 404:
+                return response
+            if self._waiters.get(topic, 0) >= self._max_waiters:
+                return _refused()
+            self._waiters[topic] = self._waiters.get(topic, 0) + 1
+        try:
+            # Whichever clock has advanced furthest measures elapsed wait time:
+            # an injected clock lets a test jump the deadline, while a frozen
+            # one still terminates on wall time.
+            start_wall, start_clock = time.monotonic(), self._now()
+            while True:
+                with self._changed:
+                    elapsed = max(
+                        time.monotonic() - start_wall,
+                        (self._now() - start_clock) / 1000,
+                    )
+                    remaining = wait - elapsed
+                    if remaining <= 0:
+                        return _failure("empty")
+                    # Short waits also notice lease expiry on an injected clock.
+                    self._changed.wait(min(remaining, 0.05))
+                    response = self._operate("own", body, caller, worker, self._now())
+                    if response.status_code != 404:
+                        return response
+        finally:
             with self._changed:
-                response = self._operate("own", body, caller, worker, self._now())
-                if response.status_code != 404:
-                    return response
-                elapsed = max(
-                    time.monotonic() - start_wall, (self._now() - start_clock) / 1000
-                )
-                remaining = wait - elapsed
-                if remaining <= 0:
-                    break
-                # Recheck after registering, mirroring the service: a Create
-                # may have committed between the attempt and this wait.
-                self._changed.wait(min(remaining, 0.05))
-        return _failure("empty")
+                self._waiters[topic] -= 1
+                if not self._waiters[topic]:
+                    del self._waiters[topic]
 
     def _wake(self) -> None:
         """Notify blocked Own callers; callers must hold the lock."""

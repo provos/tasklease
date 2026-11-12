@@ -13,7 +13,7 @@ from tasklease.generated import protocol as p
 
 @pytest.fixture
 def poll_identity(target: ServiceTarget) -> tuple[str, str]:
-    _, token = target.identity(create=("work/**",), own=("work/**",))
+    _, token = target.identity(create=("work/**",), own=("work/**",), read=("work/**",))
     return target.domain, token
 
 
@@ -38,12 +38,24 @@ def test_long_poll_wakes_promptly_on_create(
 
         thread = threading.Thread(target=own)
         thread.start()
-        time.sleep(0.2)
+        # The poll is recorded before it parks. Once it is listed, give it
+        # time to park, so the Create below must reach it through a wakeup.
+        listed = time.monotonic() + 10
+        while not creator.topic_pollers({"domain": domain, "topic": "work/wait"})[
+            "pollers"
+        ]:
+            assert time.monotonic() < listed
+            time.sleep(0.05)
+        time.sleep(0.5)
+        assert thread.is_alive()
+        created_at = time.monotonic()
         created = creator.create(
             {"domain": domain, "topic": "work/wait", "data": {"n": 1}}
         )["id"]
         thread.join(10)
         assert not thread.is_alive()
+        # Well inside the 30-second wait: the Create woke the held poll.
+        assert time.monotonic() - created_at < 5
         task = waiting[0]
         assert task["id"] != created
         assert task["data"] == {"n": 1}

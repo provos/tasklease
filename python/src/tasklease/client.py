@@ -21,7 +21,9 @@ from tasklease.errors import (
     Empty,
     Invalid,
     ProtocolError,
+    TaskleaseError,
     TransportError,
+    WaitUnsupported,
 )
 from tasklease.generated import protocol as p
 from tasklease.names import is_bearer_token, is_worker_label
@@ -31,6 +33,8 @@ from tasklease.names import is_bearer_token, is_worker_label
 MAX_WAIT_SECONDS = 30
 # The response must arrive after the server's own wait expires.
 MAX_WAIT_GRACE = 15.0
+# The first service release that accepts Own's wait_seconds.
+WAIT_SERVICE_VERSION = (0, 4, 0)
 
 # Check the transport envelope and its required top-level members before the
 # generated DTO cast. Full schemas remain a contract-test dependency, rather
@@ -97,8 +101,10 @@ class Client:
     """One HTTP connection pool, identity credential and worker label.
 
     Own, Renew, Consume, Delete and blob signing accept a per-call timeout cap.
-    It limits each configured HTTPX phase timeout, including unlimited phases,
-    and never lengthens a configured limit. Omitting the cap preserves settings.
+    It limits each configured HTTPX phase timeout, including unlimited phases.
+    Omitting the cap preserves settings. The one lengthened limit is a long
+    poll's read phase: Own with ``wait_seconds`` reads for up to the wait plus
+    15 seconds, still within the per-call cap when one is given.
     """
 
     def __init__(
@@ -296,18 +302,42 @@ class Client:
 
         A long poll's ``wait_seconds`` raises the read timeout to the wait plus
         a response margin, still within ``timeout``, so the default 30-second
-        read limit does not cut off the service's answer.
+        read limit does not cut off the service's answer. A service that
+        predates long-poll raises ``WaitUnsupported``, naming its version.
         """
         wait = request.get("wait_seconds")
-        read = (
-            float(wait) + MAX_WAIT_GRACE
-            if isinstance(wait, int) and not isinstance(wait, bool) and wait > 0
-            else None
+        waiting = (
+            isinstance(wait, int | float) and not isinstance(wait, bool) and wait > 0
         )
-        return cast(
-            p.OwnResponse,
-            self._post("own", request, timeout=timeout, read_timeout=read),
-        )
+        read = float(cast(float, wait)) + MAX_WAIT_GRACE if waiting else None
+        try:
+            return cast(
+                p.OwnResponse,
+                self._post("own", request, timeout=timeout, read_timeout=read),
+            )
+        except Invalid as error:
+            if waiting and type(error) is Invalid:
+                self._check_wait_support(error)
+            raise
+
+    def _check_wait_support(self, error: Invalid) -> None:
+        """Explain an Invalid long poll if the service predates wait_seconds."""
+        try:
+            reported = self.version()["service_version"]
+        except TaskleaseError:
+            return
+        parts = reported.split(".")[:3]
+        if len(parts) == 3 and all(part.isdigit() for part in parts):
+            if tuple(int(part) for part in parts) >= WAIT_SERVICE_VERSION:
+                return
+        required = ".".join(str(part) for part in WAIT_SERVICE_VERSION)
+        raise WaitUnsupported(
+            f"The tasklease service (version {reported}) rejected Own's "
+            f"wait_seconds: long-polling needs service {required} or later. "
+            "Upgrade the service, or disable long-polling with wait_seconds = 0 "
+            "(--wait-seconds 0; in the config, [worker] wait_seconds for tl "
+            "worker and top-level wait_seconds for tl request and tl wait)."
+        ) from error
 
     def renew(
         self, request: p.RenewRequest, *, timeout: float | None = None

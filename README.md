@@ -514,8 +514,8 @@ cheap. A held poll keeps the Durable Object resident: request counts match a
 in compute. A worker with a longer `poll_interval` keeps that request
 cadence, because the wait counts toward the interval, but each wait still
 keeps the domain resident for up to 30 seconds; set `wait_seconds = 0` to let
-a deliberately cold domain sleep. One topic retains up to 10,000 waiters;
-beyond that, Own answers `empty` at once (marked `wait_refused`) and clients
+a deliberately cold domain sleep. One topic retains up to 10,000 waiters,
+at most 1,000 of them from one identity; beyond that, Own answers `empty` at once (marked `wait_refused`) and clients
 fall back to their short-poll sleep, so a larger idle fleet degrades to the old
 behavior rather than growing the object without bound.
 

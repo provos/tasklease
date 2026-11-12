@@ -685,13 +685,40 @@ def test_network_timeout_at_wait_deadline_is_a_wait_timeout(
     assert store.request("request-1") is not None
 
 
-def test_transport_failure_before_wait_deadline_is_reported(
-    store: Store, client: Client, backend: Backend
+def test_wait_retries_a_transport_failure_until_the_reply(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deployment that drops a held poll must not end a long wait."""
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+    failures = [httpx.ReadError("deploy"), httpx.ConnectError("restarting")]
+
+    def flaky() -> None:
+        if failures:
+            raise failures.pop(0)
+        backend.replies.append(task({"request_id": "request-1", "result": "ok"}))
+
+    backend.on_own = flaky
+    reply = store.wait(client, "request-1", 6 * 3600)
+    assert reply is not None and reply.data["result"] == "ok"
+    # Each failure backs off like an immediate empty.
+    assert clock.sleeps == [1, 1.5]
+
+
+def test_wait_transport_failures_end_at_the_timeout(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
     backend.on_own = lost_response
-    with pytest.raises(TransportError):
-        store.wait(client, "request-1", 100)
+    assert store.wait(client, "request-1", 100) is None
+    assert clock.now >= 200
+    assert store.request("request-1") is not None
 
 
 def test_wait_delivers_durable_reply_when_delete_response_is_lost(
@@ -816,8 +843,8 @@ def test_wait_long_polls_without_backoff(
     assert len(backend.owns) == 3
     # Every round waits on the server; the result records the initial
     # submission as own[0], so all rounds are long polls capped to the
-    # remaining overall timeout.
-    assert [body["wait_seconds"] for body in backend.owns[-3:]] == [30, 30, 10]
+    # remaining overall timeout, less the answer margin.
+    assert [body["wait_seconds"] for body in backend.owns[-3:]] == [30, 30, 5]
 
 
 def test_wait_caps_a_long_poll_to_the_remaining_timeout(
@@ -828,7 +855,10 @@ def test_wait_caps_a_long_poll_to_the_remaining_timeout(
     monkeypatch.setattr(time, "monotonic", clock.monotonic)
     monkeypatch.setattr(time, "sleep", clock.sleep)
     assert store.wait(client, "request-1", 12, wait_seconds=30) is None
-    assert backend.owns[0]["wait_seconds"] == 12
+    # The wait leaves its answer five seconds inside the overall deadline.
+    assert backend.owns[0]["wait_seconds"] == 7
+    timeout = backend.timeouts[1]
+    assert isinstance(timeout, dict) and timeout["read"] == 12
 
 
 def test_wait_zero_restores_bounded_backoff(

@@ -237,15 +237,21 @@ the domain are checked before the wait begins and are not rechecked.
 
 The wait is a hint to wake early, never a reservation: concurrent waiters
 race, and each Own transaction still decides the winner. Fencing is unchanged.
-A held request claims only while its client is connected: a client that
-disconnects during the wait leaves no task leased on its behalf. A waiter
-that disappears (an evicted Durable Object or a deployment) gets no response,
-and the caller may retry; a held request is never a guarantee of a later
-answer. When a topic already holds the maximum number of waiters, Own still
-attempts the claim but answers `empty` at once instead of holding the
-request, with `"wait_refused": true` in the error object. That field appears
-only then, so a client can back off instead of treating the answer as a
-completed wait and polling again straight away.
+Avoiding a claim for a client that has gone is best effort. A client that
+closes its connection during the wait normally cancels it before any claim.
+After a silent network drop (no close reaches the service, as with a
+sleeping laptop) the service may still claim a task for the request; that
+task stays held, unseen, until its `hold_seconds` lease expires, as with any
+lost Own response.
+
+A held request is never a guarantee of a later answer from the same waiter.
+When the wait cannot be held, Own answers `empty` with `"wait_refused": true`
+in the error object: when a topic already holds the maximum number of
+waiters (Own still attempts the claim first), or when a deployment or a reset
+Durable Object ends a wait before any claim. A failure during a claim stays
+an ambiguous `500`. `wait_refused` appears only on such answers, so a client
+can back off instead of treating the answer as a completed wait and polling
+again straight away.
 
 Every Own, including one that returns `empty` or waits, updates the caller's
 entry in the topic's poller list (§4.9).
@@ -502,6 +508,9 @@ while not stopping:
     wait for local capacity                        # before Own, never after
     task = own(domain, topic, LEASE)
     if empty: release capacity; sleep(poll interval − time Own held); continue
+    if stopping:                                   # stop arrived during the Own
+        renew(task.id, 1 s), ignoring any failure  # hand it back unrun
+        release capacity; exit
     start renewer(task.id):
         every RENEW_EVERY: renew(task.id, LEASE)
             network error, timeout, 5xx: retry until the local lease deadline
@@ -630,6 +639,14 @@ service that the CLI knows nothing about:
 domain and topic from it and the task ID from the `.task.json` file it needs
 for Delete. If Delete returns `not_found`, the task was taken or removed;
 `tl cancel` cannot distinguish these cases and keeps the record for waiting.
+
+A stop that arrives while Own is held (a long poll, §4.2) never starts new
+work. If that Own still returns a task, the worker hands it back without
+running it: it renews the task for one second, so the task is available again
+almost at once under the same ID, and exits. The claim still counts toward
+`owned_count`. If that Renew fails, the task becomes available when its
+lease expires. Releasing it is preferred to leaving the full lease, because
+a stop is often a restart that would otherwise idle the task for ten minutes.
 
 **Local reply store.** The CLI drains the agent's reply topic and keeps the
 replies on the agent's machine, in `replies/h(agent)/`. Each pass:
@@ -796,8 +813,10 @@ makes the same number of requests as a 30-second poll, while a 20-second wait
 makes more. Use `wait_seconds = 0` for a deliberately cold worker, and size
 the wait to the polling cadence being replaced.
 
-Waiters are held in memory, are capped per topic, and are dropped when the
-object is evicted. A dropped waiter costs a retry, not a task.
+Waiters are held in memory, are capped per topic and per identity within a
+topic, and are dropped when the object is evicted or the service deployed.
+A dropped waiter is answered `empty` with `wait_refused` (§4.2), so it costs a
+poll, not a task.
 
 ## 8. Blobs (R2)
 
