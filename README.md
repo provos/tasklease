@@ -589,13 +589,37 @@ process, waited 117 ms at the median and 728 ms at p95. The first and third
 rows predate the change that stopped idle polls from writing; then a domain
 queued from about 550 requests a second, and the results file records both.
 
+Long-polling was measured the same way on 2026-11-12, from one macOS
+client against service 0.4.0; the
+[results](docs/benchmarks/long-poll-acceptance.json) record each run. Pickup
+is the time from sending a Create to the claim reaching a worker.
+
+| Simulated load | Requests/s | Pickup p50 / p95 / p99 |
+| --- | ---: | ---: |
+| 5 workers, 30 s polls, no wait | 0.46 | 3,568 / 10,766 / 11,979 ms |
+| 5 workers, 30 s polls, 30 s wait | 0.37 | 266 / 773 / 1,947 ms |
+| 1,000 workers, 30 s polls, no wait | 39.1 | 102 / 203 / 322 ms |
+| 1,000 workers, 30 s polls, 30 s wait | 37.7 | 87 / 169 / 228 ms |
+
+A small fleet gains the most: a new task no longer waits for the next poll.
+A large fleet already polls often enough to find it quickly, and the wait
+leaves its request rate about the same. The 1,000-worker rates are steady
+state, without the first 30 s, in which a held poll has not yet answered; the
+5-worker rates cover the whole run. One 1,000-worker waiting run saw 49 held
+polls (0.7%) end in a connection error at the client and its repeat saw one;
+the Worker logged no failure, and no task was lost. Redeploying the same
+bundle during 200 held waits interrupted none of them; a code change, which
+resets the Durable Object, was not measured.
+
 ```sh
 TL_ADMIN_TOKEN=... uv run --project python python scripts/load_pollers.py \
   --url https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev --workers 1000 \
   --poll-seconds 30 --duration 240 --processes 2 --output /tmp/load.json
 ```
 
-Run it only against a test deployment: requests are billed, and the domain
+Unset `HTTPS_PROXY` unless the client needs a proxy: a local proxy adds its
+own latency and connection handling to every measurement. Run it only
+against a test deployment: requests are billed, and the domain
 keeps the test's poller and statistics rows until they expire. One client
 process sustains about 100 requests a second; use `--processes` for more.
 

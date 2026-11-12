@@ -14,6 +14,9 @@ a worker that gets one holds it for --work-seconds, Consumes it and polls
 again at once. Everything runs in a fresh domain `loadtest.<run id>`; at the
 end the topic is drained and every identity is revoked.
 
+Each task carries its Create send time, so the report's `pickup` summarizes
+the delay from Create to claim (both clocks are this machine's).
+
 One Python asyncio client saturates near 100 requests a second, after which
 its own queue inflates latency; spread higher rates over --processes (about
 one per 75 requests a second). Requests are billed to the deployment's
@@ -30,6 +33,7 @@ import json
 import os
 import random
 import secrets
+import ssl
 import statistics
 import time
 from collections import Counter
@@ -71,6 +75,8 @@ class Recorder:
     started: float = field(default_factory=time.time)
     ops: dict[str, OpStats] = field(default_factory=dict)
     windows: dict[int, Counter[str]] = field(default_factory=dict)
+    # Create send time to claim, per task; not a request of its own.
+    pickup: OpStats = field(default_factory=OpStats)
 
     def record(self, op: str, outcome: str, latency_ms: float) -> None:
         stats = self.ops.setdefault(op, OpStats())
@@ -87,6 +93,7 @@ class Recorder:
             mine = self.ops.setdefault(op, OpStats())
             mine.latencies_ms.extend(stats.latencies_ms)
             mine.outcomes.update(stats.outcomes)
+        self.pickup.latencies_ms.extend(other.pickup.latencies_ms)
         for window, counts in other.windows.items():
             self.windows.setdefault(window, Counter()).update(counts)
 
@@ -109,7 +116,9 @@ class Service:
             )
         except httpx.TimeoutException:
             outcome, value = "timeout", None
-        except httpx.TransportError as exc:
+        except (httpx.TransportError, ssl.SSLError) as exc:
+            # A connection reset mid-read (a deployment, a proxy) can surface
+            # as a raw SSLError; record it like any other transport failure.
             outcome, value = f"transport {type(exc).__name__}", None
         else:
             value = None
@@ -201,6 +210,11 @@ async def worker_loop(
         outcome, value = result
         task = value.get("task") if value else None
         if isinstance(task, dict):
+            data = task.get("data")
+            if isinstance(data, dict) and isinstance(data.get("sent"), float):
+                service.recorder.pickup.latencies_ms.append(
+                    (time.time() - data["sent"]) * 1000
+                )
             await asyncio.sleep(args.work_seconds)
             await service.call(
                 "consume",
@@ -259,7 +273,11 @@ async def producer_loop(
         task = asyncio.create_task(
             service.call(
                 "create",
-                {"domain": domain, "topic": TOPIC, "data": {"n": sequence}},
+                {
+                    "domain": domain,
+                    "topic": TOPIC,
+                    "data": {"n": sequence, "sent": time.time()},
+                },
                 token,
                 "producer",
             )
@@ -458,6 +476,7 @@ def run(args: argparse.Namespace, admin: str) -> dict[str, object]:
         "operations": {
             op: stats.summary(elapsed) for op, stats in sorted(recorder.ops.items())
         },
+        "pickup": recorder.pickup.summary(elapsed),
         "windows": windows,
         "drained_after_run": drained,
         "setup": {op: stats.summary(1) for op, stats in sorted(setup.ops.items())},
