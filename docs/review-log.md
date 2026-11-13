@@ -1131,3 +1131,53 @@ Status: accepted after corrections, independent reviews and native qualification
   a SHA-256 manifest and passed credential scanning against the actual
   private values. Its SHA-256 is
   `90956da3836d3c58dc71873e4826aa582b4cfd4d5bdb1d5b9ebfef5d545e5c65`.
+
+## 0.4.1 acceptance and publication (2026-11-12)
+
+- Release commit `09a7e9fc1d78e87b356e708f2a7db57a258d7b17` adds `Store.poll`
+  from PR #14. Clean `make install`, `make check` and `make build` passed,
+  including 213 Worker, 32 dashboard, 1,138 Python/tooling and 415
+  conformance tests, with three and 36 expected skips. PR #15 was
+  squash-merged as `1cd72dad10917c4435e35ad95d46bef266a7a103`, whose tree is
+  identical to the candidate's; the annotated `v0.4.1` tag identifies it.
+- The installed candidate wheel passed 1,045 native tests on macOS and Linux
+  with three expected skips each, and 1,030 on Windows with 18 expected
+  skips. The Windows VM has no outbound network, so its dependencies came
+  from the 0.4.0 wheelhouse resolved on the host under a seven-day cutoff. A
+  first Windows run was cut off when Parallels paused the VM; the rerun in a
+  fresh folder is the one recorded.
+- Live checks reused the acceptance Worker: it was redeployed from the
+  published 0.4.0 wheel (SHA-256 checked against PyPI) and upgraded in place.
+  The upgrade preserved a task held for an hour, identity credentials and
+  statistics, and stale IDs stayed fenced. `Store.poll` held and took a task
+  created during its wait on the 0.4.0 service (0.40 s after Create) and on
+  0.4.1 (0.27 s); its empty held polls returned `DrainResult(0, True)` after
+  about 5.1 s. Long poll answered empty after 5.0 s and picked up a task
+  0.10 s after Create, the R2 helpers round-tripped, and the 0.4.0 client
+  worked against 0.4.1. A first attempt failed with `TransportError` while
+  issuing its second identity just after the 0.4.0 deploy; that run's one
+  identity was revoked and the full run repeated. See the
+  [candidate report](acceptance/0.4.1.json).
+- Both the
+  [build-only rehearsal](https://github.com/provos/tasklease/actions/runs/43380389821)
+  and [trusted publishing run](https://github.com/provos/tasklease/actions/runs/43380791520)
+  succeeded. PyPI's wheel and sdist matched the publishing artifacts byte for
+  byte. The rehearsal wheel differed from the candidate only in the bundle's
+  source-path comments, its source map, a build timestamp and RECORD.
+- Fresh PyPI installations passed the same native test counts on Linux and
+  Windows; Windows installed the PyPI wheel offline after a SHA-256 check. On
+  macOS the local safe-chain `uv` shim withholds versions younger than its
+  minimum age, so the native suite was not rerun from the index; the PyPI
+  wheel, verified byte for byte, was installed fresh and ran a verified
+  deployment of the acceptance Worker.
+- Temporary identities were revoked; the acceptance Worker runs 0.4.1. The
+  fluxshot service `fse-tasklease` stays on 0.4.0, since 0.4.1 needs no
+  service upgrade. The
+  [GitHub Release](https://github.com/provos/tasklease/releases/tag/v0.4.1)
+  uses the finalized changelog text.
+- The [publication report](acceptance/0.4.1-publication.json) records the
+  published distribution hashes and native results. The local archive
+  `python/dist/acceptance-0.4.1-09a7e9f/evidence.zip` contains 46 files plus
+  a SHA-256 manifest and passed credential scanning against the actual
+  private values. Its SHA-256 is
+  `d65c842456f26885a85152d77f840982b0e83ff8caf6923855393c3ba51e1ff4`.
