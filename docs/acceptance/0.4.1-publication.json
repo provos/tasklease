@@ -1,0 +1,90 @@
+{
+  "version": "0.4.1",
+  "tag": "v0.4.1",
+  "release_commit": "1cd72dad10917c4435e35ad95d46bef266a7a103",
+  "status": "passed",
+  "date": "2026-11-12",
+  "date_timezone": "America/Los_Angeles",
+  "rehearsal_run": 43380389821,
+  "rehearsal_url": "https://github.com/provos/tasklease/actions/runs/43380389821",
+  "rehearsal_matches_candidate": "Identical members except bundle source-path comments, its source map, the bundle README timestamp and RECORD",
+  "publishing_run": 43380791520,
+  "publishing_url": "https://github.com/provos/tasklease/actions/runs/43380791520",
+  "pypi_matches_publishing_run": true,
+  "distributions": {
+    "tasklease-0.4.1-py3-none-any.whl": {
+      "sha256": "8a43b39c275ca515c473fd79cfc8c8b8b92f90a78419bdf38dd44bd1984069f8",
+      "url": "https://files.pythonhosted.org/packages/fb/66/b2279602c26ce685ba6b8c1e603e7a941fb7ae0e4cfd457f4dc0283a46a9/tasklease-0.4.1-py3-none-any.whl",
+      "upload_time": "2026-11-13T06:48:08.665202Z"
+    },
+    "tasklease-0.4.1.tar.gz": {
+      "sha256": "e8a1544394220b4867297e433cfbd3194069c0a724ef39ae5101ff4f39bdc215",
+      "url": "https://files.pythonhosted.org/packages/e6/f5/e79e3c9cfc45245663721e5409bb8b446a7c1bcebde447f1330e7756a577/tasklease-0.4.1.tar.gz",
+      "upload_time": "2026-11-13T06:48:10.107162Z"
+    }
+  },
+  "publication_zip_sha256": "d2657cdb75b565a7238e67757eeabe2c95b8e88ac2a22ba46605cde04ef8450c",
+  "build_resource_origin": "Verified publishing-run artifacts downloaded from PyPI",
+  "github_release": "https://github.com/provos/tasklease/releases/tag/v0.4.1",
+  "pypi_url": "https://pypi.org/project/tasklease/0.4.1/",
+  "native": {
+    "linux": {
+      "report": "post-publication/linux/native-report.json",
+      "platform": "Linux-6.17.0-1029-nvidia-aarch64-with-glibc2.39",
+      "python": "3.12.3",
+      "python_build_platform": "linux-aarch64",
+      "installation_source": "https://pypi.org/simple",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "tests": 1048,
+        "passed": 1045,
+        "skipped": 3,
+        "failures": 0,
+        "errors": 0
+      },
+      "skip_reasons": [
+        "Native Windows Task Scheduler COM",
+        "Native Windows file sharing"
+      ]
+    },
+    "windows": {
+      "report": "post-publication/windows/native-report.json",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.12.12",
+      "python_build_platform": "win-amd64",
+      "installation_source": "PyPI wheel fetched on the host, SHA-256 checked",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "tests": 1048,
+        "passed": 1030,
+        "skipped": 18,
+        "failures": 0,
+        "errors": 0
+      },
+      "skip_reasons": [
+        "Darwin flush uses POSIX fcntl",
+        "POSIX signals; Windows uses stop files",
+        "POSIX supports unprivileged symlinks",
+        "POSIX symlinks and permissions",
+        "POSIX token permission bits",
+        "Windows denies unlink of an open file"
+      ],
+      "dependency_source": "offline wheelhouse resolved on the host",
+      "cleanup": {
+        "leftover_python_count": 0,
+        "execution_policy": "Restricted"
+      }
+    }
+  },
+  "macos_post_publication": "The PyPI wheel, verified byte for byte against PyPI and the publishing run, was installed in a fresh environment (tl 0.4.1) and used for a verified deploy of the acceptance Worker (service_version 0.4.1). The native suite was not rerun from the index because the local safe-chain uv shim withholds versions younger than its minimum age; the candidate native suite passed on macOS.",
+  "live_checks": {
+    "exact_pypi_package_verified": true,
+    "verified_deploy": true,
+    "target": "tasklease-acceptance-90d25ae"
+  },
+  "fluxshot_service": "fse-tasklease stays on the 0.4.0 service; 0.4.1 requires no service upgrade",
+  "windows_vm_restored_suspended": false,
+  "evidence_archive": "python/dist/acceptance-0.4.1-09a7e9f/evidence.zip",
+  "evidence_archive_sha256": "d65c842456f26885a85152d77f840982b0e83ff8caf6923855393c3ba51e1ff4",
+  "secret_scan_passed": true
+}

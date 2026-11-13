@@ -1,0 +1,128 @@
+{
+  "version": "0.4.1",
+  "status": "passed",
+  "date": "2026-11-12",
+  "date_timezone": "America/Los_Angeles",
+  "source_commit": "09a7e9fc1d78e87b356e708f2a7db57a258d7b17",
+  "source_dirty": false,
+  "merged_commit": "1cd72dad10917c4435e35ad95d46bef266a7a103",
+  "merged_tree_matches_candidate": true,
+  "wheel_sha256": "0c57c0988c3bda9e29806296af72f654b5548a8ed56900ce1750f46b30fec07f",
+  "sdist_sha256": "30727f3743e5016ae39e3b2f8e4fc9ab483e051aa2c11880441771494049b444",
+  "acceptance_zip_sha256": "663cfd26aaec55a172c74d8315cc28c93609e2fb5c6f4b43a650b0d950c76ee5",
+  "clean_checkout_gates": {
+    "install": "passed",
+    "check": "passed",
+    "build": "passed",
+    "worker_passed": 213,
+    "dashboard_passed": 32,
+    "python_tooling_passed": 1138,
+    "python_skipped": 3,
+    "conformance_passed": 415,
+    "conformance_skipped": 36
+  },
+  "native": {
+    "macos": {
+      "report": "macos/native-report.json",
+      "platform": "macOS-27.0-arm64-arm-64bit",
+      "python": "3.12.12",
+      "python_build_platform": "macosx-11.0-arm64",
+      "installation_source": "accepted wheel",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "tests": 1048,
+        "passed": 1045,
+        "skipped": 3,
+        "failures": 0,
+        "errors": 0
+      },
+      "skip_reasons": [
+        "Native Windows Task Scheduler COM",
+        "Native Windows file sharing"
+      ]
+    },
+    "linux": {
+      "report": "linux/native-report.json",
+      "platform": "Linux-6.17.0-1029-nvidia-aarch64-with-glibc2.39",
+      "python": "3.12.3",
+      "python_build_platform": "linux-aarch64",
+      "installation_source": "accepted wheel",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "tests": 1048,
+        "passed": 1045,
+        "skipped": 3,
+        "failures": 0,
+        "errors": 0
+      },
+      "skip_reasons": [
+        "Native Windows Task Scheduler COM",
+        "Native Windows file sharing"
+      ]
+    },
+    "windows": {
+      "report": "windows/native-report.json",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.12.12",
+      "python_build_platform": "win-amd64",
+      "installation_source": "accepted wheel",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "tests": 1048,
+        "passed": 1030,
+        "skipped": 18,
+        "failures": 0,
+        "errors": 0
+      },
+      "skip_reasons": [
+        "Darwin flush uses POSIX fcntl",
+        "POSIX signals; Windows uses stop files",
+        "POSIX supports unprivileged symlinks",
+        "POSIX symlinks and permissions",
+        "POSIX token permission bits",
+        "Windows denies unlink of an open file"
+      ],
+      "dependency_source": "offline wheelhouse resolved on the host",
+      "cleanup": {
+        "leftover_python_count": 0,
+        "execution_policy": "Restricted"
+      }
+    }
+  },
+  "windows_network": "The VM has no outbound network; dependencies came from the 0.4.0 wheelhouse resolved on the host under a seven-day cutoff (2026-11-06T01:54:27Z). A first run was cut off when Parallels paused the VM; the rerun in a fresh folder is the one recorded.",
+  "prior_version": "0.4.0",
+  "prior_package": "Published 0.4.0 wheel, SHA-256 checked against PyPI, installed from the file",
+  "live_target": "Existing acceptance Worker tasklease-acceptance-90d25ae, redeployed from published 0.4.0 and upgraded in place; no temporary Worker was created.",
+  "live_checks": {
+    "published_prior_deploy_verified": true,
+    "exact_installed_candidate_wheel_bytes": true,
+    "new_client_store_poll_on_prior_service": true,
+    "upgrade_exact_task_credentials_stats_preserved": true,
+    "stale_id_fencing_after_upgrade": true,
+    "long_poll_live": true,
+    "public_blob_helpers_live_r2": true,
+    "store_poll_live": true,
+    "old_client_new_service": true,
+    "temporary_identities_revoked": true
+  },
+  "long_poll": {
+    "empty_wait_seconds": 5.04,
+    "pickup_after_create_seconds": 0.1
+  },
+  "store_poll_on_prior": {
+    "empty_poll_seconds": 5.06,
+    "pickup_after_create_seconds": 0.4
+  },
+  "store_poll_on_candidate": {
+    "empty_poll_seconds": 5.12,
+    "pickup_after_create_seconds": 0.27
+  },
+  "live_first_attempt": "The first run's prior phase hit TransportError issuing its second identity right after the 0.4.0 deploy; its one created identity was revoked and the full run was repeated from a fresh state.",
+  "cleanup": {
+    "temporary_identities_revoked": true,
+    "acceptance_worker_left_on": "0.4.1"
+  },
+  "evidence_archive": "python/dist/acceptance-0.4.1-09a7e9f/evidence.zip",
+  "evidence_archive_sha256": "d65c842456f26885a85152d77f840982b0e83ff8caf6923855393c3ba51e1ff4",
+  "secret_scan_passed": true
+}
