@@ -53,6 +53,7 @@ class Backend:
         self.on_own: Callable[[], None] = lambda: None
         self.on_delete: Callable[[], None] = lambda: None
         self.delete_not_found = False
+        self.wait_refused = False
         self.timeouts: list[object] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -73,9 +74,10 @@ class Backend:
                         {"ok": True, "task": self.replies.pop(0)}
                     ).encode(),
                 )
-            return httpx.Response(
-                404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
-            )
+            error: dict[str, object] = {"code": "empty", "message": "empty"}
+            if self.wait_refused:
+                error["wait_refused"] = True
+            return httpx.Response(404, json={"ok": False, "error": error})
         assert operation == "delete"
         self.deletes.append(body)
         self.on_delete()
@@ -683,13 +685,144 @@ def test_network_timeout_at_wait_deadline_is_a_wait_timeout(
     assert store.request("request-1") is not None
 
 
-def test_transport_failure_before_wait_deadline_is_reported(
-    store: Store, client: Client, backend: Backend
+def test_wait_retries_a_transport_failure_until_the_reply(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A deployment that drops a held poll must not end a long wait."""
     submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+    failures = [httpx.ReadError("deploy"), httpx.ConnectError("restarting")]
+
+    def flaky() -> None:
+        if failures:
+            raise failures.pop(0)
+        backend.replies.append(task({"request_id": "request-1", "result": "ok"}))
+
+    backend.on_own = flaky
+    reply = store.wait(client, "request-1", 6 * 3600)
+    assert reply is not None and reply.data["result"] == "ok"
+    # Each failure backs off like an immediate empty.
+    assert clock.sleeps == [1, 1.5]
+
+
+def test_wait_reports_transport_failures_that_persist(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A wrong URL or long outage is reported, not ridden out for hours."""
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
     backend.on_own = lost_response
     with pytest.raises(TransportError):
-        store.wait(client, "request-1", 100)
+        store.wait(client, "request-1", 6 * 3600)
+    assert 300 <= clock.now - 100 < 400
+
+
+def test_wait_transport_failures_end_at_the_timeout(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    backend.on_own = lost_response
+    assert store.wait(client, "request-1", 100) is None
+    assert clock.now >= 200
+    assert store.request("request-1") is not None
+
+
+def test_wait_returns_a_saved_reply_after_persistent_failures(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reply saved before a failing Delete is returned, not lost to patience."""
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+
+    # The outage ends just inside the five-minute patience; the Own that
+    # saves the reply is slow, and its Delete fails after the patience.
+    def recovers() -> None:
+        if clock.now < 370:
+            raise httpx.ConnectError("outage")
+        clock.now += 30
+        backend.replies.append(task({"request_id": "request-1", "result": "ok"}))
+
+    backend.on_own = recovers
+    backend.on_delete = lost_response
+    reply = store.wait(client, "request-1", 6 * 3600)
+    assert reply is not None and reply.data["result"] == "ok"
+
+
+def test_wait_cut_short_by_its_deadline_returns_none(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A last attempt that the wait's deadline cut off is a timeout."""
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    failed = False
+
+    def late_failures() -> None:
+        nonlocal failed
+        if clock.now < 390:
+            return
+        if not failed:
+            failed = True
+            raise httpx.ConnectError("deploy")
+        clock.now = 700
+        raise httpx.ReadTimeout("deadline")
+
+    backend.on_own = late_failures
+    assert store.wait(client, "request-1", 600) is None
+
+
+def test_wait_patience_counts_the_first_failed_attempt(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+
+    def blackholed() -> None:
+        clock.now += 40
+        raise httpx.ConnectTimeout("blackholed")
+
+    backend.on_own = blackholed
+    with pytest.raises(TransportError):
+        store.wait(client, "request-1", 310)
+
+
+def test_wait_backoff_starts_over_after_a_held_poll(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+    rounds = iter(["fail", "fail", "fail", "held", "immediate"])
+
+    def scripted() -> None:
+        step = next(rounds, "reply")
+        if step == "fail":
+            raise httpx.ReadError("deploy")
+        if step == "held":
+            clock.now += 30
+        elif step == "reply":
+            backend.replies.append(task({"request_id": "request-1", "result": "ok"}))
+
+    backend.on_own = scripted
+    assert store.wait(client, "request-1", 3600, wait_seconds=30) is not None
+    assert clock.sleeps == [1, 1.5, 2.25, 1]
 
 
 def test_wait_delivers_durable_reply_when_delete_response_is_lost(
@@ -793,3 +926,106 @@ def test_locating_corrupt_metadata_refuses_it_without_replacement(
     with pytest.raises(StoreError, match="does not match"):
         Store("agent", tmp_path, initialize=False)
     assert path.read_text() == '{"agent_id":"different"}'
+
+
+def test_wait_long_polls_without_backoff(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+
+    # Each server response takes the full wait and advances the clock, so no
+    # client-side sleep is needed between polls.
+    def full_wait() -> None:
+        clock.now += 30
+
+    backend.on_own = full_wait
+    assert store.wait(client, "request-1", 70, wait_seconds=30) is None
+    assert clock.sleeps == []
+    assert len(backend.owns) == 3
+    # Every round waits on the server; the result records the initial
+    # submission as own[0], so all rounds are long polls capped to the
+    # remaining overall timeout, less the answer margin.
+    assert [body["wait_seconds"] for body in backend.owns[-3:]] == [30, 30, 5]
+
+
+def test_wait_caps_a_long_poll_to_the_remaining_timeout(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    assert store.wait(client, "request-1", 12, wait_seconds=30) is None
+    # The wait leaves its answer five seconds inside the overall deadline.
+    assert backend.owns[0]["wait_seconds"] == 7
+    timeout = backend.timeouts[1]
+    assert isinstance(timeout, dict) and timeout["read"] == 12
+
+
+def test_wait_zero_restores_bounded_backoff(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+    assert store.wait(client, "request-1", 3, wait_seconds=0) is None
+    assert clock.sleeps == [1, 1.5, 0.5]
+    assert all("wait_seconds" not in body for body in backend.owns)
+
+
+def test_wait_immediate_empty_still_backs_off(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    # A full waiter queue or older service answers at once; back off anyway.
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+    assert store.wait(client, "request-1", 3, wait_seconds=30) is None
+    assert clock.sleeps and clock.sleeps[0] >= 1
+
+
+def test_wait_refused_hint_backs_off_even_after_a_slow_answer(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+
+    # Slow enough to pass for a held one-second wait, but the service says
+    # it refused to hold the request.
+    def slow_refusal() -> None:
+        clock.now += 0.6
+
+    backend.on_own = slow_refusal
+    backend.wait_refused = True
+    assert store.wait(client, "request-1", 5, wait_seconds=1) is None
+    assert clock.sleeps[:2] == [1, 1.5]
+
+
+def test_wait_one_second_immediate_empty_backs_off(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    submit(store, client)
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+    # An answer that did not hold the request must not re-poll without a
+    # pause, even with the shortest wait.
+    assert store.wait(client, "request-1", 3, wait_seconds=1) is None
+    assert clock.sleeps == [1, 1.5, 0.5]
+
+
+def test_wait_rejects_invalid_wait_seconds(store: Store, client: Client) -> None:
+    for value in (-1, 31, 1.5, True):
+        with pytest.raises(StoreError):
+            store.wait(client, "request-1", 10, wait_seconds=value)  # type: ignore[arg-type]

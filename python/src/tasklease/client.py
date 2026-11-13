@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from collections.abc import Iterator
 from types import TracebackType
@@ -16,9 +17,29 @@ from typing import NoReturn, Self, cast
 import httpx
 
 from tasklease.config import validate_url
-from tasklease.errors import API_ERRORS, Invalid, ProtocolError, TransportError
+from tasklease.errors import (
+    API_ERRORS,
+    Empty,
+    Invalid,
+    ProtocolError,
+    TaskleaseError,
+    TransportError,
+    WaitUnsupported,
+)
 from tasklease.generated import protocol as p
 from tasklease.names import is_bearer_token, is_worker_label
+
+# The service caps Own's wait at 30 seconds. Clients allow a little more for
+# the response to arrive before the read phase times out.
+MAX_WAIT_SECONDS = 30
+# The response must arrive after the server's own wait expires.
+MAX_WAIT_GRACE = 15.0
+# The first service release that accepts Own's wait_seconds.
+WAIT_SERVICE_VERSION = (0, 4, 0)
+# The service's message for a request that fails its schema.
+_INVALID_BODY = "Invalid request body"
+# The version lookup explaining a refused long poll is brief.
+_VERSION_TIMEOUT = 10.0
 
 # Check the transport envelope and its required top-level members before the
 # generated DTO cast. Full schemas remain a contract-test dependency, rather
@@ -85,8 +106,10 @@ class Client:
     """One HTTP connection pool, identity credential and worker label.
 
     Own, Renew, Consume, Delete and blob signing accept a per-call timeout cap.
-    It limits each configured HTTPX phase timeout, including unlimited phases,
-    and never lengthens a configured limit. Omitting the cap preserves settings.
+    It limits each configured HTTPX phase timeout, including unlimited phases.
+    Omitting the cap preserves settings. The one lengthened limit is a long
+    poll's read phase: Own with ``wait_seconds`` reads for up to the wait plus
+    15 seconds, still within the per-call cap when one is given.
     """
 
     def __init__(
@@ -134,6 +157,7 @@ class Client:
         *,
         timeout: float | None = None,
         total_timeout: float | None = None,
+        read_timeout: float | None = None,
     ) -> httpx.Response:
         if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
             raise Invalid("timeout must be a positive finite number of seconds")
@@ -160,17 +184,28 @@ class Client:
         try:
             url = f"{self._base_url}/v1/{operation}"
             bounded: httpx.Timeout | None = None
-            if timeout is not None:
+            if timeout is not None or read_timeout is not None:
                 configured = self._http.timeout
+                cap = timeout
 
-                def cap(value: float | None) -> float:
-                    return timeout if value is None else min(value, timeout)
+                def limit(value: float | None) -> float | None:
+                    # Without a cap, an unlimited phase stays unlimited.
+                    if cap is None:
+                        return value
+                    return cap if value is None else min(value, cap)
 
+                # A long poll needs a read allowance beyond its wait, but never
+                # past the caller's cap. Other phases keep their limits.
+                read = limit(configured.read)
+                if read_timeout is not None and read is not None:
+                    read = max(read, read_timeout)
+                    if cap is not None:
+                        read = min(read, cap)
                 bounded = httpx.Timeout(
-                    connect=cap(configured.connect),
-                    read=cap(configured.read),
-                    write=cap(configured.write),
-                    pool=cap(configured.pool),
+                    connect=limit(configured.connect),
+                    read=read,
+                    write=limit(configured.write),
+                    pool=limit(configured.pool),
                 )
             request = self._http.build_request(
                 method,
@@ -218,6 +253,7 @@ class Client:
         *,
         timeout: float | None = None,
         total_timeout: float | None = None,
+        read_timeout: float | None = None,
     ) -> dict[str, object]:
         try:
             content = json.dumps(
@@ -226,7 +262,12 @@ class Client:
         except (TypeError, ValueError, UnicodeError, RecursionError):
             raise Invalid("Request must contain valid JSON values") from None
         response = self._send(
-            "POST", operation, content, timeout=timeout, total_timeout=total_timeout
+            "POST",
+            operation,
+            content,
+            timeout=timeout,
+            total_timeout=total_timeout,
+            read_timeout=read_timeout,
         )
         body = self._decode(response)
         if body.get("ok") is False:
@@ -240,7 +281,12 @@ class Client:
                     and isinstance(message, str)
                     and response.status_code == error_type.status_code
                 ):
-                    raise error_type(message.replace(self._token, "[redacted]"))
+                    message = message.replace(self._token, "[redacted]")
+                    if error_type is Empty:
+                        raise Empty(
+                            message, wait_refused=details.get("wait_refused") is True
+                        )
+                    raise error_type(message)
             raise ProtocolError("The service returned an invalid error envelope")
         if response.status_code != 200 or body.get("ok") is not True:
             raise ProtocolError("The service returned an invalid success envelope")
@@ -257,8 +303,64 @@ class Client:
     def own(
         self, request: p.OwnRequest, *, timeout: float | None = None
     ) -> p.OwnResponse:
-        """Own a task, optionally capping each configured HTTP timeout in seconds."""
-        return cast(p.OwnResponse, self._post("own", request, timeout=timeout))
+        """Own a task, optionally capping each configured HTTP timeout in seconds.
+
+        A long poll's ``wait_seconds`` raises the read timeout to the wait plus
+        a response margin, still within ``timeout``, so the default 30-second
+        read limit does not cut off the service's answer. A service that
+        predates long-poll raises ``WaitUnsupported``, naming its version.
+        """
+        wait = request.get("wait_seconds")
+        waiting = (
+            isinstance(wait, int | float) and not isinstance(wait, bool) and wait > 0
+        )
+        # The service holds at most MAX_WAIT_SECONDS and rejects more at once,
+        # so an out-of-range wait never needs (or overflows) a longer limit.
+        read = (
+            float(min(cast(float, wait), MAX_WAIT_SECONDS)) + MAX_WAIT_GRACE
+            if waiting
+            else None
+        )
+        try:
+            return cast(
+                p.OwnResponse,
+                self._post("own", request, timeout=timeout, read_timeout=read),
+            )
+        except Invalid as error:
+            # Only the service's schema refusal can mean an unknown field; an
+            # older service rejects the field even when it is zero.
+            if (
+                "wait_seconds" in request
+                and type(error) is Invalid
+                and str(error) == _INVALID_BODY
+            ):
+                self._check_wait_support(error, timeout)
+            raise
+
+    def _check_wait_support(self, error: Invalid, timeout: float | None) -> None:
+        """Explain an Invalid long poll if the service predates wait_seconds."""
+        try:
+            reported = self.version(
+                timeout=_VERSION_TIMEOUT
+                if timeout is None
+                else min(timeout, _VERSION_TIMEOUT)
+            )["service_version"]
+        except TaskleaseError:
+            return
+        release = re.match(r"([0-9]+)\.([0-9]+)\.([0-9]+)", reported)
+        if release is None:
+            return
+        if tuple(int(part) for part in release.groups()) >= WAIT_SERVICE_VERSION:
+            return
+        required = ".".join(str(part) for part in WAIT_SERVICE_VERSION)
+        raise WaitUnsupported(
+            f"The tasklease service (version {reported}) rejected Own's "
+            f"wait_seconds: long-polling needs service {required} or later. "
+            "Upgrade the service, or disable long-polling with wait_seconds = 0 "
+            "(--wait-seconds 0; in the config, [worker] wait_seconds for tl "
+            "worker and top-level wait_seconds for tl request and tl wait). "
+            "A direct Client.own call must omit wait_seconds."
+        ) from error
 
     def renew(
         self, request: p.RenewRequest, *, timeout: float | None = None
@@ -353,8 +455,9 @@ class Client:
     ) -> p.MonitorSnapshotResponse:
         return cast(p.MonitorSnapshotResponse, self._post("monitor.snapshot", request))
 
-    def version(self) -> p.VersionResponse:
-        response = self._send("GET", "version")
+    def version(self, *, timeout: float | None = None) -> p.VersionResponse:
+        """The service version, optionally capping each HTTP timeout in seconds."""
+        response = self._send("GET", "version", timeout=timeout)
         body = self._decode(response)
         if (
             response.status_code != 200

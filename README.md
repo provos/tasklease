@@ -40,8 +40,8 @@ and you want no servers to operate:
 - **Jobs:** platform builds, verification runs, GPU work, classification
   stages or requests for advice, taking seconds to hours. A worker holds a
   task for up to 24 hours per Own or Renew and keeps renewing while it works.
-  Idle workers poll every 30 seconds by default, so that pickup delay must be
-  acceptable.
+  An idle worker holds one 30-second long-poll open, so it picks up new work
+  within a round trip instead of waiting for its next poll.
 - **Machines:** laptops, desktops and home or office servers on macOS, Linux
   and Windows. Workers need only outbound HTTPS, including R2 uploads through
   presigned URLs, so they run behind NAT without a VPN, open ports or a
@@ -270,6 +270,7 @@ Give the requester this `requester.toml`:
 url = "https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev"
 domain = "demo"
 agent_id = "agent"
+# wait_seconds = 30  # long-poll per reply check; 0 or "off" polls immediately
 
 [token]
 file = "requester.token"
@@ -288,6 +289,7 @@ file = "worker.token"
 [worker]
 topic = "work/echo"
 handler = "echo"
+# wait_seconds = 30  # long-poll per Own; 0 or "off" polls immediately
 ```
 
 On macOS/Linux, set private modes after saving the configs and tokens:
@@ -328,7 +330,7 @@ Python `tasklease.client.Client` has a method for each. The
 | Operation | What it does | Needs |
 | --- | --- | --- |
 | Create | Posts a task to a topic. | `create` on the topic |
-| Own | Leases the oldest available task for 1 second to 24 hours and gives it a new ID. | `own` on the topic |
+| Own | Leases the oldest available task for 1 second to 24 hours and gives it a new ID; optionally waits up to 30 seconds for one. | `own` on the topic |
 | Renew | Extends the lease and keeps the ID. | `own`, and holding the task |
 | Consume | Retires the held task and posts up to 16 successors, atomically. | `own` on the task's topic, `create` on each successor's topic |
 | Delete | Removes a task: its holder's, or its creator's before anyone owned it. | the holder rule |
@@ -501,13 +503,23 @@ Each domain is one Durable Object with one database, so a domain's requests
 and tasks share one object's capacity. Count tasks across all its topics,
 including work, replies, and errors.
 
-**Workers.** An idle worker polls every 30 seconds, so 1,000 idle workers
-send about 33 requests a second to their domain. A load test against a
+**Workers.** An idle worker holds one 30-second `Own` open, so 1,000 idle
+workers send about 33 requests a second to their domain. A load test against a
 deployed service (below) handled 5,000 workers without errors, and a single
 domain served about 1,000 requests a second, Cloudflare's documented soft
 limit for one Durable Object: roughly 30,000 idle workers, less the requests
 their actual work adds. An idle poll usually writes nothing, which keeps it
-cheap. Workers with their own tokens added about 65 ms per request compared
+cheap. A held poll keeps the Durable Object resident: request counts match a
+30-second short poll, so a domain already polled continuously costs the same
+in compute. A worker with a longer `poll_interval` keeps that request
+cadence, because the wait counts toward the interval, but each wait still
+keeps the domain resident for up to 30 seconds; set `wait_seconds = 0` to let
+a deliberately cold domain sleep. One topic retains up to 10,000 waiters,
+at most 1,000 of them from one identity; beyond that, Own answers `empty` at once (marked `wait_refused`) and clients
+fall back to their short-poll sleep, so a larger idle fleet degrades to the old
+behavior rather than growing the object without bound.
+
+Workers with their own tokens added about 65 ms per request compared
 with shared tokens: each Worker instance caches a token's identity for a
 minute, and with many tokens most requests miss that cache and ask the
 shared identity registry. Split independent workloads into separate domains to add
@@ -577,13 +589,37 @@ process, waited 117 ms at the median and 728 ms at p95. The first and third
 rows predate the change that stopped idle polls from writing; then a domain
 queued from about 550 requests a second, and the results file records both.
 
+Long-polling was measured the same way on 2026-11-12, from one macOS
+client against service 0.4.0; the
+[results](docs/benchmarks/long-poll-acceptance.json) record each run. Pickup
+is the time from sending a Create to the claim reaching a worker.
+
+| Simulated load | Requests/s | Pickup p50 / p95 / p99 |
+| --- | ---: | ---: |
+| 5 workers, 30 s polls, no wait | 0.46 | 3,568 / 10,766 / 11,979 ms |
+| 5 workers, 30 s polls, 30 s wait | 0.37 | 266 / 773 / 1,947 ms |
+| 1,000 workers, 30 s polls, no wait | 39.1 | 102 / 203 / 322 ms |
+| 1,000 workers, 30 s polls, 30 s wait | 37.7 | 87 / 169 / 228 ms |
+
+A small fleet gains the most: a new task no longer waits for the next poll.
+A large fleet already polls often enough to find it quickly, and the wait
+leaves its request rate about the same. The 1,000-worker rates are steady
+state, without the first 30 s, in which a held poll has not yet answered; the
+5-worker rates cover the whole run. One 1,000-worker waiting run saw 49 held
+polls (0.7%) end in a connection error at the client and its repeat saw one;
+the Worker logged no failure, and no task was lost. Redeploying the same
+bundle during 200 held waits interrupted none of them; a code change, which
+resets the Durable Object, was not measured.
+
 ```sh
 TL_ADMIN_TOKEN=... uv run --project python python scripts/load_pollers.py \
   --url https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev --workers 1000 \
   --poll-seconds 30 --duration 240 --processes 2 --output /tmp/load.json
 ```
 
-Run it only against a test deployment: requests are billed, and the domain
+Unset `HTTPS_PROXY` unless the client needs a proxy: a local proxy adds its
+own latency and connection handling to every measurement. Run it only
+against a test deployment: requests are billed, and the domain
 keeps the test's poller and statistics rows until they expire. One client
 process sustains about 100 requests a second; use `--processes` for more.
 

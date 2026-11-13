@@ -6,6 +6,62 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+### Added
+
+- `Own` accepts an optional `wait_seconds` from 0 to 30. With a positive
+  value, a poll holds the request until a task is available in the topic or
+  the wait ends, returning the task or `empty`. A worker that is idle picks
+  up new work within a round trip instead of waiting for its next poll.
+- `tl worker` and `WorkerLoop.run()` long-poll by default with a 30-second
+  wait. Configure it with the `[worker] wait_seconds` setting, `--wait-seconds`
+  or `WorkerLoop(wait_seconds=...)`; `0` or `off` restores immediate polling.
+  Time a poll spends waiting counts toward `poll_interval`, so a worker
+  configured to poll every 600 seconds still sends one Own about every 600
+  seconds. `WorkerLoop.step()` polls at once unless called with
+  `step(wait_seconds=...)`, and `tl worker --once` and a `WorkerLoop.run()`
+  whose capacity is a real lock also poll at once, so an idle wait never
+  holds a machine lock. `tl request --wait`, `tl wait` and the durable
+  requester also wait on the server, so a reply is seen within about a second
+  instead of after backoff; set the top-level `wait_seconds` setting or pass
+  `--wait-seconds` to change it.
+- When a long-polled Own cannot hold its wait (the topic already has the
+  maximum number of waiters, a deployment ends the wait before any claim, or
+  the wait loses every claim race it is allowed), it answers `empty` with
+  `"wait_refused": true` in its error object; the Python client exposes it
+  as `Empty.wait_refused`, and `WorkerLoop` and the requester sleep their
+  whole poll interval instead of polling again straight away.
+- `FakeBoard(max_waiters=...)` limits held long polls per topic, so offline
+  tests can reach `wait_refused`; `0` refuses every wait.
+
+- A worker stopped (`tl worker stop`, a first signal, or `stop.set()`) while
+  its Own is held does not start a task that Own returns. It renews the task
+  for one second so another worker can own it almost at once, and exits.
+
+### Changed
+
+- `Store.wait`, and so `tl request --wait` and `tl wait`, retries a transport
+  failure with backoff instead of failing at once, so a service deployment
+  during a long wait does not end it. Failures that persist for five minutes
+  still raise.
+- `Client.version()` accepts a per-call `timeout` cap.
+
+### Compatibility and deployment
+
+- Long-polling clients require service version 0.4.0 or later. An older
+  service rejects the new Own field with `invalid`; no automatic downgrade is
+  attempted. The client then raises `tasklease.errors.WaitUnsupported` (an
+  `Invalid`), whose message names the service's reported version and the
+  opt-out, and the CLI prints it. Upgrade the service first, or set
+  `wait_seconds = 0` on older services: in the `[worker]` table for workers,
+  and at the top level for `tl request` and `tl wait`. Existing clients and
+  protocol `/v1/` requests without the field behave exactly as before.
+- A held poll keeps a Durable Object resident and so bills compute duration
+  for that time. Request counts for a 30-second wait match a 30-second short
+  poll; a client that polls deliberately rarely should set `wait_seconds = 0`.
+- Held waiters are in memory and bounded per topic and per identity within a
+  topic. A deployment or eviction ends them with an unheld `empty`, so clients
+  poll again; no task state depends on them.
+
 ## [0.3.0] - 2026-11-10
 
 ### Changed

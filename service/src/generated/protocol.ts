@@ -95,6 +95,10 @@ export interface Data {
 export interface Error {
   code: ErrorCode;
   message: string;
+  /**
+   * Only on an Own empty: the service could not hold a requested wait, because the topic (or the caller's identity within it) already has its maximum number of waiters, because a deployment or reset ended the wait before any claim, or because the wait lost every claim race it was allowed. Back off before polling again.
+   */
+  wait_refused?: true;
 }
 export interface ErrorResponse {
   ok: false;
@@ -558,6 +562,10 @@ export interface OwnRequest {
   domain: DomainName;
   topic: TopicName;
   hold_seconds: number;
+  /**
+   * How long to wait for a task before returning empty. Omitted or 0 returns immediately.
+   */
+  wait_seconds?: number;
 }
 export interface OwnResponse {
   ok: true;

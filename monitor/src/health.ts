@@ -16,7 +16,7 @@ import { duration } from "./format.ts";
 import type { LocalRequest, Snapshot } from "./model.ts";
 
 const MINUTE = 60_000;
-/** Workers poll every 30 s (±20 %) when idle; three missed polls is silent. */
+/** Idle workers retry within 30–60 s (long poll, then poller throttling); three missed polls is silent. */
 export const LIVE_MS = 3 * MINUTE;
 /** Ten minutes without a poll, while not busy, is down. */
 export const DOWN_MS = 10 * MINUTE;

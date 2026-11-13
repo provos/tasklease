@@ -1,0 +1,403 @@
+{
+  "method": "scripts/load_pollers.py against the acceptance deployment (tasklease-acceptance-90d25ae, Workers Paid, service 0.4.0 from the long-poll branch) from one macOS client on 2026-11-12, with no local proxy. Each run used a fresh domain and one topic; a producer created tasks that workers owned, held for 2 s and consumed. Pickup is the time from a Create's send to the claim's arrival at a worker, both on the client's clock; latencies include the client's network path.",
+  "runs": [
+    {
+      "label": "5 workers, 30 s polls, no wait",
+      "config": {
+        "workers": 5,
+        "identities": 5,
+        "poll_seconds": 30.0,
+        "wait_seconds": 0,
+        "duration": 300.0,
+        "create_rate": 0.1,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 100,
+        "processes": 1
+      },
+      "elapsed_s": 300.7,
+      "requests_per_s": 0.46,
+      "steady_requests_per_s": 0.4,
+      "operations": {
+        "consume": {
+          "requests": 30,
+          "per_second": 0.1,
+          "outcomes": {
+            "200": 30
+          },
+          "p50_ms": 123.3,
+          "p95_ms": 194.8,
+          "p99_ms": 244.2,
+          "max_ms": 259.4
+        },
+        "create": {
+          "requests": 31,
+          "per_second": 0.1,
+          "outcomes": {
+            "200": 31
+          },
+          "p50_ms": 163.3,
+          "p95_ms": 265.0,
+          "p99_ms": 705.1,
+          "max_ms": 880.2
+        },
+        "own": {
+          "requests": 76,
+          "per_second": 0.25,
+          "outcomes": {
+            "200": 30,
+            "404 empty": 46
+          },
+          "p50_ms": 164.6,
+          "p95_ms": 311.4,
+          "p99_ms": 589.0,
+          "max_ms": 1052.2
+        }
+      },
+      "pickup": {
+        "requests": 30,
+        "per_second": 0.1,
+        "outcomes": {},
+        "p50_ms": 3568.4,
+        "p95_ms": 10765.5,
+        "p99_ms": 11978.9,
+        "max_ms": 12434.1
+      },
+      "errors": 0,
+      "drained_after_run": 1
+    },
+    {
+      "label": "5 workers, 30 s polls, 30 s wait",
+      "config": {
+        "workers": 5,
+        "identities": 5,
+        "poll_seconds": 30.0,
+        "wait_seconds": 30,
+        "duration": 300.0,
+        "create_rate": 0.1,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 100,
+        "processes": 1
+      },
+      "elapsed_s": 300.5,
+      "requests_per_s": 0.37,
+      "steady_requests_per_s": 0.4,
+      "operations": {
+        "consume": {
+          "requests": 31,
+          "per_second": 0.1,
+          "outcomes": {
+            "200": 31
+          },
+          "p50_ms": 142.2,
+          "p95_ms": 304.5,
+          "p99_ms": 337.6,
+          "max_ms": 338.1
+        },
+        "create": {
+          "requests": 31,
+          "per_second": 0.1,
+          "outcomes": {
+            "200": 31
+          },
+          "p50_ms": 224.2,
+          "p95_ms": 619.1,
+          "p99_ms": 1045.3,
+          "max_ms": 1112.4
+        },
+        "own": {
+          "requests": 49,
+          "per_second": 0.16,
+          "outcomes": {
+            "200": 31,
+            "404 empty": 18
+          },
+          "p50_ms": 27902.2,
+          "p95_ms": 30200.8,
+          "p99_ms": 30218.5,
+          "max_ms": 30221.6
+        }
+      },
+      "pickup": {
+        "requests": 31,
+        "per_second": 0.1,
+        "outcomes": {},
+        "p50_ms": 265.5,
+        "p95_ms": 772.8,
+        "p99_ms": 1947.3,
+        "max_ms": 2287.8
+      },
+      "errors": 0,
+      "drained_after_run": 0
+    },
+    {
+      "label": "1,000 workers, 30 s polls, no wait",
+      "config": {
+        "workers": 1000,
+        "identities": 1000,
+        "poll_seconds": 30.0,
+        "wait_seconds": 0,
+        "duration": 240.0,
+        "create_rate": 2.0,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 300,
+        "processes": 4
+      },
+      "elapsed_s": 241.9,
+      "requests_per_s": 39.21,
+      "steady_requests_per_s": 39.1,
+      "operations": {
+        "consume": {
+          "requests": 484,
+          "per_second": 2.0,
+          "outcomes": {
+            "200": 484
+          },
+          "p50_ms": 85.8,
+          "p95_ms": 183.9,
+          "p99_ms": 409.1,
+          "max_ms": 601.2
+        },
+        "create": {
+          "requests": 484,
+          "per_second": 2.0,
+          "outcomes": {
+            "200": 484
+          },
+          "p50_ms": 74.5,
+          "p95_ms": 117.7,
+          "p99_ms": 323.1,
+          "max_ms": 822.3
+        },
+        "own": {
+          "requests": 8517,
+          "per_second": 35.21,
+          "outcomes": {
+            "200": 484,
+            "404 empty": 8033
+          },
+          "p50_ms": 99.4,
+          "p95_ms": 249.6,
+          "p99_ms": 440.7,
+          "max_ms": 787.5
+        }
+      },
+      "pickup": {
+        "requests": 484,
+        "per_second": 2.0,
+        "outcomes": {},
+        "p50_ms": 101.7,
+        "p95_ms": 202.8,
+        "p99_ms": 322.3,
+        "max_ms": 828.0
+      },
+      "errors": 0,
+      "drained_after_run": 0
+    },
+    {
+      "label": "1,000 workers, 30 s polls, 30 s wait",
+      "config": {
+        "workers": 1000,
+        "identities": 1000,
+        "poll_seconds": 30.0,
+        "wait_seconds": 30,
+        "duration": 240.0,
+        "create_rate": 2.0,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 300,
+        "processes": 4
+      },
+      "elapsed_s": 241.8,
+      "requests_per_s": 33.51,
+      "steady_requests_per_s": 37.7,
+      "operations": {
+        "consume": {
+          "requests": 484,
+          "per_second": 2.0,
+          "outcomes": {
+            "200": 484
+          },
+          "p50_ms": 104.4,
+          "p95_ms": 187.6,
+          "p99_ms": 247.1,
+          "max_ms": 672.0
+        },
+        "create": {
+          "requests": 484,
+          "per_second": 2.0,
+          "outcomes": {
+            "200": 484
+          },
+          "p50_ms": 66.5,
+          "p95_ms": 150.5,
+          "p99_ms": 209.0,
+          "max_ms": 552.9
+        },
+        "own": {
+          "requests": 7134,
+          "per_second": 29.5,
+          "outcomes": {
+            "200": 484,
+            "404 empty": 6601,
+            "transport ReadError": 49
+          },
+          "p50_ms": 30081.9,
+          "p95_ms": 30179.5,
+          "p99_ms": 30243.8,
+          "max_ms": 32148.2
+        }
+      },
+      "pickup": {
+        "requests": 484,
+        "per_second": 2.0,
+        "outcomes": {},
+        "p50_ms": 87.1,
+        "p95_ms": 169.2,
+        "p99_ms": 228.0,
+        "max_ms": 566.4
+      },
+      "errors": 49,
+      "drained_after_run": 0
+    },
+    {
+      "label": "1,000 workers, 30 s polls, 30 s wait, repeated with wrangler tail",
+      "config": {
+        "workers": 1000,
+        "identities": 1000,
+        "poll_seconds": 30.0,
+        "wait_seconds": 30,
+        "duration": 240.0,
+        "create_rate": 2.0,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 300,
+        "processes": 4
+      },
+      "elapsed_s": 242.2,
+      "requests_per_s": 33.43,
+      "steady_requests_per_s": 37.6,
+      "operations": {
+        "consume": {
+          "requests": 484,
+          "per_second": 2.0,
+          "outcomes": {
+            "200": 484
+          },
+          "p50_ms": 127.1,
+          "p95_ms": 209.1,
+          "p99_ms": 255.2,
+          "max_ms": 448.5
+        },
+        "create": {
+          "requests": 484,
+          "per_second": 2.0,
+          "outcomes": {
+            "200": 484
+          },
+          "p50_ms": 87.1,
+          "p95_ms": 178.0,
+          "p99_ms": 257.0,
+          "max_ms": 433.2
+        },
+        "own": {
+          "requests": 7129,
+          "per_second": 29.44,
+          "outcomes": {
+            "200": 484,
+            "404 empty": 6644,
+            "502 non-json": 1
+          },
+          "p50_ms": 30104.3,
+          "p95_ms": 30202.2,
+          "p99_ms": 30258.5,
+          "max_ms": 30646.1
+        }
+      },
+      "pickup": {
+        "requests": 484,
+        "per_second": 2.0,
+        "outcomes": {},
+        "p50_ms": 119.1,
+        "p95_ms": 213.2,
+        "p99_ms": 294.7,
+        "max_ms": 436.6
+      },
+      "errors": 1,
+      "drained_after_run": 0
+    },
+    {
+      "label": "200 workers, 30 s wait, service redeployed about 70 s in",
+      "config": {
+        "workers": 200,
+        "identities": 200,
+        "poll_seconds": 30.0,
+        "wait_seconds": 30,
+        "duration": 200.0,
+        "create_rate": 1.0,
+        "work_seconds": 2,
+        "hold_seconds": 60,
+        "connections": 150,
+        "processes": 2
+      },
+      "elapsed_s": 201.4,
+      "requests_per_s": 7.75,
+      "steady_requests_per_s": 8.6,
+      "operations": {
+        "consume": {
+          "requests": 202,
+          "per_second": 1.0,
+          "outcomes": {
+            "200": 202
+          },
+          "p50_ms": 119.3,
+          "p95_ms": 189.1,
+          "p99_ms": 221.9,
+          "max_ms": 263.0
+        },
+        "create": {
+          "requests": 202,
+          "per_second": 1.0,
+          "outcomes": {
+            "200": 202
+          },
+          "p50_ms": 92.3,
+          "p95_ms": 190.5,
+          "p99_ms": 345.1,
+          "max_ms": 431.0
+        },
+        "own": {
+          "requests": 1157,
+          "per_second": 5.74,
+          "outcomes": {
+            "200": 202,
+            "404 empty": 955
+          },
+          "p50_ms": 30093.5,
+          "p95_ms": 30195.3,
+          "p99_ms": 30240.3,
+          "max_ms": 30764.5
+        }
+      },
+      "pickup": {
+        "requests": 202,
+        "per_second": 1.0,
+        "outcomes": {},
+        "p50_ms": 126.4,
+        "p95_ms": 235.6,
+        "p99_ms": 357.0,
+        "max_ms": 445.7
+      },
+      "errors": 0,
+      "drained_after_run": 0
+    }
+  ],
+  "notes": [
+    "steady_requests_per_s leaves out the first 30 s and the last window: a held poll is counted when it answers, so a waiting run's first 30 s undercount.",
+    "The first 1,000-worker waiting run had 49 held polls (0.7%) end in a client-side ReadError, all in its last 50 s; the repeat, tailed with wrangler tail --status error --status canceled, had none and one edge 502. The tail recorded no failed Worker invocation, only canceled Own invocations when the client abandoned held polls at shutdown. Every created task was consumed in every run.",
+    "The redeploy uploaded the same 0.4.0 bundle and took 17 s; no held poll failed or was answered wait_refused. It did not replace the running code, so it does not exercise a Durable Object reset.",
+    "Not measured: Durable Object duration billing, which needs the Cloudflare dashboard or analytics API."
+  ]
+}

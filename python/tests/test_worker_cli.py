@@ -119,6 +119,14 @@ def cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CLI:
     return command
 
 
+def test_once_polls_immediately_unless_a_wait_is_configured(cli: CLI) -> None:
+    # A one-shot step usually runs under an outer machine lock, which an idle
+    # long poll would keep from other work.
+    cli.respond = lambda request: _empty()
+    assert cli.run(["--topic", TOPIC, "--once"]) == 0
+    assert "wait_seconds" not in _body(cli.requests[0])
+
+
 def test_echo_once_uses_capacity_and_small_correlated_reply(
     cli: CLI, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -361,3 +369,48 @@ def test_active_handler_finishes_before_file_stop_exits(
     assert not stopper.is_alive()
     assert observed.is_set()
     assert [request.url.path for request in cli.requests] == ["/v1/own", "/v1/consume"]
+
+
+def test_wait_seconds_can_be_disabled_and_configured(cli: CLI) -> None:
+    cli.respond = lambda request: _empty()
+    assert cli.run(["--topic", TOPIC, "--once", "--wait-seconds", "off"]) == 0
+    assert "wait_seconds" not in _body(cli.requests[0])
+    assert cli.run(["--topic", TOPIC, "--once", "--wait-seconds", "12"]) == 0
+    assert _body(cli.requests[1])["wait_seconds"] == 12
+
+
+def test_wait_seconds_setting_and_validation(cli: CLI) -> None:
+    with cli.config.open("a") as config:
+        config.write("[worker]\nwait_seconds=5\n")
+    cli.respond = lambda request: _empty()
+    assert cli.run(["--topic", TOPIC, "--once"]) == 0
+    assert _body(cli.requests[0])["wait_seconds"] == 5
+    for value in ("-1", "31", "1.5", "\u00b3"):
+        assert cli.run(["--topic", TOPIC, "--once", "--wait-seconds", value]) == 1
+
+
+def test_worker_names_an_old_service_and_the_opt_out(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/version":
+            return httpx.Response(
+                200, json={"service_version": "0.3.0", "protocol": "v1"}
+            )
+        if "wait_seconds" in _body(request):
+            return httpx.Response(
+                400,
+                json={
+                    "ok": False,
+                    "error": {"code": "invalid", "message": "Invalid request body"},
+                },
+            )
+        return _empty()
+
+    cli.respond = respond
+    assert cli.run(["--topic", TOPIC]) == 1
+    error = capsys.readouterr().err
+    assert "wait_seconds" in error and "version 0.3.0" in error
+    assert "[worker] wait_seconds" in error
+    # The documented opt-out restores the old request.
+    assert cli.run(["--topic", TOPIC, "--once", "--wait-seconds", "0"]) == 0

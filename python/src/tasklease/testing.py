@@ -30,7 +30,7 @@ from urllib.parse import quote
 import httpx
 
 from tasklease import __version__
-from tasklease.client import Client, reject_nonfinite
+from tasklease.client import MAX_WAIT_SECONDS, Client, reject_nonfinite
 from tasklease.errors import API_ERRORS
 from tasklease.generated import protocol as p
 from tasklease.names import (
@@ -208,6 +208,17 @@ def _failure(code: p.ErrorCode, message: str | None = None) -> httpx.Response:
     )
 
 
+def _refused() -> httpx.Response:
+    """An empty long poll that was answered without holding its wait."""
+    return httpx.Response(
+        404,
+        json={
+            "ok": False,
+            "error": {"code": "empty", "message": "empty", "wait_refused": True},
+        },
+    )
+
+
 def _success(body: object) -> httpx.Response:
     # ASCII escaping can represent lone surrogates accepted by JSON.parse.
     return httpx.Response(
@@ -230,6 +241,10 @@ def _valid_request(operation: str, body: dict[str, object]) -> bool:
     if "hold_seconds" in body:
         hold = body["hold_seconds"]
         if not _integer(hold) or not 1 <= cast(int, hold) <= 86400:
+            return False
+    if "wait_seconds" in body:
+        wait = body["wait_seconds"]
+        if not _integer(wait) or not 0 <= cast(int, wait) <= MAX_WAIT_SECONDS:
             return False
     if "lease_before" in body and not _integer(body["lease_before"]):
         return False
@@ -301,14 +316,29 @@ class FakeBoard:
     base_url = "https://api.tasklease.invalid"
     blob_base_url = "https://blobs.tasklease.invalid"
 
-    def __init__(self, domain: str, *, clock: Callable[[], int] | None = None) -> None:
+    def __init__(
+        self,
+        domain: str,
+        *,
+        clock: Callable[[], int] | None = None,
+        max_waiters: int = 10_000,
+    ) -> None:
         if not is_domain(domain):
             raise ValueError("Invalid domain")
+        if type(max_waiters) is not int or max_waiters < 0:
+            raise ValueError("max_waiters must be a nonnegative integer")
         self.domain = domain
+        # Long polls held per topic, as on the service. Beyond it, Own answers
+        # at once with wait_refused; 0 refuses every wait.
+        self._max_waiters = max_waiters
+        self._waiters: dict[str, int] = {}
         self._clock = (
             clock if clock is not None else lambda: time.time_ns() // 1_000_000
         )
         self._lock = threading.RLock()
+        # Waiters park on this condition without holding _lock, so Create and
+        # Consume from other threads can wake them.
+        self._changed = threading.Condition(self._lock)
         self._identities: dict[str, p.Identity] = {}
         self._tasks: dict[str, p.Task] = {}
         self._pollers: dict[tuple[str, str, str], p.Poller] = {}
@@ -441,6 +471,7 @@ class FakeBoard:
         """End a live task's lease now; an unknown fencing ID raises KeyError."""
         with self._lock:
             self._tasks[task_id]["lease_until"] = self._now()
+            self._wake()
 
     def _handle_api(self, request: httpx.Request) -> httpx.Response:
         with self._lock:
@@ -488,7 +519,7 @@ class FakeBoard:
                     return _failure("invalid", "Invalid request body")
             except (ValueError, UnicodeError, RecursionError):
                 return _failure("invalid", "Invalid request body")
-            for field in ("hold_seconds", "lease_before", "size"):
+            for field in ("hold_seconds", "wait_seconds", "lease_before", "size"):
                 if field in body:
                     body[field] = int(cast(int, body[field]))
             worker = request.headers.get("X-Worker")
@@ -507,7 +538,12 @@ class FakeBoard:
                 for target in cast(list[p.NewTask], body["tasks"])
             ):
                 return _failure("too_large", "Task data exceeds 256 KiB")
-            return self._operate(operation, body, identity, worker, self._now())
+            wait = cast(int, body.get("wait_seconds", 0)) if operation == "own" else 0
+            if not wait:
+                return self._operate(operation, body, identity, worker, self._now())
+        # Long-poll outside the lock; the clock may be injected, so bound the
+        # wait by both wall time and the board's own clock.
+        return self._wait_own(body, identity, worker, wait)
 
     @staticmethod
     def _allows(
@@ -554,6 +590,53 @@ class FakeBoard:
         }
         return task_id
 
+    def _wait_own(
+        self, body: dict[str, object], caller: p.Identity, worker: str, wait: int
+    ) -> httpx.Response:
+        """Repeat the real atomic claim until it succeeds or the wait ends.
+
+        The lock is released between attempts, so Create and Consume on other
+        threads can make progress and notify this waiter. A topic already
+        holding ``max_waiters`` waiters answers at once with ``wait_refused``.
+        """
+        topic = cast(str, body["topic"])
+        with self._changed:
+            # Whichever clock has advanced furthest measures elapsed wait time:
+            # an injected clock lets a test jump the deadline, while a frozen
+            # one still terminates on wall time. Both start with the first
+            # attempt, before a test can see the poll and jump the clock.
+            start_wall, start_clock = time.monotonic(), self._now()
+            response = self._operate("own", body, caller, worker, start_clock)
+            if response.status_code != 404:
+                return response
+            if self._waiters.get(topic, 0) >= self._max_waiters:
+                return _refused()
+            self._waiters[topic] = self._waiters.get(topic, 0) + 1
+        try:
+            while True:
+                with self._changed:
+                    elapsed = max(
+                        time.monotonic() - start_wall,
+                        (self._now() - start_clock) / 1000,
+                    )
+                    remaining = wait - elapsed
+                    if remaining <= 0:
+                        return _failure("empty")
+                    # Short waits also notice lease expiry on an injected clock.
+                    self._changed.wait(min(remaining, 0.05))
+                    response = self._operate("own", body, caller, worker, self._now())
+                    if response.status_code != 404:
+                        return response
+        finally:
+            with self._changed:
+                self._waiters[topic] -= 1
+                if not self._waiters[topic]:
+                    del self._waiters[topic]
+
+    def _wake(self) -> None:
+        """Notify blocked Own callers; callers must hold the lock."""
+        self._changed.notify_all()
+
     def _operate(
         self,
         operation: str,
@@ -568,6 +651,7 @@ class FakeBoard:
         topic = cast(str, body.get("topic", ""))
         if operation == "create":
             task_id = self._insert(topic, cast(p.Data, body["data"]), identity, now)
+            self._wake()
             return _success({"ok": True, "id": task_id})
         if operation == "own":
             available = [
@@ -634,6 +718,8 @@ class FakeBoard:
             return _failure("forbidden")
         if operation == "renew":
             task["lease_until"] = now + cast(int, body["hold_seconds"]) * 1000
+            # A renewed lease moves the next expiry; recheck it.
+            self._wake()
             return _success({"ok": True, "task": task})
         if operation == "delete":
             if "lease_before" in body and task["lease_until"] >= cast(
@@ -651,6 +737,7 @@ class FakeBoard:
             for target in targets
         ]
         del self._tasks[task["id"]]
+        self._wake()
         return _success({"ok": True, "ids": ids})
 
     def _topics_list(

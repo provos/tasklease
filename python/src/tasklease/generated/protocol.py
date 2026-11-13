@@ -43,6 +43,7 @@ type ErrorCode = Literal[
 class Error(TypedDict):
     code: ErrorCode
     message: str
+    wait_refused: NotRequired[Literal[True]]
 
 
 class ErrorResponse(TypedDict):
@@ -244,6 +245,7 @@ class OwnRequest(TypedDict):
     domain: DomainName
     topic: TopicName
     hold_seconds: int
+    wait_seconds: NotRequired[int]
 
 
 class ReadRequest(TypedDict):

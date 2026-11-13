@@ -16,9 +16,11 @@ from tasklease.client import Client
 from tasklease.errors import (
     API_ERRORS,
     APIError,
+    Empty,
     Invalid,
     ProtocolError,
     TransportError,
+    WaitUnsupported,
 )
 from tasklease.generated import protocol as p
 
@@ -390,3 +392,299 @@ def test_worker_timeout_cap_rejects_invalid_values_without_network(
             client.consume(
                 cast(p.ConsumeRequest, example("consume", "request")), timeout=timeout
             )
+
+
+def test_own_long_poll_extends_read_without_lengthening_other_phases() -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        return httpx.Response(
+            404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
+        )
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Empty):
+            client.own(
+                {
+                    "domain": "acme/pipeline",
+                    "topic": "work/linux",
+                    "hold_seconds": 60,
+                    "wait_seconds": 30,
+                },
+                timeout=60,
+            )
+    assert timeouts[0]["read"] == 45
+    # Connect, write and pool keep the client's configured cap.
+    assert timeouts[0]["connect"] == 30
+
+
+def test_own_read_floor_never_exceeds_the_caller_cap() -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        return httpx.Response(
+            404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
+        )
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Empty):
+            client.own(
+                {
+                    "domain": "acme/pipeline",
+                    "topic": "work/linux",
+                    "hold_seconds": 60,
+                    "wait_seconds": 30,
+                },
+                timeout=2,
+            )
+    assert timeouts[0]["read"] == 2
+
+
+def test_own_long_poll_extends_read_without_a_caller_cap() -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        return httpx.Response(
+            404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
+        )
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Empty):
+            client.own(
+                {
+                    "domain": "acme/pipeline",
+                    "topic": "work/linux",
+                    "hold_seconds": 60,
+                    "wait_seconds": 30,
+                }
+            )
+    # The default 30-second read limit would end exactly at the server's wait.
+    assert timeouts[0] == {"connect": 30, "read": 45, "write": 30, "pool": 30}
+
+
+def test_own_long_poll_keeps_unlimited_phases_unlimited() -> None:
+    timeouts: list[dict[str, float | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float | None], request.extensions["timeout"]))
+        return httpx.Response(
+            404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
+        )
+
+    with Client(
+        "https://tasks.example",
+        TOKEN,
+        transport=httpx.MockTransport(handler),
+        timeout=None,
+    ) as client:
+        with pytest.raises(Empty):
+            client.own(
+                {
+                    "domain": "acme/pipeline",
+                    "topic": "work/linux",
+                    "hold_seconds": 60,
+                    "wait_seconds": 30,
+                }
+            )
+    # Infinite phase limits would raise OverflowError in the socket layer.
+    assert timeouts[0] == {"connect": None, "read": None, "write": None, "pool": None}
+
+
+@pytest.mark.parametrize("refused", [True, False])
+def test_own_empty_reports_a_refused_wait(refused: bool) -> None:
+    error: dict[str, object] = {"code": "empty", "message": "empty"}
+    if refused:
+        error["wait_refused"] = True
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"ok": False, "error": error})
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Empty) as raised:
+            client.own(
+                {
+                    "domain": "acme/pipeline",
+                    "topic": "work/linux",
+                    "hold_seconds": 60,
+                    "wait_seconds": 30,
+                }
+            )
+    assert raised.value.wait_refused is refused
+
+
+def test_own_float_wait_also_extends_the_read_phase() -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        return httpx.Response(
+            404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
+        )
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Empty):
+            request = {
+                "domain": "acme/pipeline",
+                "topic": "work/linux",
+                "hold_seconds": 60,
+                "wait_seconds": 30.0,
+            }
+            client.own(cast(p.OwnRequest, request))
+    # The service holds 30.0 like 30, so the answer must not be cut off.
+    assert timeouts[0]["read"] == 45
+
+
+@pytest.mark.parametrize(
+    "wait", [3600, 10**400, float("inf")], ids=["hour", "huge", "inf"]
+)
+def test_own_out_of_range_wait_keeps_a_bounded_read_phase(wait: float) -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        return httpx.Response(
+            400,
+            json={
+                "ok": False,
+                "error": {"code": "invalid", "message": "Invalid request body"},
+            },
+        )
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Invalid):
+            client.own(cast(p.OwnRequest, {**WAIT_REQUEST, "wait_seconds": wait}))
+    assert all(timeout["read"] <= 45 for timeout in timeouts)
+
+
+def old_service(version: str) -> Callable[[httpx.Request], httpx.Response]:
+    """A service that rejects Own's wait_seconds, as 0.3.0 does."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/version":
+            return httpx.Response(
+                200, json={"service_version": version, "protocol": "v1"}
+            )
+        if "wait_seconds" in json.loads(request.content):
+            return httpx.Response(
+                400,
+                json={
+                    "ok": False,
+                    "error": {"code": "invalid", "message": "Invalid request body"},
+                },
+            )
+        return httpx.Response(
+            404, json={"ok": False, "error": {"code": "empty", "message": "empty"}}
+        )
+
+    return handler
+
+
+WAIT_REQUEST: p.OwnRequest = {
+    "domain": "acme/pipeline",
+    "topic": "work/linux",
+    "hold_seconds": 60,
+    "wait_seconds": 30,
+}
+
+
+def test_own_names_an_old_service_and_the_opt_out() -> None:
+    with Client(
+        "https://tasks.example",
+        TOKEN,
+        transport=httpx.MockTransport(old_service("0.3.0")),
+    ) as client:
+        with pytest.raises(WaitUnsupported) as raised:
+            client.own(WAIT_REQUEST)
+        # The opt-out omits the field, which every service accepts.
+        with pytest.raises(Empty):
+            client.own(
+                {"domain": "acme/pipeline", "topic": "work/linux", "hold_seconds": 60}
+            )
+    message = str(raised.value)
+    assert "wait_seconds" in message
+    assert "version 0.3.0" in message and "0.4.0 or later" in message
+    assert "wait_seconds = 0" in message and "--wait-seconds 0" in message
+    assert "must omit wait_seconds" in message
+    assert isinstance(raised.value, Invalid)
+
+
+def test_own_explicit_zero_wait_also_names_an_old_service() -> None:
+    with Client(
+        "https://tasks.example",
+        TOKEN,
+        transport=httpx.MockTransport(old_service("0.3.0")),
+    ) as client:
+        with pytest.raises(WaitUnsupported, match="must omit wait_seconds"):
+            client.own({**WAIT_REQUEST, "wait_seconds": 0})
+
+
+@pytest.mark.parametrize("version", ["0.4.0", "1.2.3", "0.4.0rc1", "0.4.0+local"])
+def test_own_invalid_from_a_current_service_stays_invalid(version: str) -> None:
+    with Client(
+        "https://tasks.example",
+        TOKEN,
+        transport=httpx.MockTransport(old_service(version)),
+    ) as client:
+        with pytest.raises(Invalid) as raised:
+            client.own(WAIT_REQUEST)
+    assert type(raised.value) is Invalid
+
+
+def test_own_invalid_keeps_its_error_when_the_version_is_unavailable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/version":
+            return httpx.Response(503)
+        return old_service("0.3.0")(request)
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Invalid) as raised:
+            client.own(WAIT_REQUEST)
+    assert type(raised.value) is Invalid
+
+
+def test_own_client_side_invalid_does_not_ask_for_the_version() -> None:
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return old_service("0.3.0")(request)
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Invalid) as raised:
+            client.own(cast(p.OwnRequest, {**WAIT_REQUEST, "bad": float("nan")}))
+    assert type(raised.value) is Invalid
+    assert paths == []
+
+
+def test_own_version_lookup_keeps_within_the_caller_cap() -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        return old_service("0.3.0")(request)
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(WaitUnsupported):
+            client.own(WAIT_REQUEST, timeout=3)
+    assert timeouts[1] == {"connect": 3, "read": 3, "write": 3, "pool": 3}

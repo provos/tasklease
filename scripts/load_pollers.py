@@ -14,6 +14,9 @@ a worker that gets one holds it for --work-seconds, Consumes it and polls
 again at once. Everything runs in a fresh domain `loadtest.<run id>`; at the
 end the topic is drained and every identity is revoked.
 
+Each task carries its Create send time, so the report's `pickup` summarizes
+the delay from Create to claim (both clocks are this machine's).
+
 One Python asyncio client saturates near 100 requests a second, after which
 its own queue inflates latency; spread higher rates over --processes (about
 one per 75 requests a second). Requests are billed to the deployment's
@@ -25,10 +28,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import random
 import secrets
+import ssl
 import statistics
 import time
 from collections import Counter
@@ -70,6 +75,8 @@ class Recorder:
     started: float = field(default_factory=time.time)
     ops: dict[str, OpStats] = field(default_factory=dict)
     windows: dict[int, Counter[str]] = field(default_factory=dict)
+    # Create send time to claim, per task; not a request of its own.
+    pickup: OpStats = field(default_factory=OpStats)
 
     def record(self, op: str, outcome: str, latency_ms: float) -> None:
         stats = self.ops.setdefault(op, OpStats())
@@ -86,6 +93,7 @@ class Recorder:
             mine = self.ops.setdefault(op, OpStats())
             mine.latencies_ms.extend(stats.latencies_ms)
             mine.outcomes.update(stats.outcomes)
+        self.pickup.latencies_ms.extend(other.pickup.latencies_ms)
         for window, counts in other.windows.items():
             self.windows.setdefault(window, Counter()).update(counts)
 
@@ -108,7 +116,9 @@ class Service:
             )
         except httpx.TimeoutException:
             outcome, value = "timeout", None
-        except httpx.TransportError as exc:
+        except (httpx.TransportError, ssl.SSLError) as exc:
+            # A connection reset mid-read (a deployment, a proxy) can surface
+            # as a raw SSLError; record it like any other transport failure.
             outcome, value = f"transport {type(exc).__name__}", None
         else:
             value = None
@@ -119,12 +129,12 @@ class Service:
             if response.status_code == 200 and isinstance(decoded, dict):
                 outcome, value = "200", decoded
             else:
-                code = (
-                    decoded.get("error", {}).get("code")
-                    if isinstance(decoded, dict)
-                    else None
-                )
+                error = decoded.get("error", {}) if isinstance(decoded, dict) else {}
+                code = error.get("code") if isinstance(error, dict) else None
                 outcome = f"{response.status_code} {code or 'non-json'}"
+                # A refused wait was not held; report it apart from an empty.
+                if isinstance(error, dict) and error.get("wait_refused") is True:
+                    outcome += " wait_refused"
         self.recorder.record(op, outcome, (time.perf_counter() - started) * 1000)
         return outcome, value
 
@@ -186,14 +196,25 @@ async def worker_loop(
 ) -> None:
     await wait_or_stop(stop, random.uniform(0, args.poll_seconds))
     while not stop.is_set():
-        outcome, value = await service.call(
-            "own",
-            {"domain": domain, "topic": TOPIC, "hold_seconds": args.hold_seconds},
-            token,
-            label,
-        )
+        body: dict[str, object] = {
+            "domain": domain,
+            "topic": TOPIC,
+            "hold_seconds": args.hold_seconds,
+        }
+        if args.wait_seconds:
+            body["wait_seconds"] = args.wait_seconds
+        started = time.monotonic()
+        result = await own_or_stop(service, body, token, label, stop)
+        if result is None:
+            return  # Shutdown abandoned an idle long poll; nothing was claimed.
+        outcome, value = result
         task = value.get("task") if value else None
         if isinstance(task, dict):
+            data = task.get("data")
+            if isinstance(data, dict) and isinstance(data.get("sent"), float):
+                service.recorder.pickup.latencies_ms.append(
+                    (time.time() - data["sent"]) * 1000
+                )
             await asyncio.sleep(args.work_seconds)
             await service.call(
                 "consume",
@@ -202,7 +223,41 @@ async def worker_loop(
                 label,
             )
             continue
-        await wait_or_stop(stop, args.poll_seconds * random.uniform(0.8, 1.2))
+        # As in WorkerLoop, time the service held an empty poll counts toward
+        # the poll interval; a refused wait, a timeout or an error sleeps the
+        # whole interval.
+        idle = args.poll_seconds
+        if outcome == "404 empty":
+            idle = max(0.0, idle - (time.monotonic() - started))
+        if idle > 0:
+            await wait_or_stop(stop, idle * random.uniform(0.8, 1.2))
+
+
+async def own_or_stop(
+    service: Service,
+    body: dict[str, object],
+    token: str,
+    label: str,
+    stop: asyncio.Event,
+) -> tuple[str, dict[str, object] | None] | None:
+    """Own, abandoning the request if shutdown begins while it is held.
+
+    Closing a held poll's connection cancels its Worker before any claim, so
+    abandoning it cannot strand a task. A claim that already returned is
+    finished normally, so the final drain sees every task.
+    """
+    own = asyncio.create_task(service.call("own", body, token, label))
+    stopped = asyncio.create_task(stop.wait())
+    try:
+        await asyncio.wait({own, stopped}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        stopped.cancel()
+    if own.done():
+        return own.result()
+    own.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await own
+    return None
 
 
 async def producer_loop(
@@ -218,7 +273,11 @@ async def producer_loop(
         task = asyncio.create_task(
             service.call(
                 "create",
-                {"domain": domain, "topic": TOPIC, "data": {"n": sequence}},
+                {
+                    "domain": domain,
+                    "topic": TOPIC,
+                    "data": {"n": sequence, "sent": time.time()},
+                },
                 token,
                 "producer",
             )
@@ -252,7 +311,8 @@ def client(url: str, connections: int) -> httpx.AsyncClient:
     limits = httpx.Limits(
         max_connections=connections, max_keepalive_connections=connections
     )
-    return httpx.AsyncClient(base_url=url.rstrip("/"), limits=limits, timeout=60)
+    # A held poll can outlast the fixed 60-second limit.
+    return httpx.AsyncClient(base_url=url.rstrip("/"), limits=limits, timeout=120)
 
 
 @dataclass(frozen=True)
@@ -295,6 +355,8 @@ async def load_shard(shard: Shard, args: argparse.Namespace) -> Recorder:
         )
         await asyncio.sleep(shard.started + args.duration - time.time())
         stop.set()
+        # Workers abandon only idle long polls; work in progress and pending
+        # Creates finish, and any loop failure still fails the run.
         await asyncio.gather(producer, *workers)
     return recorder
 
@@ -356,10 +418,10 @@ def run(args: argparse.Namespace, admin: str) -> dict[str, object]:
     tokens = [identities[i % len(identities)][1] for i in range(args.workers)]
     recorder = Recorder(started=time.time() + 2)
     try:
+        cycle = max(args.poll_seconds, args.wait_seconds)
         print(
             f"Running {args.workers} workers in {args.processes} processes for "
-            f"{args.duration}s (offered ~{args.workers / args.poll_seconds:.0f} "
-            "idle polls/s)",
+            f"{args.duration}s (offered ~{args.workers / cycle:.0f} idle polls/s)",
             flush=True,
         )
         shards = [
@@ -398,6 +460,7 @@ def run(args: argparse.Namespace, admin: str) -> dict[str, object]:
                 "workers",
                 "identities",
                 "poll_seconds",
+                "wait_seconds",
                 "duration",
                 "create_rate",
                 "work_seconds",
@@ -406,11 +469,14 @@ def run(args: argparse.Namespace, admin: str) -> dict[str, object]:
                 "processes",
             )
         },
-        "offered_idle_polls_per_s": round(args.workers / args.poll_seconds, 1),
+        "offered_idle_polls_per_s": round(
+            args.workers / max(args.poll_seconds, args.wait_seconds), 1
+        ),
         "elapsed_s": round(elapsed, 1),
         "operations": {
             op: stats.summary(elapsed) for op, stats in sorted(recorder.ops.items())
         },
+        "pickup": recorder.pickup.summary(elapsed),
         "windows": windows,
         "drained_after_run": drained,
         "setup": {op: stats.summary(1) for op, stats in sorted(setup.ops.items())},
@@ -426,6 +492,12 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=1000)
     parser.add_argument("--identities", type=int, default=0, help="default: workers")
     parser.add_argument("--poll-seconds", type=float, default=30)
+    parser.add_argument(
+        "--wait-seconds",
+        type=int,
+        default=0,
+        help="Own long-poll seconds; 0 keeps immediate polling",
+    )
     parser.add_argument("--duration", type=float, default=240)
     parser.add_argument("--create-rate", type=float, default=2)
     parser.add_argument("--work-seconds", type=float, default=2)
@@ -445,11 +517,13 @@ def main() -> None:
         args.workers < 1
         or args.identities < 1
         or args.poll_seconds <= 0
+        or not 0 <= args.wait_seconds <= 30
         or not 1 <= args.processes <= args.workers
     ):
         parser.error(
-            "workers, identities and poll seconds must be positive, and "
-            "processes between 1 and the worker count"
+            "workers, identities and poll seconds must be positive, "
+            "--wait-seconds between 0 and 30, and processes between 1 and the "
+            "worker count"
         )
     admin = os.environ.get("TL_ADMIN_TOKEN")
     if not admin:

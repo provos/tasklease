@@ -21,7 +21,7 @@ from uuid import uuid4
 from platformdirs import user_data_path
 
 from tasklease import fsio
-from tasklease.client import Client
+from tasklease.client import MAX_WAIT_SECONDS, Client
 from tasklease.errors import Empty, NotFound, StoreError, TransportError
 from tasklease.generated import protocol as p
 from tasklease.names import is_domain, is_request_id, is_segment, is_task_id, is_topic
@@ -32,6 +32,10 @@ type CancelResult = Literal["cancelled", "not_found", "submission_unknown"]
 _HASH = re.compile(r"[0-9a-f]{32}\Z")
 _RETENTION_SECONDS = 7 * 86400
 _BATCH_SIZE = 100
+# Seconds a long poll leaves for its answer before the overall deadline.
+_WAIT_MARGIN = 5.0
+# Seconds of consecutive transport failures a wait rides out before raising.
+_TRANSPORT_PATIENCE = 300.0
 
 
 def default_root() -> Path:
@@ -428,19 +432,48 @@ class Store:
         *,
         deadline: float | None = None,
         request_id: str | None = None,
-    ) -> int:
+        wait_seconds: int = 0,
+    ) -> tuple[int, bool]:
+        """Return the saved count and whether to poll again without a pause.
+
+        Polling again at once is right after replies arrived or after the
+        service held a long poll. An immediate empty, including a wait the
+        service refused (``Empty.wait_refused``), calls for the caller's
+        backoff instead.
+        """
         count = 0
-        for _ in range(_BATCH_SIZE):
+        for index in range(_BATCH_SIZE):
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
                 break
+            # Only the first Own in a drain may wait: a reply that existed
+            # before the call must not be delayed behind a long poll.
+            wait = 0 if index else wait_seconds
+            if remaining is not None and wait:
+                # Leave the response a margin inside the deadline, which also
+                # caps the read timeout: a reply claimed at the end of a wait
+                # must still arrive rather than stay held unseen.
+                wait = max(0, min(wait, math.floor(remaining - _WAIT_MARGIN)))
+            claim: p.OwnRequest = {
+                "domain": domain,
+                "topic": reply_topic,
+                "hold_seconds": 60,
+            }
+            if wait:
+                claim["wait_seconds"] = wait
+            sent = time.monotonic()
             try:
-                response = client.own(
-                    {"domain": domain, "topic": reply_topic, "hold_seconds": 60},
-                    timeout=remaining,
+                response = client.own(claim, timeout=remaining)
+            except Empty as error:
+                # The service's hint marks a refused wait. Requiring half the
+                # wait to have passed also guards against a server that answers
+                # a wait at once without holding it, which must not spin.
+                held = (
+                    wait > 0
+                    and not error.wait_refused
+                    and time.monotonic() - sent >= wait / 2
                 )
-            except Empty:
-                break
+                return count, count > 0 or held
             task = response["task"]
             saved = self._save_reply(task, domain, reply_topic)
             count += 1
@@ -456,13 +489,13 @@ class Store:
                 pass  # The durable local reply already survives ID rotation.
             if request_id is not None and saved.request_id == request_id:
                 break
-        return count
+        return count, count > 0
 
     def drain(self, client: Client, domain: str, reply_topic: str) -> int:
         """Drain a bounded batch, durably saving every reply before Delete."""
         domain, reply_topic = _name(domain, domain=True), _name(reply_topic)
         self._automatic_prune()
-        return self._drain(client, domain, reply_topic)
+        return self._drain(client, domain, reply_topic)[0]
 
     def wait(
         self,
@@ -471,12 +504,15 @@ class Store:
         timeout_seconds: float,
         poll_interval: float = 1.0,
         max_poll_interval: float = 30.0,
+        wait_seconds: int = MAX_WAIT_SECONDS,
     ) -> ReplyRecord | None:
         """Return a local reply, or None at a monotonic timeout; never repost.
 
-        Polls start at ``poll_interval`` and back off by half each round up to
-        ``max_poll_interval``: a quick reply is seen within about a second,
-        while a multi-hour wait makes a few hundred requests, not thousands.
+        With ``wait_seconds``, Own holds each poll for that long, so a reply is
+        seen within about a second without backoff. Zero restores the original
+        ``poll_interval``-to-``max_poll_interval`` exponential backoff. A
+        ``TransportError`` backs off the same way and is retried, so a service
+        deployment does not end the wait; failures lasting five minutes raise.
         """
         if not math.isfinite(timeout_seconds) or timeout_seconds < 0:
             raise StoreError("timeout must be a nonnegative finite number of seconds")
@@ -488,7 +524,12 @@ class Store:
             raise StoreError(
                 "maximum poll interval must be a positive finite number of seconds"
             )
+        if type(wait_seconds) is not int or not 0 <= wait_seconds <= MAX_WAIT_SECONDS:
+            raise StoreError(
+                f"wait_seconds must be an integer from 0 to {MAX_WAIT_SECONDS}"
+            )
         delay = poll_interval
+        failing_since: float | None = None
         deadline = time.monotonic() + timeout_seconds
         reply = self.reply(request_id)
         if reply is not None:
@@ -496,27 +537,49 @@ class Store:
         record = self._required_request(request_id)
         self._automatic_prune()
         while time.monotonic() < deadline:
+            attempted = time.monotonic()
             try:
-                self._drain(
+                _, again = self._drain(
                     client,
                     record.domain,
                     record.reply_topic,
                     deadline=deadline,
                     request_id=request_id,
+                    wait_seconds=wait_seconds,
                 )
             except TransportError:
+                # A deployment or network failure ends the held poll; back off
+                # and retry. Own never reposts the request, and a reply claimed
+                # by a lost answer reappears after its 60-second hold. Failures
+                # that persist (a wrong URL, a long outage) are reported, unless
+                # the reply was saved first or the wait's own deadline cut the
+                # last attempt short.
+                if failing_since is None:
+                    failing_since = attempted
                 reply = self.reply(request_id)
                 if reply is not None:
                     return reply
-                if time.monotonic() >= deadline:
+                now = time.monotonic()
+                if now >= deadline:
                     return None
-                raise
+                if now - failing_since >= _TRANSPORT_PATIENCE:
+                    raise
+                again = False
+            else:
+                failing_since = None
             reply = self.reply(request_id)
             if reply is not None:
                 return reply
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
+            # A held long poll already provided the delay, and the backoff
+            # starts over. An immediate empty, including a wait the service
+            # refused, and a transport failure back off.
+            if again:
+                if wait_seconds:
+                    delay = poll_interval
+                continue
             time.sleep(min(remaining, delay * uniform(0.8, 1.2)))
             delay = min(delay * 1.5, max(poll_interval, max_poll_interval))
         return None

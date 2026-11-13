@@ -31,7 +31,8 @@ Quote arguments containing spaces using systemd's double-quoted argument
 syntax; escape literal backslashes and quotes. Double any literal `%` as
 `%%`. The `:` command prefix disables environment-variable substitution.
 `systemctl --user stop tasklease-worker.service` sends SIGHUP and waits for
-active work to finish. `KillMode=mixed` sends the initial signal only to the
+active work to finish; an in-flight long-poll wait can delay that by up to 30
+seconds. `KillMode=mixed` sends the initial signal only to the
 worker, so handler subprocesses can finish. A second signal can end an uncooperative worker:
 `systemctl --user kill --kill-whom=main --signal=SIGHUP tasklease-worker.service`.
 The [systemd service reference](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html)

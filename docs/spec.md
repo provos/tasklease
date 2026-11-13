@@ -200,7 +200,7 @@ Success is `200 {"ok": true, ...}`. Failure is
 | `unauthenticated` | 401 | missing or unknown token |
 | `forbidden` | 403 | scope, holder rule, or conditional Delete refused it |
 | `not_found` | 404 | no task with this domain, topic and ID |
-| `empty` | 404 | Own found no available task |
+| `empty` | 404 | Own found no available task, or its wait ended |
 | `exists` | 409 | Identity Add for a name already in use |
 | `too_large` | 413 | `data` over 256 KiB, more than 16 new tasks, or a blob over 2 GiB |
 
@@ -216,7 +216,7 @@ Posts a task with `lease_until = now − 5 s`, `owned_count = 0`,
 
 ### 4.2 Own
 
-`own {domain, topic, hold_seconds}` → `{task}`
+`own {domain, topic, hold_seconds, wait_seconds?}` → `{task}`
 
 Picks the available task in the topic with the oldest `created_at` (ties
 broken by ID). A caller cannot choose which task it gets.
@@ -226,13 +226,37 @@ Atomically, it retires the task and posts a copy with a new ID,
 `owner = {caller, worker label}`. It returns the whole new task, data
 included.
 
-`hold_seconds` is between 1 and 86400. If no task is available it returns
-`empty`.
+`hold_seconds` is between 1 and 86400.
 
-Every Own, including one that returns `empty`, updates the caller's entry in
-the topic's poller list (§4.9).
+`wait_seconds`, when present, is between 0 and 30 and defaults to 0. With 0,
+Own answers at once. With a positive value and no available task, Own holds
+the request until a task becomes available in that topic or the wait ends,
+then returns the task or `empty`. A task becomes available when a Create or
+Consume posts it, or when a held task's lease expires. The caller's scopes and
+the domain are checked before the wait begins and are not rechecked.
 
-Own always answers at once. Workers poll (§7.3).
+The wait is a hint to wake early, never a reservation: concurrent waiters
+race, and each Own transaction still decides the winner. Fencing is unchanged.
+Avoiding a claim for a client that has gone is best effort. A client that
+closes its connection during the wait normally cancels it before any claim.
+After a silent network drop (no close reaches the service, as with a
+sleeping laptop) the service may still claim a task for the request; that
+task stays held, unseen, until its `hold_seconds` lease expires, as with any
+lost Own response.
+
+A held request is never a guarantee of a later answer from the same waiter.
+When the wait cannot be held, Own answers `empty` with `"wait_refused": true`
+in the error object: when a topic already holds the maximum number of
+waiters, or the caller's identity its maximum within the topic (Own still
+attempts the claim first), when a deployment or a reset Durable Object
+ends a wait before any claim, or when a wait loses the bounded number of
+claim races it is allowed before its deadline. A failure during a claim stays
+an ambiguous `500`. `wait_refused` appears only on such answers, so a client
+can back off instead of treating the answer as a completed wait and polling
+again straight away.
+
+Every Own, including one that returns `empty` or waits, updates the caller's
+entry in the topic's poller list (§4.9).
 
 ### 4.3 Renew
 
@@ -318,7 +342,8 @@ registration step. A worker that waits for local capacity before polling
 (§6.1) only shows up while it is able to take work. `tl request` uses it to
 warn when no worker is serving the topic. `last_polled_at` is accurate to
 about a minute: an empty Own refreshes it only once it is a minute old, so
-idle polls usually write nothing. `last_owned_at` is exact.
+idle polls usually write nothing. A long wait records its start time, so a
+waiting worker remains listed. `last_owned_at` is exact.
 
 ### 4.10 Blob Put URL
 
@@ -484,7 +509,10 @@ LEASE = 600 s; RENEW_EVERY = 180 s; MAX_OWNED = 3
 while not stopping:
     wait for local capacity                        # before Own, never after
     task = own(domain, topic, LEASE)
-    if empty: release capacity; sleep(poll interval); continue
+    if empty: release capacity; sleep(poll interval − time Own held); continue
+    if stopping:                                   # stop arrived during the Own
+        renew(task.id, 1 s), ignoring any failure  # hand it back unrun
+        release capacity; exit
     start renewer(task.id):
         every RENEW_EVERY: renew(task.id, LEASE)
             network error, timeout, 5xx: retry until the local lease deadline
@@ -613,6 +641,14 @@ service that the CLI knows nothing about:
 domain and topic from it and the task ID from the `.task.json` file it needs
 for Delete. If Delete returns `not_found`, the task was taken or removed;
 `tl cancel` cannot distinguish these cases and keeps the record for waiting.
+
+A stop that arrives while Own is held (a long poll, §4.2) never starts new
+work. If that Own still returns a task, the worker hands it back without
+running it: it renews the task for one second, so the task is available again
+almost at once under the same ID, and exits. The claim still counts toward
+`owned_count`. If that Renew fails, the task becomes available when its
+lease expires. Releasing it is preferred to leaving the full lease, because
+a stop is often a restart that would otherwise idle the task for ten minutes.
 
 **Local reply store.** The CLI drains the agent's reply topic and keeps the
 replies on the agent's machine, in `replies/h(agent)/`. Each pass:
@@ -767,14 +803,22 @@ operator's job (§9).
 
 ### 7.3 Polling cost
 
-Version 1 has no held requests: Own answers at once, and an idle worker polls
-every 30–120 seconds. Each poll is one short request, so the Durable Object
-can sleep between them.
+Own accepts a bounded wait (§4.2). A client that uses none polls at once and
+sleeps between polls. A client that waits holds one request open per poll, so
+it picks up a new task within a round trip instead of after its sleep.
 
-Holding an Own open until a task arrives would cut the delay before a worker
-picks up a task. It is a possible future change, not part of version 1. The
-cost to weigh: a request held open keeps the Durable Object awake and billed
-for that time, and with about ten workers waiting it may never sleep.
+The cost to weigh is that a held request keeps the Durable Object awake and
+billed for its duration. A domain that polls every 30 seconds is resident
+either way; a domain whose only worker polls every ten minutes becomes
+resident if it waits. Request counts substitute for sleep: one 30-second wait
+makes the same number of requests as a 30-second poll, while a 20-second wait
+makes more. Use `wait_seconds = 0` for a deliberately cold worker, and size
+the wait to the polling cadence being replaced.
+
+Waiters are held in memory, are capped per topic and per identity within a
+topic, and are dropped when the object is evicted or the service deployed.
+A dropped waiter is answered `empty` with `wait_refused` (§4.2), so it costs a
+poll, not a task.
 
 ## 8. Blobs (R2)
 

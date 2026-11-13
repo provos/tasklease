@@ -1,0 +1,11 @@
+{
+  "kind": "error",
+  "body": {
+    "ok": false,
+    "error": {
+      "code": "empty",
+      "message": "empty",
+      "wait_refused": true
+    }
+  }
+}

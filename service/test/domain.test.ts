@@ -5,7 +5,13 @@ import {
   runInDurableObject,
 } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
-import { DomainObject, type RpcTask } from "../src/domain_do";
+import {
+  DomainObject,
+  ownWithWait,
+  type ParkResult,
+  type RpcTask,
+} from "../src/domain_do";
+import { failure } from "../src/errors";
 import type { Data, HourlyStats } from "../src/generated/protocol";
 import { newTaskId } from "../src/ids";
 import type { Caller, Result } from "../src/types";
@@ -1034,5 +1040,495 @@ describe("DomainObject task transactions", () => {
         ),
       ).tasks,
     ).toEqual([]);
+  });
+});
+
+function internals(instance: DomainObject) {
+  return instance as unknown as {
+    waiting: Map<string, unknown>;
+    maxWaitersPerTopic: number;
+    maxWaitersPerIdentity: number;
+  };
+}
+
+type WaitStub = Parameters<typeof ownWithWait>[0];
+
+describe("long-poll Own", () => {
+  const poll = (domain: string, topic: string) => ({
+    domain,
+    topic,
+    hold_seconds: 60,
+    wait_seconds: 30,
+  });
+
+  it("returns a waiting task as soon as Create commits", async () => {
+    const { domain, stub } = fixture("wait-create");
+    const topic = "work/waited";
+    const waiting = ownWithWait(stub, poll(domain, topic), worker);
+    // Give the waiter a turn to register and park before creating the task.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const created = success(
+      await stub.create({ domain, topic, data: { request: 1 } }, creator),
+    ).id;
+    const claimed = success(await waiting).task;
+    expect(claimed.id).not.toBe(created);
+    expect(claimed.data).toEqual({ request: 1 });
+    expect(claimed.owner).toEqual({ identity: "worker", worker: "worker-1" });
+  });
+
+  it("returns empty at the deadline without claiming anything", async () => {
+    const { domain, stub } = fixture("wait-timeout");
+    const started = Date.now();
+    // A completed wait carries no refusal hint.
+    expect(
+      await ownWithWait(
+        stub,
+        { ...poll(domain, "work/idle"), wait_seconds: 1 },
+        worker,
+      ),
+    ).toEqual({ ok: false, error: { code: "empty", message: "empty" } });
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("keeps omission and zero immediate", async () => {
+    const { domain, stub } = fixture("wait-immediate");
+    const topic = "work/none";
+    const started = Date.now();
+    error(await stub.own({ domain, topic, hold_seconds: 60 }, worker), "empty");
+    error(
+      await stub.own(
+        { domain, topic, hold_seconds: 60, wait_seconds: 0 },
+        worker,
+      ),
+      "empty",
+    );
+    // The routed path sends a zero wait straight to a single claim.
+    error(
+      await ownWithWait(
+        stub,
+        { domain, topic, hold_seconds: 60, wait_seconds: 0 },
+        worker,
+      ),
+      "empty",
+    );
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it("wakes waiters for a Consume successor", async () => {
+    const { domain, stub } = fixture("wait-consume");
+    const source = success(
+      await stub.create({ domain, topic: "work/source", data: {} }, creator),
+    ).id;
+    const held = success(
+      await stub.own(
+        { domain, topic: "work/source", hold_seconds: 60 },
+        worker,
+      ),
+    ).task;
+    expect(held.id).not.toBe(source);
+    const waiting = ownWithWait(stub, poll(domain, "result/next"), worker);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(
+      await stub.consume(
+        {
+          domain,
+          topic: "work/source",
+          id: held.id,
+          tasks: [{ topic: "result/next", data: { step: 2 } }],
+        },
+        worker,
+      ),
+    );
+    expect(success(await waiting).task.data).toEqual({ step: 2 });
+  });
+
+  it("wakes at the next lease expiry", async () => {
+    const { domain, stub } = fixture("wait-lease");
+    const topic = "work/lease";
+    const task = success(
+      await stub.create({ domain, topic, data: {} }, creator),
+    ).id;
+    success(await stub.own({ domain, topic, hold_seconds: 1 }, worker));
+    const other: Caller = { ...worker, identity: "worker-two", worker: "w2" };
+    const claimed = success(
+      await ownWithWait(
+        stub,
+        { ...poll(domain, topic), wait_seconds: 5 },
+        other,
+      ),
+    ).task;
+    expect(claimed.owner).toEqual({ identity: "worker-two", worker: "w2" });
+    // The original ID is fenced by the new owner's claim.
+    error(
+      await stub.renew({ domain, topic, id: task, hold_seconds: 60 }, worker),
+      "not_found",
+    );
+  });
+
+  it("does not wake waiters on an unrelated topic", async () => {
+    const { domain, stub } = fixture("wait-isolation");
+    const waiting = ownWithWait(
+      stub,
+      { ...poll(domain, "work/quiet"), wait_seconds: 1 },
+      worker,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(
+      await stub.create({ domain, topic: "work/noisy", data: {} }, creator),
+    );
+    error(await waiting, "empty");
+    // The unrelated task is still claimable.
+    expect(
+      success(
+        await stub.own(
+          { domain, topic: "work/noisy", hold_seconds: 60 },
+          worker,
+        ),
+      ).task.topic,
+    ).toBe("work/noisy");
+  });
+
+  it("claims each task once for competing waiters", async () => {
+    const { domain, stub } = fixture("wait-compete");
+    const topic = "work/compete";
+    const waiting = [0, 1, 2].map((index) =>
+      ownWithWait(
+        stub,
+        { ...poll(domain, topic), wait_seconds: 2 },
+        { ...worker, worker: `worker-${index}` },
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
+    const results = await Promise.all(waiting);
+    const tasks = results.filter((result) => result.ok);
+    expect(tasks).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toHaveLength(2);
+  });
+
+  it("re-registers no waiter after a completed wait", async () => {
+    const { domain, stub } = fixture("wait-cleanup");
+    error(
+      await ownWithWait(
+        stub,
+        { ...poll(domain, "work/clean"), wait_seconds: 1 },
+        worker,
+      ),
+      "empty",
+    );
+    await runInDurableObject(stub, (instance: DomainObject) => {
+      expect(internals(instance).waiting.size).toBe(0);
+    });
+  });
+
+  it("never claims from a parked call; a hint answers retry", async () => {
+    const { domain, stub } = fixture("wait-no-ghost");
+    const topic = "work/ghost";
+    // A Worker whose client disconnected never makes the follow-up attempt.
+    const parked = stub.park(poll(domain, topic), worker, 5_000);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
+    expect(await parked).toBe("retry");
+    const [summary] = success(
+      await stub.topicsList({ domain }, creator),
+    ).topics;
+    expect(summary).toMatchObject({ topic, available: 1, held: 0 });
+  });
+
+  it("attempts the claim and records the poll when the topic is full", async () => {
+    const { domain, stub } = fixture("wait-full");
+    const topic = "work/full";
+    await runInDurableObject(stub, (instance: DomainObject) => {
+      internals(instance).maxWaitersPerTopic = 0;
+    });
+    const started = Date.now();
+    expect(await ownWithWait(stub, poll(domain, topic), worker)).toEqual({
+      ok: false,
+      error: { code: "empty", message: "empty", wait_refused: true },
+    });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    // Only a refused wait carries the hint; an immediate poll does not.
+    expect(await stub.own({ domain, topic, hold_seconds: 60 }, worker)).toEqual(
+      { ok: false, error: { code: "empty", message: "empty" } },
+    );
+    expect(
+      success(await stub.topicPollers({ domain, topic }, creator)).pollers,
+    ).toHaveLength(1);
+    success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
+    expect(
+      success(await ownWithWait(stub, poll(domain, topic), worker)).task.data,
+    ).toEqual({ n: 1 });
+  });
+
+  it("wakes one waiter per task at a lease expiry", async () => {
+    const { domain, stub } = fixture("wait-herd");
+    const topic = "work/herd";
+    success(await stub.create({ domain, topic, data: {} }, creator));
+    success(await stub.own({ domain, topic, hold_seconds: 1 }, worker));
+    const parks: string[] = [];
+    const counting: WaitStub = {
+      own: (request, caller) => stub.own(request, caller),
+      park: async (request, caller, waitMs) => {
+        const result = await stub.park(request, caller, waitMs);
+        parks.push(result);
+        return result;
+      },
+    };
+    const results = await Promise.all(
+      [0, 1, 2].map((index) =>
+        ownWithWait(
+          counting,
+          { ...poll(domain, topic), wait_seconds: 3 },
+          { ...worker, worker: `herd-${index}` },
+        ),
+      ),
+    );
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    // The recheck after the hint finds the task claimed and wakes no one.
+    expect(parks.filter((result) => result === "retry")).toHaveLength(1);
+    expect(parks.filter((result) => result === "timeout")).toHaveLength(2);
+  });
+
+  it("passes a hint lost to a gone Worker on to a live waiter", async () => {
+    const { domain, stub } = fixture("wait-lost-hint");
+    const topic = "work/lost";
+    // The oldest waiter's Worker is gone: it never makes the claim call.
+    const gone = stub.park(
+      poll(domain, topic),
+      { ...worker, worker: "gone" },
+      10_000,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const started = Date.now();
+    const live = ownWithWait(
+      stub,
+      { ...poll(domain, topic), wait_seconds: 10 },
+      { ...worker, worker: "live" },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
+    expect(await gone).toBe("retry");
+    const claimed = success(await live).task;
+    expect(claimed.owner?.worker).toBe("live");
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("wakes every waiter once hints are lost to several gone Workers", async () => {
+    const { domain, stub } = fixture("wait-lost-hints");
+    const topic = "work/lost-many";
+    const gone = [0, 1, 2].map((index) =>
+      stub.park(
+        poll(domain, topic),
+        { ...worker, worker: `gone-${index}` },
+        10_000,
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const started = Date.now();
+    const live = ownWithWait(
+      stub,
+      { ...poll(domain, topic), wait_seconds: 10 },
+      { ...worker, worker: "live" },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
+    expect(success(await live).task.owner?.worker).toBe("live");
+    // One hint per window would reach the live waiter after about 6 s.
+    expect(Date.now() - started).toBeLessThan(4_000);
+    expect(await Promise.all(gone)).toEqual(["retry", "retry", "retry"]);
+  });
+
+  it("wakes a waiter when Renew shortens a lease", async () => {
+    const { domain, stub } = fixture("wait-renew");
+    const topic = "work/renewed";
+    success(await stub.create({ domain, topic, data: {} }, creator));
+    const held = success(
+      await stub.own({ domain, topic, hold_seconds: 60 }, worker),
+    ).task;
+    const started = Date.now();
+    const other: Caller = { ...worker, identity: "worker-two", worker: "w2" };
+    const waiting = ownWithWait(
+      stub,
+      { ...poll(domain, topic), wait_seconds: 10 },
+      other,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(
+      await stub.renew({ domain, topic, id: held.id, hold_seconds: 1 }, worker),
+    );
+    expect(success(await waiting).task.owner?.identity).toBe("worker-two");
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  /** A stub that records each park result and can delay its claim call. */
+  function recording(
+    stub: WaitStub,
+    parks: Map<string, ParkResult[]>,
+    label: string,
+    claimDelay = 0,
+  ): WaitStub {
+    return {
+      own: async (request, caller) => {
+        await new Promise((resolve) => setTimeout(resolve, claimDelay));
+        return stub.own(request, caller);
+      },
+      park: async (request, caller, waitMs) => {
+        const result = await stub.park(request, caller, waitMs);
+        parks.set(label, [...(parks.get(label) ?? []), result]);
+        return result;
+      },
+    };
+  }
+
+  it("does not wake every waiter while a claim is still in flight", async () => {
+    const { domain, stub } = fixture("wait-in-flight");
+    const topic = "work/in-flight";
+    const parks = new Map<string, ParkResult[]>();
+    const request = { ...poll(domain, topic), wait_seconds: 6 };
+    const first = ownWithWait(recording(stub, parks, "first"), request, {
+      ...worker,
+      worker: "first",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // A slow Worker: its claim arrives 1.5 s after its hint.
+    const slow = ownWithWait(recording(stub, parks, "slow", 1_500), request, {
+      ...worker,
+      worker: "slow",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const idle = [0, 1].map((index) =>
+      ownWithWait(
+        recording(stub, parks, `idle-${index}`),
+        { ...request, wait_seconds: 5 },
+        { ...worker, worker: `idle-${index}` },
+      ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
+    expect(success(await first).task.data).toEqual({ n: 1 });
+    // The second task's claim is still in flight when the first hint's
+    // recheck runs; that is not a lost hint.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    success(await stub.create({ domain, topic, data: { n: 2 } }, creator));
+    expect(success(await slow).task.data).toEqual({ n: 2 });
+    for (const result of await Promise.all(idle)) {
+      expect(result).toEqual({
+        ok: false,
+        error: { code: "empty", message: "empty" },
+      });
+    }
+    expect(parks.get("idle-0")).toEqual(["timeout"]);
+    expect(parks.get("idle-1")).toEqual(["timeout"]);
+  }, 10_000);
+
+  it("hints one waiter for a lease that ends soon after a claimed hint", async () => {
+    const { domain, stub } = fixture("wait-expiry-after-hint");
+    const topic = "work/expiry-after-hint";
+    success(await stub.create({ domain, topic, data: { n: 0 } }, creator));
+    success(
+      await stub.own(
+        { domain, topic, hold_seconds: 1 },
+        {
+          ...worker,
+          worker: "holder",
+        },
+      ),
+    );
+    const parks = new Map<string, ParkResult[]>();
+    const request = { ...poll(domain, topic), wait_seconds: 4 };
+    const waiters = ["first", "idle-0", "idle-1"].map((label) =>
+      ownWithWait(recording(stub, parks, label), request, {
+        ...worker,
+        worker: label,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Claimed at once; the held lease then ends within the recheck window.
+    success(await stub.create({ domain, topic, data: { n: 1 } }, creator));
+    const results = await Promise.all(waiters);
+    expect(results.filter((result) => result.ok)).toHaveLength(2);
+    const retries = [...parks.values()]
+      .flat()
+      .filter((result) => result === "retry");
+    expect(retries).toHaveLength(2);
+  }, 10_000);
+
+  it("answers wait_refused when every round loses its race", async () => {
+    const own = vi.fn(() => Promise.resolve(failure("empty")));
+    const racing: WaitStub = { own, park: () => Promise.resolve("retry") };
+    expect(
+      await ownWithWait(racing, poll("domain-tests/race", "work/x"), worker),
+    ).toEqual({
+      ok: false,
+      error: { code: "empty", message: "empty", wait_refused: true },
+    });
+    expect(own).toHaveBeenCalledTimes(20);
+  });
+
+  it("makes no claim for a client that has gone", async () => {
+    const own = vi.fn();
+    const hinted: WaitStub = { own, park: () => Promise.resolve("retry") };
+    const gone = new AbortController();
+    gone.abort();
+    expect(
+      await ownWithWait(
+        hinted,
+        poll("domain-tests/gone", "work/x"),
+        worker,
+        gone.signal,
+      ),
+    ).toEqual({ ok: false, error: { code: "empty", message: "empty" } });
+    expect(own).not.toHaveBeenCalled();
+  });
+
+  it("limits parked waiters per identity", async () => {
+    const { domain, stub } = fixture("wait-identity");
+    const topic = "work/identity";
+    await runInDurableObject(stub, (instance: DomainObject) => {
+      internals(instance).maxWaitersPerIdentity = 1;
+    });
+    const first = stub.park(poll(domain, topic), worker, 1_000);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      await stub.park(poll(domain, topic), { ...worker, worker: "w2" }, 1_000),
+    ).toBe("refused");
+    const other: Caller = { ...worker, identity: "worker-two", worker: "w3" };
+    expect(await stub.park(poll(domain, topic), other, 500)).toBe("timeout");
+    expect(await first).toBe("timeout");
+  });
+
+  it("answers an unheld empty when a park call is reset", async () => {
+    const own = vi.fn();
+    const reset = Object.assign(new Error("Durable Object reset"), {
+      durableObjectReset: true,
+    });
+    const failing: WaitStub = { own, park: () => Promise.reject(reset) };
+    expect(
+      await ownWithWait(failing, poll("domain-tests/reset", "work/x"), worker),
+    ).toEqual({
+      ok: false,
+      error: { code: "empty", message: "empty", wait_refused: true },
+    });
+    expect(own).not.toHaveBeenCalled();
+  });
+
+  it("lets a park fault that is not transient fail the request", async () => {
+    const failing: WaitStub = {
+      own: vi.fn(),
+      park: () => Promise.reject(new Error("SQLITE_FULL")),
+    };
+    await expect(
+      ownWithWait(failing, poll("domain-tests/fault", "work/x"), worker),
+    ).rejects.toThrow("SQLITE_FULL");
+  });
+
+  it("lets a failed claim after a hint fail the request", async () => {
+    const failing: WaitStub = {
+      own: () => Promise.reject(new Error("Durable Object reset")),
+      park: () => Promise.resolve("retry"),
+    };
+    await expect(
+      ownWithWait(failing, poll("domain-tests/reset", "work/x"), worker),
+    ).rejects.toThrow("Durable Object reset");
   });
 });

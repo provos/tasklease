@@ -82,6 +82,153 @@ type Snapshot = { id: string; expiresAt: number; chunks: number };
 /** How stale a poller row's last_polled_at may get before an empty poll writes it. */
 const POLLER_REFRESH_MS = 60_000;
 
+/**
+ * Parked waiters per topic. Beyond this, a long poll still attempts its claim
+ * but answers at once, so clients fall back to their own poll sleep instead
+ * of growing the object.
+ */
+const MAX_WAITERS_PER_TOPIC = 10_000;
+/** Parked waiters per identity and topic, so one identity cannot fill a topic. */
+const MAX_WAITERS_PER_IDENTITY = 1_000;
+/** The protocol's largest Own wait. */
+const MAX_WAIT_MS = 30_000;
+/**
+ * After a hint, recheck the topic this long later. A hinted waiter whose
+ * Worker has gone (its client disconnected) answers `retry` to nobody, so a
+ * task still available a whole window after it became available goes to the
+ * remaining waiters. A live Worker claims within a few hundred milliseconds;
+ * the window leaves room for a slow claim on a busy object.
+ */
+const HINT_RECHECK_MS = 2_000;
+/**
+ * Park and claim rounds per long poll. Each round is two Worker-to-object
+ * subrequests; a waiter that keeps losing races answers `empty` instead.
+ */
+const MAX_WAIT_ROUNDS = 20;
+
+/**
+ * A parked long poll. It never claims: a hint ends the park call with
+ * `retry`, and the Worker makes a separate claim call.
+ */
+type Waiter = {
+  identity: string;
+  /** A wake hint was delivered; the waiter will answer `retry`. */
+  hinted: boolean;
+  /** Settles a parked waiter early; null while it is not parked. */
+  wake: (() => void) | null;
+};
+
+/** A topic's waiters and its single wake timer. */
+type TopicWaiters = {
+  /** Insertion-ordered, so hints go to the longest-waiting caller first. */
+  waiters: Set<Waiter>;
+  /** Parked waiters per identity, for the per-identity limit. */
+  identities: Map<string, number>;
+  // setTimeout returns a number in Workers; null means no timer is armed.
+  timer: ReturnType<typeof setTimeout> | null;
+  /** When the armed timer fires. */
+  at: number;
+  /** When the timer last fired; leases ending later have not been hinted. */
+  checked: number;
+};
+
+/**
+ * How a park call ended: `retry` (a task may be available; attempt the
+ * claim), `timeout` (the wait ended) or `refused` (the wait was not held).
+ */
+export type ParkResult = "retry" | "timeout" | "refused";
+
+/** Park until a hint (true) or until `delay` elapses (false). */
+function park(waiter: Waiter, delay: number): Promise<boolean> {
+  if (waiter.hinted) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      waiter.wake = null;
+      resolve(false);
+    }, delay);
+    waiter.wake = () => {
+      clearTimeout(timer);
+      waiter.wake = null;
+      resolve(true);
+    };
+  });
+}
+
+type OwnStub = Pick<DomainObject, "own" | "park">;
+
+/** An `empty` answered without holding the wait, so the client backs off. */
+function waitRefused(): Result<never> {
+  const result = failure("empty");
+  return { ...result, error: { ...result.error, wait_refused: true } };
+}
+
+/** Durable Object errors flag transient failures, including code updates. */
+function resetOrRetryable(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const flags = error as {
+    retryable?: unknown;
+    overloaded?: unknown;
+    durableObjectReset?: unknown;
+  };
+  return (
+    flags.retryable === true ||
+    flags.overloaded === true ||
+    flags.durableObjectReset === true
+  );
+}
+
+/**
+ * Worker side of a long poll. Parking and claiming are separate Domain
+ * Object calls: a park call never claims, so a park that fails transiently
+ * (a deployment or reset object) leased nothing and answers an unheld
+ * `empty`, while a failed claim stays an ambiguous 500. A woken waiter always makes one claim
+ * attempt, even when its wait has just ended, unless `signal` reports that
+ * its client has gone. A wait that ends early after `MAX_WAIT_ROUNDS` lost
+ * races says it was not held.
+ */
+export async function ownWithWait(
+  stub: OwnStub,
+  request: OwnRequest,
+  caller: Caller,
+  signal?: AbortSignal,
+): Promise<Result<RpcTaskResponse<OwnResponse>>> {
+  const wait = request.wait_seconds ?? 0;
+  if (wait <= 0) return stub.own(request, caller);
+  const deadline = Date.now() + wait * 1000;
+  for (let round = 1; ; round++) {
+    let parked: ParkResult;
+    try {
+      parked = await stub.park(
+        request,
+        caller,
+        Math.max(0, deadline - Date.now()),
+      );
+    } catch (error) {
+      // A park claims nothing, so an object reset (a deployment) or an
+      // overloaded object safely ends the wait unheld. Anything else is a
+      // fault that should surface as a 500.
+      console.error({ event: "park_failed", error: String(error) });
+      if (resetOrRetryable(error)) return waitRefused();
+      throw error;
+    }
+    if (parked === "timeout") return failure("empty");
+    // Nobody would read the answer; leave the task to the next waiter.
+    if (signal?.aborted) return failure("empty");
+    const result = await stub.own(request, caller);
+    // A full topic still makes the claim attempt (and records the poll), but
+    // an empty answer says the wait was not held.
+    if (parked === "refused") {
+      return !result.ok && result.error.code === "empty"
+        ? waitRefused()
+        : result;
+    }
+    if (result.ok || result.error.code !== "empty" || Date.now() >= deadline) {
+      return result;
+    }
+    if (round >= MAX_WAIT_ROUNDS) return waitRefused();
+  }
+}
+
 const pollerQuery = `SELECT identity, worker, last_polled_at, last_owned_at FROM pollers
   WHERE topic = ? AND last_polled_at >= ? ORDER BY identity, worker`;
 
@@ -190,6 +337,13 @@ export class DomainObject extends DurableObject<Env> {
   // The cleanup alarm reschedules itself and is never deleted, so once seen
   // it stays set for this object's lifetime.
   private alarmSet = false;
+  // Long-poll waiters are transient: they hold no task state. An evicted
+  // object drops them, and the Worker answers their failed park calls with an
+  // unheld `empty`, so clients poll again.
+  private readonly waiting = new Map<string, TopicWaiters>();
+  /** Parking limits; fields so tests can lower them. */
+  protected maxWaitersPerTopic = MAX_WAITERS_PER_TOPIC;
+  protected maxWaitersPerIdentity = MAX_WAITERS_PER_IDENTITY;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     void ctx.blockConcurrencyWhile(async () => {
@@ -223,7 +377,7 @@ export class DomainObject extends DurableObject<Env> {
     request: CreateRequest,
     caller: Caller,
   ): Promise<Result<CreateResponse>> {
-    return this.operation((now) => {
+    const result = await this.operation((now) => {
       const id = this.insertTask(
         request.topic,
         JSON.stringify(request.data),
@@ -232,9 +386,13 @@ export class DomainObject extends DurableObject<Env> {
       );
       return { ok: true, id };
     });
+    // A new task is available immediately (lease_until is in the past).
+    if (result.ok) this.notify(request.topic);
+    return result;
   }
 
-  async own(
+  /** One atomic claim attempt. The transaction is the only availability authority. */
+  private async attemptOwn(
     request: OwnRequest,
     caller: Caller,
   ): Promise<Result<RpcTaskResponse<OwnResponse>>> {
@@ -247,22 +405,7 @@ export class DomainObject extends DurableObject<Env> {
           now,
         )
         .toArray()[0];
-      // An empty poll writes nothing unless the poller row is a minute old, so
-      // idle workers do not commit storage on every poll.
-      this.ctx.storage.sql.exec(
-        `INSERT INTO pollers (topic, identity, worker, last_polled_at, last_owned_at)
-         VALUES (?, ?, ?, ?, ?) ON CONFLICT(topic, identity, worker) DO UPDATE SET
-         last_polled_at = excluded.last_polled_at,
-         last_owned_at = COALESCE(excluded.last_owned_at, pollers.last_owned_at)
-         WHERE excluded.last_owned_at IS NOT NULL
-           OR pollers.last_polled_at <= excluded.last_polled_at - ?`,
-        request.topic,
-        caller.identity,
-        caller.worker,
-        now,
-        row ? now : null,
-        POLLER_REFRESH_MS,
-      );
+      this.recordPoll(request.topic, caller, now, row !== undefined);
       if (!row) return failure("empty");
       const next: TaskRow = {
         ...row,
@@ -287,11 +430,236 @@ export class DomainObject extends DurableObject<Env> {
     });
   }
 
+  /** The earliest future lease on a topic, or undefined if none can expire. */
+  private nextLease(topic: string, now: number): number | undefined {
+    return (
+      this.ctx.storage.sql
+        .exec<{ lease_until: number | null }>(
+          "SELECT MIN(lease_until) AS lease_until FROM tasks WHERE topic = ? AND lease_until > ?",
+          topic,
+          now,
+        )
+        .one().lease_until ?? undefined
+    );
+  }
+
+  /** Claim a task at once. The Worker drives any wait with `park`. */
+  async own(
+    request: OwnRequest,
+    caller: Caller,
+  ): Promise<Result<RpcTaskResponse<OwnResponse>>> {
+    const result = await this.attemptOwn(request, caller);
+    if (result.ok) this.leaseChanged(request.topic, result.task.lease_until);
+    return result;
+  }
+
+  /**
+   * Record the poll and wait up to `waitMs` for a task to become available.
+   * It never claims: `retry` tells the Worker to make a claim call, so the
+   * SQLite transaction stays the only availability authority.
+   */
+  async park(
+    request: OwnRequest,
+    caller: Caller,
+    waitMs: number,
+  ): Promise<ParkResult> {
+    const topic = request.topic;
+    let state = this.waiting.get(topic);
+    if (
+      waitMs > 0 &&
+      ((state?.waiters.size ?? 0) >= this.maxWaitersPerTopic ||
+        (state?.identities.get(caller.identity) ?? 0) >=
+          this.maxWaitersPerIdentity)
+    ) {
+      return "refused";
+    }
+    // Register before any await, so a Create that commits meanwhile hints
+    // this waiter.
+    const waiter: Waiter = {
+      identity: caller.identity,
+      hinted: false,
+      wake: null,
+    };
+    if (!state) {
+      state = {
+        waiters: new Set(),
+        identities: new Map(),
+        timer: null,
+        at: 0,
+        checked: Date.now(),
+      };
+      this.waiting.set(topic, state);
+    }
+    state.waiters.add(waiter);
+    state.identities.set(
+      caller.identity,
+      (state.identities.get(caller.identity) ?? 0) + 1,
+    );
+    let retry = false;
+    try {
+      await this.operation((now) => {
+        this.recordPoll(topic, caller, now, false);
+        return { ok: true };
+      });
+      // Check availability and arm the lease timer in one synchronous turn
+      // after the last await, so no lease can expire between the two.
+      if (this.available(topic, Date.now(), 1) > 0) {
+        retry = true;
+      } else if (waitMs > 0) {
+        this.armLease(topic);
+        retry = await park(waiter, Math.min(waitMs, MAX_WAIT_MS));
+      }
+      return retry ? "retry" : "timeout";
+    } finally {
+      this.release(topic, waiter, retry);
+    }
+  }
+
+  /** Available tasks on a topic, counting at most `limit`. */
+  private available(topic: string, now: number, limit: number): number {
+    return this.ctx.storage.sql
+      .exec<{ available: number }>(
+        `SELECT COUNT(*) AS available FROM (SELECT 1 FROM tasks
+         WHERE topic = ? AND lease_until <= ? LIMIT ?)`,
+        topic,
+        now,
+        limit,
+      )
+      .one().available;
+  }
+
+  /**
+   * What a recheck needs about a topic's available tasks: how many leases
+   * ended after `since` (never hinted), how many tasks have been available
+   * since `stale` or earlier (their hints were lost), and when the newest
+   * other task became available. A task becomes available when it is created
+   * or when its lease ends, whichever is later; new tasks are written with a
+   * lease already in the past.
+   */
+  private recheck(
+    topic: string,
+    now: number,
+    since: number,
+    stale: number,
+  ): { expired: number; stale: number; fresh: number | null } {
+    return this.ctx.storage.sql
+      .exec<{ expired: number; stale: number; fresh: number | null }>(
+        `SELECT COALESCE(SUM(lease_until > created_at AND lease_until > ?), 0) AS expired,
+           COALESCE(SUM(available_at <= ?), 0) AS stale,
+           MIN(CASE WHEN available_at > ? THEN available_at END) AS fresh
+         FROM (SELECT created_at, lease_until,
+             MAX(created_at, lease_until) AS available_at
+           FROM tasks WHERE topic = ? AND lease_until <= ? LIMIT ?)`,
+        since,
+        stale,
+        stale,
+        topic,
+        now,
+        MAX_WAITERS_PER_TOPIC,
+      )
+      .one();
+  }
+
+  /** Remove a finished waiter, passing on a hint it received but did not use. */
+  private release(topic: string, waiter: Waiter, used: boolean): void {
+    waiter.wake = null;
+    const state = this.waiting.get(topic);
+    if (!state || !state.waiters.delete(waiter)) return;
+    const count = (state.identities.get(waiter.identity) ?? 1) - 1;
+    if (count > 0) state.identities.set(waiter.identity, count);
+    else state.identities.delete(waiter.identity);
+    if (state.waiters.size === 0) {
+      if (state.timer !== null) clearTimeout(state.timer);
+      this.waiting.delete(topic);
+    } else if (waiter.hinted && !used) {
+      this.notify(topic);
+    }
+  }
+
+  /**
+   * Wake waiters for `count` newly available tasks. One hint per task keeps a
+   * burst from waking every waiter; losers wait again for the next hint. A
+   * hint to a waiter whose Worker is gone is lost, so any delivered hint arms
+   * a recheck for a task that is still available a window later.
+   */
+  private notify(topic: string, count = 1): void {
+    const state = this.waiting.get(topic);
+    if (!state) return;
+    let delivered = false;
+    for (const waiter of state.waiters) {
+      if (count <= 0) break;
+      if (waiter.hinted) continue;
+      waiter.hinted = true;
+      waiter.wake?.();
+      delivered = true;
+      count--;
+    }
+    if (delivered) {
+      this.scheduleLease(topic, state, Date.now() + HINT_RECHECK_MS);
+    }
+  }
+
+  /** Arm the topic's lease timer if none is armed. */
+  private armLease(topic: string): void {
+    const state = this.waiting.get(topic);
+    if (!state || state.timer !== null) return;
+    this.scheduleLease(topic, state, this.nextLease(topic, Date.now()));
+  }
+
+  /** A lease on `topic` now ends at `leaseUntil`; fire no later than that. */
+  private leaseChanged(topic: string, leaseUntil: number): void {
+    const state = this.waiting.get(topic);
+    if (state) this.scheduleLease(topic, state, leaseUntil);
+  }
+
+  private scheduleLease(
+    topic: string,
+    state: TopicWaiters,
+    at: number | undefined,
+  ): void {
+    if (at === undefined || (state.timer !== null && state.at <= at)) return;
+    if (state.timer !== null) clearTimeout(state.timer);
+    state.at = at;
+    state.timer = setTimeout(
+      () => this.leaseExpired(topic, state),
+      Math.max(0, at - Date.now()),
+    );
+  }
+
+  /**
+   * One timer per topic replaces a timer per waiter: at a lease expiry, hint
+   * one waiter per lease that ended since the last check (a Create hints its
+   * own task). A task that has stayed available for a whole recheck window
+   * lost its hint to a gone Worker, and the next waiters may be gone too, so
+   * every waiter is woken rather than one more per window.
+   */
+  private leaseExpired(topic: string, state: TopicWaiters): void {
+    state.timer = null;
+    if (this.waiting.get(topic) !== state) return;
+    const now = Date.now();
+    const since = state.checked;
+    state.checked = now;
+    try {
+      const due = this.recheck(topic, now, since, now - HINT_RECHECK_MS);
+      this.notify(topic, due.stale > 0 ? state.waiters.size : due.expired);
+      this.scheduleLease(topic, state, this.nextLease(topic, now));
+      // A task whose claim may still be in flight is checked once its
+      // window has passed.
+      if (due.fresh !== null) {
+        this.scheduleLease(topic, state, due.fresh + HINT_RECHECK_MS);
+      }
+    } catch (error) {
+      // Without the counts, let every waiter retry its own claim.
+      console.error({ event: "lease_timer", topic, error: String(error) });
+      this.notify(topic, state.waiters.size);
+    }
+  }
+
   async renew(
     request: RenewRequest,
     caller: Caller,
   ): Promise<Result<RpcTaskResponse<RenewResponse>>> {
-    return this.operation((now) => {
+    const result = await this.operation((now) => {
       const row = this.findTask(request.topic, request.id);
       if (!row) return failure("not_found");
       if (!caller.operator && row.owner_identity !== caller.identity) {
@@ -306,6 +674,9 @@ export class DomainObject extends DurableObject<Env> {
       );
       return { ok: true, task: task(row, request.domain) };
     });
+    // A renewal can shorten a lease; keep the topic's expiry timer early enough.
+    if (result.ok) this.leaseChanged(request.topic, result.task.lease_until);
+    return result;
   }
 
   async read(
@@ -354,7 +725,7 @@ export class DomainObject extends DurableObject<Env> {
     request: ConsumeRequest,
     caller: Caller,
   ): Promise<Result<ConsumeResponse>> {
-    return this.operation((now) => {
+    const result = await this.operation((now) => {
       const row = this.findTask(request.topic, request.id);
       if (!row) return failure("not_found");
       if (!caller.operator && row.owner_identity !== caller.identity) {
@@ -382,6 +753,15 @@ export class DomainObject extends DurableObject<Env> {
       });
       return { ok: true, ids };
     });
+    // Successors are available immediately; wake one waiter per successor topic.
+    if (result.ok) {
+      const perTopic = new Map<string, number>();
+      for (const target of request.tasks) {
+        perTopic.set(target.topic, (perTopic.get(target.topic) ?? 0) + 1);
+      }
+      for (const [topic, count] of perTopic) this.notify(topic, count);
+    }
+    return result;
   }
 
   async topicsList(
@@ -713,6 +1093,32 @@ export class DomainObject extends DurableObject<Env> {
       this.alarmSet = true;
     }
     return result;
+  }
+
+  /**
+   * Upsert the caller's poller row. An empty poll writes nothing unless the
+   * row is a minute old, so idle workers do not commit storage on every poll.
+   */
+  private recordPoll(
+    topic: string,
+    caller: Caller,
+    now: number,
+    owned: boolean,
+  ): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO pollers (topic, identity, worker, last_polled_at, last_owned_at)
+       VALUES (?, ?, ?, ?, ?) ON CONFLICT(topic, identity, worker) DO UPDATE SET
+       last_polled_at = excluded.last_polled_at,
+       last_owned_at = COALESCE(excluded.last_owned_at, pollers.last_owned_at)
+       WHERE excluded.last_owned_at IS NOT NULL
+         OR pollers.last_polled_at <= excluded.last_polled_at - ?`,
+      topic,
+      caller.identity,
+      caller.worker,
+      now,
+      owned ? now : null,
+      POLLER_REFRESH_MS,
+    );
   }
 
   private findTask(topic: string, id: string): TaskRow | undefined {
