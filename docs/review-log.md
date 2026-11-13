@@ -540,10 +540,10 @@ Status: accepted after corrections, independent reviews and native qualification
   - ZIP `ec1a6c893278871496b09ad70df2adf55da8729c71761790a2d8e48bcd67540d`;
   - source `797b2a1a1cd082d1e32f6d02b28a2ca0654b144f3a05ed3463447e7a1282734d`;
   - wheel `b785007279ccfe0f63d2d01659ddec6107187d230ac5efa15320c4756185b949`.
-  This preflight was explicitly exported from staged reviewed changes atop
-  `e63dd87`, with dirty status recorded. Subsequent edits update acceptance
-  documentation only; package, tests, build tools and dependency bytes match
-  the qualified candidate.
+    This preflight was explicitly exported from staged reviewed changes atop
+    `e63dd87`, with dirty status recorded. Subsequent edits update acceptance
+    documentation only; package, tests, build tools and dependency bytes match
+    the qualified candidate.
 - Windows evidence, including exact commands, JUnit, all skip reasons, probe
   and full pytest logs, is preserved at
   `/mnt/c/Users/provo/AppData/Local/Temp/tasklease-win-corrected-ihut5w5o/`.
@@ -712,10 +712,10 @@ Status: accepted after corrections, independent reviews and native qualification
   and the publishing run's artifacts:
   - wheel: `3e62b9aa3a718d05ad1ff1e5f7e2f39b4ed57322422de22ec99d65fc7a80d9d7`;
   - sdist: `71f237ef37e4cdb1b978048866c32617d8f83b6b57b5e56198eb2fcaabc60015`.
-  The main README description/sdist snapshot, Apache-2.0 metadata/license,
-  full bundled third-party notices and exact tagged worker source passed
-  artifact inspection. These published files supersede the earlier draft
-  candidate distributions and hashes above.
+    The main README description/sdist snapshot, Apache-2.0 metadata/license,
+    full bundled third-party notices and exact tagged worker source passed
+    artifact inspection. These published files supersede the earlier draft
+    candidate distributions and hashes above.
 - Installed `tasklease==0.1.0` from `https://pypi.org/simple` into fresh
   environments outside the checkout on all three platforms, without cached
   package resolution. `tl --version` returned `tl 0.1.0`; help and isolated
@@ -830,10 +830,10 @@ Status: accepted after corrections, independent reviews and native qualification
 - Updated `0.2.0` artifact identities supersede the earlier candidate hashes:
   - wheel: `d030eaf3119161eed3b5b25968f0bd9c6407f5fb7f82e39525027995fa9f7c06`;
   - sdist: `f4109ee80bd98d13e1d99371f4255aade0dd748f70e0bedf5300029f37e844a5`.
-  Logs and inspection are in `/tmp/tasklease-pr8-review-fixes-check.log`,
-  `/tmp/tasklease-pr8-review-fixes-build.log` and
-  `/tmp/tasklease-pr8-review-fixes-artifacts.json`. Release acceptance and
-  publication prerequisites remain as recorded above.
+    Logs and inspection are in `/tmp/tasklease-pr8-review-fixes-check.log`,
+    `/tmp/tasklease-pr8-review-fixes-build.log` and
+    `/tmp/tasklease-pr8-review-fixes-artifacts.json`. Release acceptance and
+    publication prerequisites remain as recorded above.
 
 ### Native and live acceptance of the committed candidate (2026-11-09)
 
@@ -847,8 +847,8 @@ Status: accepted after corrections, independent reviews and native qualification
   - source tree: `28a3d045c577bbfb2622aedb784d5bef0dd7ca666d7d1f14423fa957d0c686e5`;
   - wheel: `b542c743a98d08f46c736fe7206e57ec12dc03d4d3fc270a84b1f3a7697790b9`;
   - sdist: `309148f6c2f4e4597533a815118d63614c033b2c59897c78a88f390978671cf8`.
-  These artifacts supersede the earlier candidate builds. All native reports
-  verify this exact ZIP, source commit/tree and wheel before executing tests.
+    These artifacts supersede the earlier candidate builds. All native reports
+    verify this exact ZIP, source commit/tree and wheel before executing tests.
 - Native installed-wheel acceptance passed on macOS arm64/Python 3.12.12 and
   Ubuntu 24.04.4 aarch64/Python 3.12.3: each 868 passed and three expected
   Windows-only skips. Windows 11 Pro build 26200 ARM64, using Python 3.12.12
@@ -930,11 +930,11 @@ Status: accepted after corrections, independent reviews and native qualification
   based on `16f1792`; it is not clean-commit release qualification. Build hashes:
   - wheel: `3d06c1a58926c9c2b36cecb2aa19854f4c5207adfd518ce4e38d679b117ed4e0`;
   - sdist: `322719724f83a651b848ed9d0f89bfdf1bbbcdb540426a02ee59191b55875263`.
-  Logs, artifact inspection, exported source/wheel and macOS report/JUnit are
-  retained under `python/dist/validation-0.2.0-fluxshot-review/` with SHA-256
-  manifest. Earlier native Linux/Windows, live R2/upgrade and cross-machine
-  acceptance remains bound to `d0191c4`. Refresh affected acceptance for the
-  final release candidate; publication and dated release notes remain separate.
+    Logs, artifact inspection, exported source/wheel and macOS report/JUnit are
+    retained under `python/dist/validation-0.2.0-fluxshot-review/` with SHA-256
+    manifest. Earlier native Linux/Windows, live R2/upgrade and cross-machine
+    acceptance remains bound to `d0191c4`. Refresh affected acceptance for the
+    final release candidate; publication and dated release notes remain separate.
 
 ### Acceptance refreshed for `8e30da0` (2026-11-09)
 
@@ -948,7 +948,7 @@ Status: accepted after corrections, independent reviews and native qualification
   - source tree: `2edb237c4c32429fb2cef4847b471b59c7e5a72b1fc5f459dda276a6cbda4dbd`;
   - wheel: `849ccd17851ee76141cec94396eed0fad2bde03670cff5ec3d55399475397a94`;
   - sdist: `c9461f58cf6393c70d8e67593431ceb7ef12fc7f59740fb937145c730707bd47`.
-  Package/source parity, metadata, licenses and bundled assets were inspected.
+    Package/source parity, metadata, licenses and bundled assets were inspected.
 - Fresh installed-wheel/no-Node acceptance passed on macOS arm64/Python 3.12.12
   and Ubuntu 24.04.4 aarch64/Python 3.12.3: 912 passed, three expected Windows-only
   skips each. Windows 11 Pro build 26200 ARM64 with Python 3.12.12 x64 emulation
@@ -1011,11 +1011,11 @@ Status: accepted after corrections, independent reviews and native qualification
 - Fresh PyPI metadata and downloads match that publishing run's distributions:
   - wheel: `3736e042da80adaca05fa68c8e269555fb2016fdb1a57b05c04c0af69b02e778`;
   - sdist: `f60662c5ebe7461c41ffdd99a8cc31e0a263f0384279b22f93193f8e27045f27`.
-  Wheel/sdist package bytes and metadata were inspected. Compared with the
-  accepted wheel, rebuilt differences are limited to generated bundle README
-  timestamps, source-path comments/map paths and their RECORD hashes. Worker
-  executable text after comment normalization, source-map contents/mappings,
-  Python modules, dashboard, metadata, licenses and templates match acceptance.
+    Wheel/sdist package bytes and metadata were inspected. Compared with the
+    accepted wheel, rebuilt differences are limited to generated bundle README
+    timestamps, source-path comments/map paths and their RECORD hashes. Worker
+    executable text after comment normalization, source-map contents/mappings,
+    Python modules, dashboard, metadata, licenses and templates match acceptance.
 - Exported clean tagged source with the verified publishing-run resources and
   actual downloaded PyPI wheel. Post-publication ZIP SHA-256 is
   `f3916a8cedb5d4ff5549b8b73330077c2ee1a46e36289ce96dfe165fc804f29a`;
