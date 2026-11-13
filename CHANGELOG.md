@@ -6,6 +6,8 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-12
+
 ### Added
 
 - `Own` accepts an optional `wait_seconds` from 0 to 30. With a positive
@@ -32,7 +34,6 @@ Release preparation and verification are documented in
   whole poll interval instead of polling again straight away.
 - `FakeBoard(max_waiters=...)` limits held long polls per topic, so offline
   tests can reach `wait_refused`; `0` refuses every wait.
-
 - A worker stopped (`tl worker stop`, a first signal, or `stop.set()`) while
   its Own is held does not start a task that Own returns. It renews the task
   for one second so another worker can own it almost at once, and exits.
@@ -61,6 +62,11 @@ Release preparation and verification are documented in
 - Held waiters are in memory and bounded per topic and per identity within a
   topic. A deployment or eviction ends them with an unheld `empty`, so clients
   poll again; no task state depends on them.
+- Upgrade the service before its clients: a 0.4.0 `tl worker` or requester
+  long-polls by default and so needs a 0.4.0 service. Upgrading the service
+  from 0.2.0 or 0.3.0 keeps tasks, identities and statistics; the stored data
+  format is unchanged. Python APIs keep their signatures; the new parameters
+  are optional. The bundled service reports version `0.4.0`.
 
 ## [0.3.0] - 2026-11-10
 
