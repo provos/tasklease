@@ -19,7 +19,8 @@ from tasklease import store as stores
 from tasklease.client import Client
 from tasklease.errors import Invalid, StoreError, TransportError
 from tasklease.generated import protocol as p
-from tasklease.store import Store, hash_id
+from tasklease.store import DrainResult, Store, hash_id
+from tasklease.testing import FakeBoard
 
 DOMAIN = "example/project"
 TOPIC = "work/linux"
@@ -1029,3 +1030,101 @@ def test_wait_rejects_invalid_wait_seconds(store: Store, client: Client) -> None
     for value in (-1, 31, 1.5, True):
         with pytest.raises(StoreError):
             store.wait(client, "request-1", 10, wait_seconds=value)  # type: ignore[arg-type]
+
+
+def test_poll_holds_only_its_first_own_and_saves_the_batch(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    backend.replies = [
+        task({"request_id": "message-1", "text": "first"}),
+        task({"request_id": "message-2", "text": "second"}, TASK2),
+    ]
+    assert store.poll(client, DOMAIN, REPLY) == DrainResult(2, True)
+    assert backend.owns[0]["wait_seconds"] == 30
+    # A task already queued is never delayed behind a held poll.
+    assert all("wait_seconds" not in body for body in backend.owns[1:])
+    timeout = backend.timeouts[0]
+    assert isinstance(timeout, dict) and timeout["read"] > 30
+    assert len(backend.deletes) == 2
+    first = store.reply("message-1")
+    assert first is not None and first.data["text"] == "first"
+
+
+def test_poll_after_a_held_empty_polls_again_at_once(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+
+    def full_wait() -> None:
+        clock.now += 30
+
+    backend.on_own = full_wait
+    assert store.poll(client, DOMAIN, REPLY) == DrainResult(0, True)
+
+
+def test_poll_backs_off_after_an_immediate_or_refused_empty(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    # An empty answered at once was not held, whatever the service says.
+    assert store.poll(client, DOMAIN, REPLY) == DrainResult(0, False)
+
+    def full_wait() -> None:
+        clock.now += 30
+
+    backend.on_own = full_wait
+    backend.wait_refused = True
+    assert store.poll(client, DOMAIN, REPLY) == DrainResult(0, False)
+
+
+def test_poll_zero_does_not_wait(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    assert store.poll(client, DOMAIN, REPLY, wait_seconds=0) == DrainResult(0, False)
+    assert "wait_seconds" not in backend.owns[0]
+
+
+@pytest.mark.parametrize("wait", [-1, 31, 1.5, True])
+def test_poll_refuses_an_invalid_wait(
+    store: Store, client: Client, backend: Backend, wait: object
+) -> None:
+    with pytest.raises(StoreError, match="wait_seconds"):
+        store.poll(client, DOMAIN, REPLY, wait_seconds=cast(int, wait))
+    assert backend.owns == []
+
+
+def test_poll_on_a_fake_board_takes_a_task_created_during_its_wait(
+    tmp_path: Path,
+) -> None:
+    board = FakeBoard(DOMAIN)
+    board.add_identity("listener", "listen-token", own=[REPLY])
+    board.add_identity("sender", "send-token", create=[REPLY])
+    store = Store("agent-1", tmp_path)
+
+    def send() -> None:
+        time.sleep(0.2)
+        board.client("send-token").create(
+            {
+                "domain": DOMAIN,
+                "topic": REPLY,
+                "data": {"request_id": "message-1", "text": "hello"},
+            }
+        )
+
+    with ThreadPoolExecutor(1) as pool:
+        sent = pool.submit(send)
+        result = store.poll(board.client("listen-token"), DOMAIN, REPLY)
+        sent.result()
+    # Only a held first Own can see a task created 0.2 s after it was sent.
+    assert result == DrainResult(1, True)
+    assert store.reply("message-1") is not None
+
+
+def test_poll_on_a_fake_board_reports_a_refused_wait(tmp_path: Path) -> None:
+    board = FakeBoard(DOMAIN, max_waiters=0)
+    board.add_identity("listener", "listen-token", own=[REPLY])
+    store = Store("agent-1", tmp_path)
+    result = store.poll(board.client("listen-token"), DOMAIN, REPLY)
+    assert result == DrainResult(0, False)

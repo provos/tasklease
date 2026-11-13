@@ -6,6 +6,16 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+### Added
+
+- `Store.poll(client, domain, reply_topic, *, wait_seconds=30)` drains like
+  `Store.drain`, holding the first Own on the server, for a caller that
+  drains a topic in its own loop (an inbox listener). It returns a
+  `DrainResult` of the saved count and `poll_again`: true after replies or a
+  held wait, false after an immediate empty, including a refused wait, so the
+  caller sleeps its interval rather than polling again at once.
+  `Store.drain` is unchanged.
+
 ## [0.4.0] - 2026-11-12
 
 ### Added

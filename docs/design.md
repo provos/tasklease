@@ -428,7 +428,11 @@ where `h` is the hash from spec §6.3. Every write goes through
 `publish_new`. Each folder also holds an `agent.json` with the original
 agent ID, so `tl inbox --all` and `tl monitor` can show it.
 
-`drain(client, reply_topic)` runs the own → save → delete loop. `wait(...)`
+`drain(client, reply_topic)` runs the own → save → delete loop.
+`poll(...)` runs the same loop with its first Own held on the server, and
+returns the saved count with `poll_again`, true after replies or a held wait
+and false after an immediate empty, including a refused wait, for a caller
+that drains a topic in its own loop. `wait(...)`
 checks the store, drains, then sleeps with jitter until a reply arrives or
 the timeout passes. With a long poll the first Own of each drain waits on the
 server instead, ending at least five seconds before the timeout so its answer
