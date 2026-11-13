@@ -76,9 +76,11 @@ each job's payload, handler and next step.
   cancelling a whole run (**Temporal**);
 - Python services in one network already share a broker and need task
   chains, groups or schedules (**Celery**);
-- throughput is high (thousands of messages a second), pickup must be
+- throughput is high (thousands of messages a second), every pickup must be
   sub-second, or consumers should scale automatically (**Amazon SQS**,
-  **Cloudflare Queues**);
+  **Cloudflare Queues**). A waiting worker usually gets a new task within a
+  few hundred milliseconds, but with five workers the measured p99 was about
+  2 seconds (see [Load test](#load-test));
 - you cannot use Cloudflare.
 
 ### What each option takes to run

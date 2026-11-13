@@ -917,7 +917,8 @@ tl topic declare verify/linux [--domain D] [--remove]
 
 None at the moment. Decided:
 
-- **Held requests**: not in version 1; workers poll. A possible future change
-  (§7.3).
+- **Held requests**: Own may wait up to 30 seconds for a task
+  (`wait_seconds`, §4.2); waiters are held in memory and bounded, and a wait
+  keeps the domain resident (§7.3). Push to workers remains a non-goal (§1).
 - **Blob retention**: 7 days (§8).
 - **Access**: bearer tokens only (§3).
