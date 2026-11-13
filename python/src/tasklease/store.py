@@ -63,6 +63,13 @@ def _name(value: object, *, domain: bool = False) -> str:
     return cast(str, value)
 
 
+def _check_wait(wait_seconds: object) -> None:
+    if type(wait_seconds) is not int or not 0 <= wait_seconds <= MAX_WAIT_SECONDS:
+        raise StoreError(
+            f"wait_seconds must be an integer from 0 to {MAX_WAIT_SECONDS}"
+        )
+
+
 def _integer(value: object) -> int:
     if type(value) is not int:
         raise StoreError("Invalid timestamp in requester state")
@@ -162,6 +169,18 @@ class RequestRecord:
 
     def to_dict(self) -> dict[str, object]:
         return self.as_dict()
+
+
+@dataclass(frozen=True)
+class DrainResult:
+    """What one :meth:`Store.poll` saved, and how to schedule the next."""
+
+    saved: int
+    """Replies durably saved by this poll."""
+    poll_again: bool
+    """True to poll again at once: replies arrived, or the service held the
+    wait. False after an immediate empty, including a refused wait
+    (``Empty.wait_refused``): sleep the caller's interval first."""
 
 
 @dataclass(frozen=True)
@@ -497,6 +516,30 @@ class Store:
         self._automatic_prune()
         return self._drain(client, domain, reply_topic)[0]
 
+    def poll(
+        self,
+        client: Client,
+        domain: str,
+        reply_topic: str,
+        *,
+        wait_seconds: int = MAX_WAIT_SECONDS,
+    ) -> DrainResult:
+        """Drain like :meth:`drain`, holding the first Own on the server.
+
+        For a caller that drains a topic in its own loop, such as a listener
+        on an inbox: the first Own waits up to ``wait_seconds`` for a task
+        (zero does not wait), and the rest of the batch never waits. The
+        result says whether to poll again at once or sleep first, so a
+        refused wait (the topic's waiter limit, a deployment) does not spin.
+        """
+        _check_wait(wait_seconds)
+        domain, reply_topic = _name(domain, domain=True), _name(reply_topic)
+        self._automatic_prune()
+        saved, again = self._drain(
+            client, domain, reply_topic, wait_seconds=wait_seconds
+        )
+        return DrainResult(saved, again)
+
     def wait(
         self,
         client: Client,
@@ -524,10 +567,7 @@ class Store:
             raise StoreError(
                 "maximum poll interval must be a positive finite number of seconds"
             )
-        if type(wait_seconds) is not int or not 0 <= wait_seconds <= MAX_WAIT_SECONDS:
-            raise StoreError(
-                f"wait_seconds must be an integer from 0 to {MAX_WAIT_SECONDS}"
-            )
+        _check_wait(wait_seconds)
         delay = poll_interval
         failing_since: float | None = None
         deadline = time.monotonic() + timeout_seconds
