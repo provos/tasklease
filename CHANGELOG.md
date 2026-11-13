@@ -6,6 +6,8 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-12
+
 ### Added
 
 - `Store.poll(client, domain, reply_topic, *, wait_seconds=30)` drains like
@@ -15,6 +17,15 @@ Release preparation and verification are documented in
   held wait, false after an immediate empty, including a refused wait, so the
   caller sleeps its interval rather than polling again at once.
   `Store.drain` is unchanged.
+
+### Compatibility and deployment
+
+- No service upgrade is required: `Store.poll` uses 0.4.0's long-poll Own.
+  Against a service older than 0.4.0, a positive `wait_seconds` raises
+  `WaitUnsupported` as `Store.wait` does; `wait_seconds=0` works with any
+  service. Protocol `/v1/`, the CLI and existing Python APIs are unchanged.
+  The bundled service reports version `0.4.1` and is otherwise the 0.4.0
+  service.
 
 ## [0.4.0] - 2026-11-12
 
