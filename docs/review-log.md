@@ -1085,3 +1085,49 @@ Status: accepted after corrections, independent reviews and native qualification
   `python/dist/publication-0.3.0-cfaecf3/evidence.zip` contains 156 files plus
   a SHA-256 manifest and passed recursive credential scanning. Its SHA-256 is
   `b233fe08a9d6e1d0bc1359cf92f2e56706c6fd20a66144ee785c497c749c1f67`.
+
+## 0.4.0 acceptance and publication (2026-11-12)
+
+- Release commit `158a288faf539c899a9d758110d5639d1cc437e2` adds long-poll
+  Own from PR #11. Clean `make install`, `make check` and `make build` passed,
+  including 213 Worker, 32 dashboard, 1,128 Python/tooling and 415
+  conformance tests. The Python and conformance suites had three and 36
+  expected skips, respectively.
+- The installed candidate wheel passed 1,035 native tests on macOS and Linux
+  with three expected skips each, and 1,020 on Windows with 18 expected skips.
+  The Windows VM refused every outbound connection, so its dependencies came
+  from a wheelhouse resolved on the host under the same seven-day cutoff; no
+  guest setting was changed.
+- Live checks reused the acceptance Worker: it was redeployed from published
+  0.3.0 and upgraded in place, so a fresh bootstrap from the prior release
+  was not repeated. The upgrade preserved a task held for an hour, identity
+  credentials and statistics, and stale IDs stayed fenced. The new client
+  against 0.3.0 raised `WaitUnsupported` naming 0.3.0 and worked with
+  `wait_seconds = 0`; the 0.3.0 client worked against 0.4.0. An empty long
+  poll answered after 5.2 s, a task created during a held poll was picked up
+  0.14 s later, and the R2 file helpers round-tripped. See the
+  [candidate report](acceptance/0.4.0.json).
+- The annotated `v0.4.0` tag identifies the accepted commit. Both the
+  [build-only rehearsal](https://github.com/provos/tasklease/actions/runs/43348653149)
+  and [trusted publishing run](https://github.com/provos/tasklease/actions/runs/43349215299)
+  succeeded. PyPI's wheel and sdist matched the publishing artifacts byte for
+  byte. The rehearsal wheel differed from the candidate only in the bundle's
+  source-path comments, its source map, a build timestamp and RECORD.
+- Fresh PyPI installations passed the same native test counts on Linux and
+  Windows; Windows installed the PyPI wheel offline after a SHA-256 check. On
+  macOS the local safe-chain `uv` shim withholds versions younger than its
+  minimum age, so the native suite was not rerun from the index. A macOS
+  PyPI install was verified byte for byte against the published wheel and
+  ran a verified deployment of the acceptance Worker, including its task and
+  R2 checks.
+- Temporary identities were revoked; the acceptance Worker runs 0.4.0. The
+  fluxshot service `fse-tasklease` runs the 0.4.0 service built from PR #11's
+  head, whose service code matches the release. The
+  [GitHub Release](https://github.com/provos/tasklease/releases/tag/v0.4.0)
+  uses the finalized changelog text.
+- The [publication report](acceptance/0.4.0-publication.json) records the
+  published distribution hashes, native results and cleanup. The local archive
+  `python/dist/acceptance-0.4.0-158a288/evidence.zip` contains 76 files plus
+  a SHA-256 manifest and passed credential scanning against the actual
+  private values. Its SHA-256 is
+  `90956da3836d3c58dc71873e4826aa582b4cfd4d5bdb1d5b9ebfef5d545e5c65`.

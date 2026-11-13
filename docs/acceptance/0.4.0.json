@@ -1,0 +1,117 @@
+{
+  "version": "0.4.0",
+  "status": "passed",
+  "date": "2026-11-12",
+  "date_timezone": "America/Los_Angeles",
+  "source_commit": "158a288faf539c899a9d758110d5639d1cc437e2",
+  "source_dirty": false,
+  "wheel_sha256": "b86751e551d0f7867490c55223741ddcf6f2e872d314e402e39a1ccc50f3941c",
+  "sdist_sha256": "98cbbe7caeef2084a1587cc2d6a916142740ae193151961ea885470535963627",
+  "acceptance_zip_sha256": "4e860edcf6d60a19ae362469a00c66bfaf54f7eb4b427fba12aac7d14aef9d5e",
+  "clean_checkout_gates": {
+    "install": "passed",
+    "check": "passed",
+    "build": "passed",
+    "worker_passed": 213,
+    "dashboard_passed": 32,
+    "python_tooling_passed": 1128,
+    "python_skipped": 3,
+    "conformance_passed": 415,
+    "conformance_skipped": 36
+  },
+  "native": {
+    "macos": {
+      "report": "macos/native-report.json",
+      "platform": "macOS-27.0-arm64-arm-64bit",
+      "python": "3.12.12",
+      "python_build_platform": "macosx-11.0-arm64",
+      "installation_source": "accepted wheel",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "tests": 1038,
+        "passed": 1035,
+        "skipped": 3,
+        "failures": 0,
+        "errors": 0
+      },
+      "skip_reasons": [
+        "Native Windows Task Scheduler COM",
+        "Native Windows file sharing"
+      ]
+    },
+    "linux": {
+      "report": "linux/native-report.json",
+      "platform": "Linux-6.17.0-1029-nvidia-aarch64-with-glibc2.39",
+      "python": "3.12.3",
+      "python_build_platform": "linux-aarch64",
+      "installation_source": "accepted wheel",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "tests": 1038,
+        "passed": 1035,
+        "skipped": 3,
+        "failures": 0,
+        "errors": 0
+      },
+      "skip_reasons": [
+        "Native Windows Task Scheduler COM",
+        "Native Windows file sharing"
+      ]
+    },
+    "windows": {
+      "report": "windows/native-report.json",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.12.12",
+      "python_build_platform": "win-amd64",
+      "installation_source": "accepted wheel",
+      "installed_wheel_no_node": "passed",
+      "tests": {
+        "tests": 1038,
+        "passed": 1020,
+        "skipped": 18,
+        "failures": 0,
+        "errors": 0
+      },
+      "skip_reasons": [
+        "Darwin flush uses POSIX fcntl",
+        "POSIX signals; Windows uses stop files",
+        "POSIX supports unprivileged symlinks",
+        "POSIX symlinks and permissions",
+        "POSIX token permission bits",
+        "Windows denies unlink of an open file"
+      ],
+      "dependency_source": "offline wheelhouse resolved on the host",
+      "cleanup": {
+        "leftover_python_count": 0,
+        "execution_policy": "Restricted"
+      }
+    }
+  },
+  "windows_network": "The VM refused every outbound connection (WinError 10013); dependencies came from a wheelhouse resolved on the host under the same seven-day cutoff, and no guest setting was changed.",
+  "prior_version": "0.3.0",
+  "live_target": "Existing acceptance Worker tasklease-acceptance-90d25ae, redeployed from published 0.3.0 and upgraded in place; no temporary Worker was created, so a fresh bootstrap from the prior release was not repeated.",
+  "live_checks": {
+    "published_prior_deploy_verified": true,
+    "exact_installed_candidate_wheel_bytes": true,
+    "new_client_old_service_wait_unsupported": true,
+    "new_client_old_service_without_wait": true,
+    "upgrade_exact_task_credentials_stats_preserved": true,
+    "stale_id_fencing_after_upgrade": true,
+    "long_poll_live": true,
+    "public_blob_helpers_live_r2": true,
+    "old_client_new_service": true,
+    "temporary_identities_revoked": true
+  },
+  "long_poll": {
+    "empty_wait_seconds": 5.2,
+    "pickup_after_create_seconds": 0.14
+  },
+  "wait_unsupported_message": "The tasklease service (version 0.3.0) rejected Own's wait_seconds: long-polling needs service 0.4.0 or later. Upgrade the service, or disable long-polling with wait_seconds = 0 (--wait-seconds 0; in the config, [worker] wait_seconds for tl worker and top-level wait_seconds for tl request and tl wait). A direct Client.own call must omit wait_seconds.",
+  "cleanup": {
+    "temporary_identities_revoked": true,
+    "acceptance_worker_left_on": "0.4.0"
+  },
+  "evidence_archive": "python/dist/acceptance-0.4.0-158a288/evidence.zip",
+  "evidence_archive_sha256": "90956da3836d3c58dc71873e4826aa582b4cfd4d5bdb1d5b9ebfef5d545e5c65",
+  "secret_scan_passed": true
+}
