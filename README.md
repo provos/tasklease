@@ -319,6 +319,21 @@ the message and request ID. Custom handlers are an importable
 `WorkerLoop.step()` also supports an externally held capacity lock;
 `WorkerLoop.run()` acquires capacity before Own.
 
+Any identity allowed to create on a reply topic can post a task whose
+`data.request_id` names your request. The service stamps each task's
+`creator` from the caller's identity, so a requester that knows who should
+answer can name it:
+
+```python
+store.submit(client, domain, topic, reply_topic, data, reply_from="linux-1")
+```
+
+A reply from any other creator is saved under `refused/` and never takes the
+request's reply slot, so the genuine reply is still saved and returned by
+`store.reply()` and `store.wait()`. List refused replies with
+`store.refused(request_id)`; `tl inbox` shows them with `"refused": true`.
+Without `reply_from`, the first reply saved for a request ID is its answer.
+
 Gracefully stop the worker on its machine with
 `tl --worker echo-on-this-machine worker stop`. Platform startup templates
 and installation instructions are in [deploy/](deploy/README.md).

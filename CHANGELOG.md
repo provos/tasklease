@@ -6,6 +6,41 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+### Added
+
+- `Store.submit(..., reply_from="<identity>")` names the identity expected
+  to answer a request, and saves it in the request record. A reply whose
+  `creator` (stamped by the service from the caller's identity, so it cannot
+  be forged) is any other identity is saved under `refused/<task_id>.json`
+  instead of taking the request's reply slot, and is still deleted from the
+  service only after it is saved. The genuine reply that follows is saved
+  and returned by `Store.reply()` and `Store.wait()`. It holds in every
+  process that drains the topic, since the expectation is in the saved
+  request, not in a call. `Store.refused(request_id=None)` lists refused
+  replies; `Store.inbox()` and `tl inbox` include them, marked
+  `"refused": true`, and `prune` expires them after seven days. The new
+  `ReplyRecord.refused` field and `RequestRecord.reply_from` appear in
+  `as_dict()` only when set.
+- With `reply_from`, only that creator's reply counts as the request's
+  answer, in `Store.reply()`, `Store.wait()` and the request state. A reply
+  saved under the same ID by someone else, such as a message the agent
+  received, no longer blocks `Store.submit` for that ID, so one store can hold
+  a request it sends and a message it receives under the same ID.
+
+### Fixed
+
+- A reply from the wrong creator could take a request's reply slot, so the
+  genuine reply that followed was taken for a duplicate and deleted unseen
+  (provos/tasklease#17). Use `reply_from` to prevent it.
+
+### Compatibility and deployment
+
+- No service upgrade is required. Requests submitted without `reply_from`
+  behave exactly as before, and their saved files are unchanged. Protocol
+  `/v1/` and the `tl` commands are unchanged; `tl request` does not yet take
+  `reply_from`. A store written with `reply_from` is not read correctly by an
+  older Python package: it would count any reply as the answer.
+
 ## [0.4.1] - 2026-11-12
 
 ### Added

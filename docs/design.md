@@ -423,8 +423,8 @@ several processes publish the same path and exactly one sees `created`.
 
 The local request records and reply store from spec §6.3, under the
 platform's user data folder (`platformdirs.user_data_path("tasklease")`):
-`requests/h(agent)/`, `replies/h(agent)/`, `replies/h(agent)/unmatched/`,
-where `h` is the hash from spec §6.3. Every write goes through
+`requests/h(agent)/`, `replies/h(agent)/`, `replies/h(agent)/unmatched/` and
+`replies/h(agent)/refused/`, where `h` is the hash from spec §6.3. Every write goes through
 `publish_new`. Each folder also holds an `agent.json` with the original
 agent ID, so `tl inbox --all` and `tl monitor` can show it.
 
@@ -453,13 +453,26 @@ Names are hashed (spec §6.3): `A = h(agent_id)`, `R = h(request_id)`.
 |---|---|
 | submission unknown | `requests/A/R.json`, no `requests/A/R.task.json`, no `replies/A/R.json` |
 | pending | `requests/A/R.json` and `R.task.json`, no `replies/A/R.json` |
-| answered | `replies/A/R.json` exists |
+| answered | `replies/A/R.json` exists (with `reply_from` = `C`: `replies/A/R-h(C).json` exists) |
 | cancelled | the request record was deleted by `tl cancel` |
 
 `tl wait` leaves the request record in place: the reply's existence already
 says "answered". `tl cancel` deletes the record after a successful Delete.
 
-**Pruning.** Request records, replies and unmatched replies older than 7 days
+**Who may answer.** `submit(..., reply_from=C)` saves `C` in the request
+record, so every process that drains the topic applies it, with no hook in
+each call. A reply whose `creator` is `C` is saved as `R-h(C).json`; any
+other creator's reply goes to `refused/<task_id>.json` (read it with
+`refused(request_id=None)` or `inbox()`, where it is marked `refused`) and
+never takes the slot, so the genuine reply is still saved and returned by
+`reply()` and `wait()`. Both files are published before the Delete, and a
+repeat delivery of either is a duplicate. The service stamps `creator`, so the
+sender cannot choose it. Only replies from `C` count as the answer: a message
+the agent received under the same ID does not block `submit` and is not
+returned by `wait`. Without `reply_from` the first reply saved for `R` wins,
+as before.
+
+**Pruning.** Request records, replies, unmatched and refused replies older than 7 days
 are removed, the same retention as the blobs replies point to. `tl inbox
 --prune` does it on demand, and `drain` does it at most once a day.
 
@@ -638,7 +651,7 @@ anything broken?" before anything else:
   state: queued with its position, running and on which worker, lapsed,
   unconfirmed, or queued with no live worker.
 
-Below them: the inbox (including unmatched replies) and throughput and
+Below them: the inbox (including unmatched and refused replies) and throughput and
 latency per topic and hour (created / consumed, average and maximum wait
 and run times, re-owns and empty polls), as small inline SVG charts with no
 chart library.
