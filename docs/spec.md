@@ -617,7 +617,8 @@ are always well-formed and unique for the agent.
 
 - `tl wait --request-id …` picks up an earlier request.
 - `tl cancel --request-id …` deletes a request no worker has taken yet.
-- `tl inbox` lists every reply in the local store, including unmatched ones.
+- `tl inbox` lists every reply in the local store, including unmatched and
+  refused ones (a refused reply is marked `"refused": true`).
 
 **File names.** The local stores live in the platform's user data folder.
 Request IDs and agent IDs never become file or folder names directly: on
@@ -665,6 +666,15 @@ replies on the agent's machine, in `replies/h(agent)/`. Each pass:
    - Write it with `publish_new` (below). If the name is already taken, the
      reply is a duplicate (from a retried Create, §5): it is dropped, and the
      existing file stays.
+   - A request may name the identity that is expected to answer it
+     (`reply_from`, saved in the request record). Then a reply whose
+     `creator` is that identity is saved as `h(request_id)-h(creator).json`,
+     and a reply from any other creator is saved as `refused/<task_id>.json`
+     instead. A refused reply never takes the request's reply slot, so the
+     genuine reply that follows is still saved. A duplicate of a refused reply
+     (the same task ID) is dropped like any other duplicate. `creator` is
+     stamped by the service from the caller's identity and cannot be set by
+     the sender, so this check needs nothing from the reply's data.
 3. `delete` the task, using the ID that `own` returned.
 
 **`publish_new(path, bytes) → created | exists`.** Every immutable data file
@@ -699,14 +709,18 @@ atomically, lets several CLI processes for the same agent drain and read at
 once with no lock. `wait` checks the store for `h(request_id).json` first,
 then drains, then sleeps and repeats.
 
-The CLI does not second-guess who sent a reply. Any identity with `create` on
-the reply topic is trusted to answer (§3). Workers' answers, and especially
-an adviser's model output, are information for the agent to weigh, not
-instructions to follow.
+Without `reply_from`, the CLI does not second-guess who sent a reply. Any
+identity with `create` on the reply topic is trusted to answer (§3), and the
+first reply saved for a request ID is its answer. A requester that knows who
+should answer says so in `reply_from` (the Python `Store.submit` takes it; the
+`tl` commands do not yet), so that another identity's reply to the same ID
+cannot take the answer's place. Workers' answers, and especially an adviser's
+model output, are information for the agent to weigh, not instructions to
+follow.
 
 Replies to abandoned requests now pile up in the local store, not in the
 service, and the operator CLI cannot see them. So the CLI prunes the local
-store itself: request records, replies and unmatched replies older than 7
+store itself: request records, replies, unmatched and refused replies older than 7
 days are removed (the same retention as blobs, §8), at most once a day while
 draining, or on demand with `tl inbox --prune`.
 
@@ -722,7 +736,10 @@ A request's state is read from the files:
   duplicate. Resend is limited to this state; a pending request already has a
   known task ID, and an answered request needs no new submission.
 - *pending*: the record and its `.task.json` exist, with no reply.
-- *answered*: the reply exists.
+- *answered*: the reply exists. With `reply_from`, only a reply from that
+  creator counts: a reply saved under the same ID by anyone else (a message
+  the agent received, or a refused reply) does not make the request answered,
+  and does not stop the same agent from submitting a request under that ID.
 
 `tl cancel` deletes the record and its `.task.json` after a successful
 Delete.

@@ -24,7 +24,14 @@ from tasklease import fsio
 from tasklease.client import MAX_WAIT_SECONDS, Client
 from tasklease.errors import Empty, NotFound, StoreError, TransportError
 from tasklease.generated import protocol as p
-from tasklease.names import is_domain, is_request_id, is_segment, is_task_id, is_topic
+from tasklease.names import (
+    is_domain,
+    is_identity,
+    is_request_id,
+    is_segment,
+    is_task_id,
+    is_topic,
+)
 
 type RequestState = Literal["submission_unknown", "pending", "answered"]
 type CancelResult = Literal["cancelled", "not_found", "submission_unknown"]
@@ -148,9 +155,10 @@ class RequestRecord:
     data: dict[str, object]
     task_id: str | None = None
     state: RequestState = "submission_unknown"
+    reply_from: str | None = None
 
     def _intent(self) -> dict[str, object]:
-        return {
+        intent: dict[str, object] = {
             "request_id": self.request_id,
             "domain": self.domain,
             "topic": self.topic,
@@ -158,6 +166,9 @@ class RequestRecord:
             "created_at": self.created_at,
             "data": self.data,
         }
+        if self.reply_from is not None:
+            intent["reply_from"] = self.reply_from
+        return intent
 
     def as_dict(self) -> dict[str, object]:
         return dict(
@@ -185,7 +196,11 @@ class DrainResult:
 
 @dataclass(frozen=True)
 class ReplyRecord:
-    """The first durably published reply for a correlation ID."""
+    """The first durably published reply for a correlation ID.
+
+    ``refused`` marks a reply whose creator was not the one its request named
+    (``reply_from``): it is kept apart, never answers the request.
+    """
 
     agent_id: str
     task_id: str
@@ -195,6 +210,7 @@ class ReplyRecord:
     received_at: int
     data: dict[str, object]
     request_id: str | None
+    refused: bool = False
 
     def _saved(self) -> dict[str, object]:
         return {
@@ -207,7 +223,10 @@ class ReplyRecord:
         }
 
     def as_dict(self) -> dict[str, object]:
-        return dict(self._saved(), agent_id=self.agent_id, request_id=self.request_id)
+        result = dict(self._saved(), agent_id=self.agent_id, request_id=self.request_id)
+        if self.refused:
+            result["refused"] = True
+        return result
 
     def to_dict(self) -> dict[str, object]:
         return self.as_dict()
@@ -230,6 +249,7 @@ class Store:
         self.request_directory = self.root / "requests" / hash_id(agent_id)
         self.reply_directory = self.root / "replies" / hash_id(agent_id)
         self.unmatched_directory = self.reply_directory / "unmatched"
+        self.refused_directory = self.reply_directory / "refused"
         found_metadata = False
         for directory in (self.request_directory, self.reply_directory):
             path = directory / "agent.json"
@@ -254,6 +274,13 @@ class Store:
     def _reply_path(self, request_id: str) -> Path:
         return self.reply_directory / f"{hash_id(_request_id(request_id))}.json"
 
+    def _answer_path(self, request_id: str, creator: str) -> Path:
+        name = f"{hash_id(_request_id(request_id))}-{hash_id(creator)}.json"
+        return self.reply_directory / name
+
+    def _refused_path(self, task_id: str) -> Path:
+        return self.refused_directory / f"{task_id}.json"
+
     def _parse_intent(self, value: dict[str, object]) -> RequestRecord:
         request_id = _request_id(value.get("request_id"))
         reply_topic = _name(value.get("reply_topic"))
@@ -263,6 +290,9 @@ class Store:
             or data.get("reply_topic") != reply_topic
         ):
             raise StoreError("Request payload does not match its saved coordinates")
+        reply_from = value.get("reply_from")
+        if "reply_from" in value and not is_identity(reply_from):
+            raise StoreError("Invalid reply_from in requester state")
         return RequestRecord(
             self.agent_id,
             request_id,
@@ -271,9 +301,12 @@ class Store:
             reply_topic,
             _integer(value.get("created_at")),
             data,
+            reply_from=reply_from if isinstance(reply_from, str) else None,
         )
 
-    def _parse_reply(self, value: dict[str, object]) -> ReplyRecord:
+    def _parse_reply(
+        self, value: dict[str, object], *, refused: bool = False
+    ) -> ReplyRecord:
         data = _object(value.get("data"))
         correlation = data.get("request_id")
         request_id = correlation if is_request_id(correlation) else None
@@ -289,31 +322,56 @@ class Store:
             _integer(value.get("received_at")),
             data,
             request_id,
+            refused,
         )
 
-    def reply(self, request_id: str) -> ReplyRecord | None:
-        value = _read(self._reply_path(request_id))
+    def _reply_for(self, request_id: str, reply_from: str | None) -> ReplyRecord | None:
+        """The saved reply that answers a request, given who may answer it.
+
+        Without ``reply_from`` it is the first reply saved for the ID. With it,
+        only that creator's reply counts, so a reply saved earlier under the
+        same ID by anyone else (a received message, for one) is not an answer.
+        """
+        path = (
+            self._reply_path(request_id)
+            if reply_from is None
+            else self._answer_path(request_id, reply_from)
+        )
+        value = _read(path)
         if value is None:
             return None
         result = self._parse_reply(value)
-        if result.request_id != request_id:
+        if result.request_id != request_id or (
+            reply_from is not None and result.creator != reply_from
+        ):
             raise StoreError("Reply correlation does not match its storage name")
         return result
 
-    def request(self, request_id: str) -> RequestRecord | None:
+    def reply(self, request_id: str) -> ReplyRecord | None:
+        """The reply that answers ``request_id``, if it has been saved."""
+        intent = self._saved_intent(request_id)
+        return self._reply_for(
+            request_id, None if intent is None else intent.reply_from
+        )
+
+    def _saved_intent(self, request_id: str) -> RequestRecord | None:
         value = _read(self._request_path(request_id))
         if value is None:
             return None
         record = self._parse_intent(value)
         if record.request_id != request_id:
             raise StoreError("Request correlation does not match its storage name")
-        return self._request_state(record)
+        return record
+
+    def request(self, request_id: str) -> RequestRecord | None:
+        record = self._saved_intent(request_id)
+        return None if record is None else self._request_state(record)
 
     def _request_state(self, record: RequestRecord) -> RequestRecord:
         sidecar = _read(self._task_path(record.request_id))
         task_id = None if sidecar is None else _task_id(sidecar.get("task_id"))
         state: RequestState = "submission_unknown" if task_id is None else "pending"
-        if self.reply(record.request_id) is not None:
+        if self._reply_for(record.request_id, record.reply_from) is not None:
             state = "answered"
         return replace(record, task_id=task_id, state=state)
 
@@ -347,9 +405,19 @@ class Store:
         reply_topic: str,
         data: Mapping[str, object],
         request_id: str | None = None,
+        reply_from: str | None = None,
     ) -> RequestRecord:
-        """Publish the exact intent before Create; duplicate IDs never repost."""
+        """Publish the exact intent before Create; duplicate IDs never repost.
+
+        ``reply_from`` names the identity expected to answer. It is saved in
+        the intent, so every process that drains the reply topic honours it: a
+        reply from any other creator is saved apart and never takes the
+        request's reply slot (``refused``). The service stamps ``creator``
+        from the caller's identity, so a sender cannot choose it.
+        """
         request_id = _request_id(uuid4().hex if request_id is None else request_id)
+        if reply_from is not None and not is_identity(reply_from):
+            raise StoreError("reply_from must be an identity name")
         domain, topic, reply_topic = (
             _name(domain, domain=True),
             _name(topic),
@@ -370,19 +438,21 @@ class Store:
             reply_topic,
             int(time.time() * 1000),
             payload,
+            reply_from=reply_from,
         )
         if self.request(request_id) is None and (
-            self.reply(request_id) is not None
+            self._reply_for(request_id, reply_from) is not None
             or _read(self._task_path(request_id)) is not None
         ):
             raise StoreError("request_id already has saved reply or task metadata")
         path = self._request_path(request_id)
         if _publish(path, record._intent()) == "exists":
             saved = self._required_request(request_id)
-            if (saved.domain, saved.topic, saved.reply_topic) != (
+            if (saved.domain, saved.topic, saved.reply_topic, saved.reply_from) != (
                 domain,
                 topic,
                 reply_topic,
+                reply_from,
             ) or _encode(saved.data) != _encode(payload):
                 raise StoreError("request_id already belongs to a different request")
             return saved
@@ -424,11 +494,9 @@ class Store:
                 "data": task.get("data"),
             }
         )
-        path = (
-            self._reply_path(record.request_id)
-            if record.request_id is not None
-            else self.unmatched_directory / f"{record.task_id}.json"
-        )
+        path, refused = self._destination(record)
+        if refused:
+            record = replace(record, refused=True)
         if _publish(path, record._saved()) == "created":
             return record
         # An existing file is safe to acknowledge only when it is readable and
@@ -436,12 +504,24 @@ class Store:
         existing = _read(path)
         if existing is None:
             raise StoreError("Saved reply disappeared after publication")
-        previous = self._parse_reply(existing)
+        previous = self._parse_reply(existing, refused=refused)
+        by_task = record.request_id is None or refused
         if previous.request_id != record.request_id or (
-            record.request_id is None and previous.task_id != record.task_id
+            by_task and previous.task_id != record.task_id
         ):
             raise StoreError("Reply correlation does not match its storage name")
         return previous
+
+    def _destination(self, record: ReplyRecord) -> tuple[Path, bool]:
+        """Where a reply is saved, and whether its request refuses the creator."""
+        if record.request_id is None:
+            return self.unmatched_directory / f"{record.task_id}.json", False
+        intent = self._saved_intent(record.request_id)
+        if intent is None or intent.reply_from is None:
+            return self._reply_path(record.request_id), False
+        if record.creator == intent.reply_from:
+            return self._answer_path(record.request_id, record.creator), False
+        return self._refused_path(record.task_id), True
 
     def _drain(
         self,
@@ -624,9 +704,13 @@ class Store:
             delay = min(delay * 1.5, max(poll_interval, max_poll_interval))
         return None
 
-    def inbox(self) -> list[ReplyRecord]:
-        result: list[ReplyRecord] = []
-        for directory in (self.reply_directory, self.unmatched_directory):
+    def _stored(self) -> list[tuple[Path, ReplyRecord]]:
+        result: list[tuple[Path, ReplyRecord]] = []
+        for directory in (
+            self.reply_directory,
+            self.unmatched_directory,
+            self.refused_directory,
+        ):
             for path in _files(directory):
                 if (
                     path.name == "agent.json"
@@ -637,20 +721,46 @@ class Store:
                 value = _read(path)
                 if value is None:
                     continue
-                record = self._parse_reply(value)
-                expected = (
-                    f"{record.task_id}.json"
-                    if record.request_id is None
-                    else f"{hash_id(record.request_id)}.json"
+                record = self._parse_reply(
+                    value, refused=directory == self.refused_directory
                 )
-                if path.name != expected or (directory == self.unmatched_directory) != (
-                    record.request_id is None
-                ):
+                if not self._stored_name_matches(directory, path, record):
                     raise StoreError(
                         "Reply correlation does not match its storage name"
                     )
-                result.append(record)
-        return sorted(result, key=lambda record: (record.received_at, record.task_id))
+                result.append((path, record))
+        return result
+
+    def _stored_name_matches(
+        self, directory: Path, path: Path, record: ReplyRecord
+    ) -> bool:
+        if directory == self.unmatched_directory:
+            return record.request_id is None and path.name == f"{record.task_id}.json"
+        if record.request_id is None:
+            return False
+        if directory == self.refused_directory:
+            return path.name == f"{record.task_id}.json"
+        return path in (
+            self._reply_path(record.request_id),
+            self._answer_path(record.request_id, record.creator),
+        )
+
+    def inbox(self) -> list[ReplyRecord]:
+        """Every saved reply: answers, unmatched and refused ones, oldest first."""
+        return sorted(
+            (record for _, record in self._stored()),
+            key=lambda record: (record.received_at, record.task_id),
+        )
+
+    def refused(self, request_id: str | None = None) -> list[ReplyRecord]:
+        """Replies refused because their creator was not the request's
+        ``reply_from``, for one request or for all, oldest first."""
+        return [
+            record
+            for record in self.inbox()
+            if record.refused
+            and (request_id is None or record.request_id == request_id)
+        ]
 
     def requests(self) -> list[RequestRecord]:
         return sorted(
@@ -702,18 +812,14 @@ class Store:
                 if value is not None:
                     _task_id(value.get("task_id"))
                     count += _remove(path)
-        for reply in self.inbox():
+        for path, reply in self._stored():
             if reply.received_at < cutoff:
-                path = (
-                    self._reply_path(reply.request_id)
-                    if reply.request_id is not None
-                    else self.unmatched_directory / f"{reply.task_id}.json"
-                )
                 count += _remove(path)
         for directory in (
             self.request_directory,
             self.reply_directory,
             self.unmatched_directory,
+            self.refused_directory,
         ):
             try:
                 count += fsio.cleanup_temporary_files(directory, before=now - 86400)

@@ -11,6 +11,7 @@ from typing import TypeGuard
 
 _PATH = re.compile(r"[a-z0-9._-]+(?:/[a-z0-9._-]+)*")
 _SEGMENT = re.compile(r"[a-z0-9._-]{1,128}")
+_IDENTITY = re.compile(r"[a-z0-9-]{1,64}")
 _WORKER_LABEL = re.compile(r"[A-Za-z0-9._-]{1,256}")
 _TASK_ID = re.compile(r"t_[0-7][0-9A-HJKMNP-TV-Z]{25}")
 _TOPIC_GLOB = re.compile(r"[a-z0-9.*_-]+(?:/[a-z0-9.*_-]+)*")
@@ -42,6 +43,11 @@ def is_topic(value: object) -> TypeGuard[str]:
 def is_segment(value: object) -> TypeGuard[str]:
     """One topic segment, as used for agent IDs."""
     return isinstance(value, str) and _SEGMENT.fullmatch(value) is not None
+
+
+def is_identity(value: object) -> TypeGuard[str]:
+    """An identity name, as the service stamps it into a task's ``creator``."""
+    return isinstance(value, str) and _IDENTITY.fullmatch(value) is not None
 
 
 def is_worker_label(value: object) -> TypeGuard[str]:

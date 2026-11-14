@@ -27,14 +27,17 @@ TOPIC = "work/linux"
 REPLY = "replied/agent-1"
 TASK = "t_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 TASK2 = "t_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+TASK3 = "t_01ARZ3NDEKTSV4RRFFQ69G5FAX"
 
 
-def task(data: dict[str, object], task_id: str = TASK) -> dict[str, object]:
+def task(
+    data: dict[str, object], task_id: str = TASK, creator: str = "worker-1"
+) -> dict[str, object]:
     return {
         "id": task_id,
         "domain": DOMAIN,
         "topic": REPLY,
-        "creator": "worker-1",
+        "creator": creator,
         "created_at": 1000,
         "lease_until": 61000,
         "owned_count": 1,
@@ -1128,3 +1131,208 @@ def test_poll_on_a_fake_board_reports_a_refused_wait(tmp_path: Path) -> None:
     store = Store("agent-1", tmp_path)
     result = store.poll(board.client("listen-token"), DOMAIN, REPLY)
     assert result == DrainResult(0, False)
+
+
+def submit_from(
+    store: Store, client: Client, reply_from: str | None = "linux-1"
+) -> None:
+    store.submit(
+        client, DOMAIN, TOPIC, REPLY, {"input": "hello"}, "request-1", reply_from
+    )
+
+
+def forged(task_id: str = TASK, result: str = "forged") -> dict[str, object]:
+    return task({"request_id": "request-1", "result": result}, task_id, "win-1")
+
+
+def genuine(task_id: str = TASK2, result: str = "genuine") -> dict[str, object]:
+    return task({"request_id": "request-1", "result": result}, task_id, "linux-1")
+
+
+def test_forged_reply_first_never_takes_the_slot_and_is_listed_refused(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    submit_from(store, client)
+    backend.replies = [forged(), genuine()]
+    reply = store.wait(client, "request-1", 5, poll_interval=0.01, wait_seconds=0)
+    assert reply is not None
+    assert (reply.creator, reply.data["result"]) == ("linux-1", "genuine")
+    assert not reply.refused and "refused" not in reply.as_dict()
+    assert store.reply("request-1") == reply
+    refused = store.refused("request-1")
+    assert [(r.creator, r.task_id, r.refused) for r in refused] == [
+        ("win-1", TASK, True)
+    ]
+    assert refused[0].as_dict()["refused"] is True
+    assert {r.task_id for r in store.inbox()} == {TASK, TASK2}
+    assert [d["id"] for d in backend.deletes] == [TASK, TASK2]
+    record = store.request("request-1")
+    assert record is not None and record.state == "answered"
+    assert record.reply_from == "linux-1"
+
+
+def test_genuine_reply_first_then_forgery_is_kept_apart_not_dropped(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    submit_from(store, client)
+    backend.replies = [genuine(), forged(TASK3)]
+    assert store.drain(client, DOMAIN, REPLY) == 2
+    reply = store.reply("request-1")
+    assert reply is not None and reply.task_id == TASK2
+    assert [r.task_id for r in store.refused()] == [TASK3]
+    assert len(backend.deletes) == 2
+
+
+def test_refused_reply_is_saved_before_its_delete(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    submit_from(store, client)
+    backend.replies = [forged()]
+
+    def inspect() -> None:
+        assert [r.task_id for r in store.refused("request-1")] == [TASK]
+
+    backend.on_delete = inspect
+    assert store.drain(client, DOMAIN, REPLY) == 1
+    assert len(backend.deletes) == 1
+
+
+def test_lost_delete_of_refused_reply_is_idempotent_on_redelivery(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    submit_from(store, client)
+    backend.replies = [forged()]
+    backend.on_delete = lost_response
+    with pytest.raises(TransportError):
+        store.drain(client, DOMAIN, REPLY)
+    backend.on_delete = lambda: None
+    backend.replies = [forged(), genuine()]
+    store.drain(client, DOMAIN, REPLY)
+    assert [r.task_id for r in store.refused()] == [TASK]
+    reply = store.reply("request-1")
+    assert reply is not None and reply.task_id == TASK2
+    assert len(backend.deletes) == 3
+
+
+def test_duplicates_of_genuine_and_forged_replies_stay_idempotent(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    submit_from(store, client)
+    backend.replies = [
+        forged(),
+        genuine(result="first"),
+        genuine(TASK3, result="duplicate"),
+        forged(TASK3, result="second forgery"),
+    ]
+    assert store.drain(client, DOMAIN, REPLY) == 4
+    reply = store.reply("request-1")
+    assert reply is not None and reply.data["result"] == "first"
+    assert sorted(r.task_id for r in store.refused()) == [TASK, TASK3]
+    assert len(store.inbox()) == 3
+    assert len(backend.deletes) == 4
+
+
+def test_restart_and_a_separate_drainer_honour_the_saved_reply_from(
+    tmp_path: Path, client: Client, backend: Backend
+) -> None:
+    submit_from(Store("agent-1", tmp_path), client)
+    backend.replies = [forged()]
+    Store("agent-1", tmp_path).drain(client, DOMAIN, REPLY)
+    # A listener process that never called submit still holds the line.
+    backend.replies = [forged(TASK3), genuine()]
+    Store("agent-1", tmp_path).drain(client, DOMAIN, REPLY)
+    restarted = Store("agent-1", tmp_path)
+    reply = restarted.reply("request-1")
+    assert reply is not None and reply.task_id == TASK2
+    assert sorted(r.task_id for r in restarted.refused("request-1")) == [TASK, TASK3]
+    again = restarted.wait(client, "request-1", 0)
+    assert again == reply
+
+
+def test_without_reply_from_the_first_reply_wins_as_before(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    submit_from(store, client, None)
+    backend.replies = [forged(), genuine()]
+    store.drain(client, DOMAIN, REPLY)
+    reply = store.reply("request-1")
+    assert reply is not None and reply.creator == "win-1"
+    assert store.refused() == []
+    assert len(store.inbox()) == 1
+    request = store.request("request-1")
+    assert request is not None and request.reply_from is None
+    assert "reply_from" not in request.as_dict()
+    assert "reply_from" not in json.loads(
+        store._request_path("request-1").read_text(encoding="utf-8")
+    )
+
+
+def test_a_received_message_under_the_same_id_does_not_block_an_answer(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    # The message "request-1" from mac-1 arrives in this store's inbox first.
+    backend.replies = [task({"request_id": "request-1", "q": "ping"}, TASK, "mac-1")]
+    store.drain(client, DOMAIN, REPLY)
+    with pytest.raises(StoreError):
+        submit_from(store, client, None)
+    # An answer expects nothing from mac-1's slot: it is submitted as pending.
+    submit_from(store, client, "linux-1")
+    record = store.request("request-1")
+    assert record is not None and record.state == "pending"
+    assert store.reply("request-1") is None
+    assert store.wait(client, "request-1", 0) is None
+    backend.replies = [genuine()]
+    store.drain(client, DOMAIN, REPLY)
+    reply = store.reply("request-1")
+    assert reply is not None and reply.creator == "linux-1"
+    assert sorted(r.creator for r in store.inbox()) == ["linux-1", "mac-1"]
+    assert len(backend.creates) == 1
+
+
+def test_reply_from_is_validated_and_part_of_the_request_identity(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    for bad in ("", "Linux-1", "a/b", "x" * 65):
+        with pytest.raises(StoreError):
+            submit_from(store, client, bad)
+    assert backend.creates == []
+    submit_from(store, client)
+    submit_from(store, client)
+    assert len(backend.creates) == 1
+    with pytest.raises(StoreError):
+        submit_from(store, client, "win-1")
+    with pytest.raises(StoreError):
+        submit_from(store, client, None)
+    assert store.requests()[0].as_dict()["reply_from"] == "linux-1"
+
+
+def test_prune_covers_refused_and_creator_keyed_replies(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = 1_800_000_000.0
+    monkeypatch.setattr(time, "time", lambda: now)
+    submit_from(store, client)
+    backend.replies = [forged(), genuine()]
+    store.drain(client, DOMAIN, REPLY)
+    temporary = store.refused_directory / ".abandoned.random.tmp"
+    temporary.write_bytes(b"partial")
+    os.utime(temporary, (now, now))
+    assert len(store.inbox()) == 2
+    now += 8 * 86400
+    store.prune()
+    assert store.inbox() == []
+    assert not temporary.exists()
+    assert list(store.refused_directory.iterdir()) == []
+    assert store.reply("request-1") is None
+
+
+def test_reply_files_under_a_wrong_name_are_refused_on_read(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    submit_from(store, client)
+    backend.replies = [forged()]
+    store.drain(client, DOMAIN, REPLY)
+    saved = store.refused_directory / f"{TASK}.json"
+    saved.rename(store.refused_directory / f"{TASK2}.json")
+    with pytest.raises(StoreError):
+        store.inbox()
