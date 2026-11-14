@@ -724,6 +724,12 @@ store itself: request records, replies, unmatched and refused replies older than
 days are removed (the same retention as blobs, §8), at most once a day while
 draining, or on demand with `tl inbox --prune`.
 
+Request age is measured from submission, reply age from receipt. If a reply
+outlives its request record, `reply()` and `wait()` can still read it. Without
+the record, a unique creator-keyed answer takes precedence over a reply saved
+as `h(request_id).json`; refused replies are excluded. Multiple creator-keyed
+answers without a request record are ambiguous and raise `StoreError`.
+
 A request's state is read from the files:
 
 - *submission unknown*: the record exists without its `.task.json` and

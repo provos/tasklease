@@ -1326,6 +1326,97 @@ def test_prune_covers_refused_and_creator_keyed_replies(
     assert store.reply("request-1") is None
 
 
+@pytest.mark.parametrize("reply_from", [None, "linux-1"])
+def test_retained_reply_is_readable_after_its_request_is_pruned(
+    store: Store,
+    client: Client,
+    backend: Backend,
+    monkeypatch: pytest.MonkeyPatch,
+    reply_from: str | None,
+) -> None:
+    now = 1_800_000_000.0
+    monkeypatch.setattr(time, "time", lambda: now)
+    submit_from(store, client, reply_from)
+    now += 6 * 86400
+    backend.replies = [genuine(), forged()]
+    store.drain(client, DOMAIN, REPLY)
+    reply = store.reply("request-1")
+    assert reply is not None and reply.creator == "linux-1"
+
+    now += 2 * 86400
+    store.prune()
+    assert store.request("request-1") is None
+    assert reply in store.inbox()
+    backend.owns.clear()
+    restarted = Store(store.agent_id, store.root, initialize=False)
+    assert restarted.reply("request-1") == reply
+    assert restarted.wait(client, "request-1", 0) == reply
+    assert backend.owns == []
+
+    now += 6 * 86400
+    restarted.prune()
+    assert restarted.inbox() == []
+    assert restarted.reply("request-1") is None
+
+
+def test_reply_without_intent_prefers_an_accepted_reply_to_a_same_id_message(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    backend.replies = [task({"request_id": "request-1", "q": "ping"}, TASK, "mac-1")]
+    store.drain(client, DOMAIN, REPLY)
+    submit_from(store, client)
+    backend.replies = [genuine(), forged(TASK3)]
+    store.drain(client, DOMAIN, REPLY)
+    reply = store.reply("request-1")
+    assert reply is not None and reply.creator == "linux-1"
+    store._request_path("request-1").unlink()
+    assert store.reply("request-1") == reply
+    assert store.wait(client, "request-1", 0) == reply
+
+
+def test_refused_reply_cannot_answer_without_an_intent(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    submit_from(store, client)
+    backend.replies = [forged()]
+    store.drain(client, DOMAIN, REPLY)
+    store._request_path("request-1").unlink()
+    assert len(store.refused("request-1")) == 1
+    assert store.reply("request-1") is None
+    with pytest.raises(StoreError, match="No saved request"):
+        store.wait(client, "request-1", 0)
+
+
+def test_creator_keyed_reply_with_a_wrong_name_cannot_answer_without_an_intent(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    submit_from(store, client)
+    backend.replies = [genuine()]
+    store.drain(client, DOMAIN, REPLY)
+    store._request_path("request-1").unlink()
+    store._answer_path("request-1", "linux-1").rename(
+        store._answer_path("request-1", "win-1")
+    )
+    with pytest.raises(StoreError, match="storage name"):
+        store.reply("request-1")
+
+
+def test_multiple_creator_keyed_replies_need_an_intent_to_select_the_answer(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    for creator, response in (("linux-1", genuine()), ("win-1", forged(TASK3))):
+        submit_from(store, client, creator)
+        backend.replies = [response]
+        store.drain(client, DOMAIN, REPLY)
+        reply = store.reply("request-1")
+        assert reply is not None and reply.creator == creator
+        assert store.cancel(client, "request-1") == "cancelled"
+    with pytest.raises(StoreError, match="Multiple saved replies"):
+        store.reply("request-1")
+    with pytest.raises(StoreError, match="Multiple saved replies"):
+        store.wait(client, "request-1", 0)
+
+
 def test_reply_files_under_a_wrong_name_are_refused_on_read(
     store: Store, client: Client, backend: Backend
 ) -> None:

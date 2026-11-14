@@ -350,9 +350,33 @@ class Store:
     def reply(self, request_id: str) -> ReplyRecord | None:
         """The reply that answers ``request_id``, if it has been saved."""
         intent = self._saved_intent(request_id)
-        return self._reply_for(
-            request_id, None if intent is None else intent.reply_from
-        )
+        if intent is not None:
+            return self._reply_for(request_id, intent.reply_from)
+        # Requests expire from submission time, replies from receipt time. A
+        # creator-keyed answer can therefore outlive the intent that selected it.
+        return self._retained_answer(request_id) or self._reply_for(request_id, None)
+
+    def _retained_answer(self, request_id: str) -> ReplyRecord | None:
+        """Find an accepted creator-keyed reply without its request intent."""
+        prefix = f"{hash_id(_request_id(request_id))}-"
+        answer: ReplyRecord | None = None
+        for path in _files(self.reply_directory):
+            if not path.name.startswith(prefix) or path.suffix != ".json":
+                continue
+            value = _read(path)
+            if value is None:
+                continue
+            record = self._parse_reply(value)
+            if record.request_id != request_id or path != self._answer_path(
+                request_id, record.creator
+            ):
+                raise StoreError("Reply correlation does not match its storage name")
+            if answer is not None:
+                raise StoreError(
+                    "Multiple saved replies for request_id without a request intent"
+                )
+            answer = record
+        return answer
 
     def _saved_intent(self, request_id: str) -> RequestRecord | None:
         value = _read(self._request_path(request_id))

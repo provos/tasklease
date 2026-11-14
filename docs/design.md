@@ -476,6 +476,11 @@ as before.
 are removed, the same retention as the blobs replies point to. `tl inbox
 --prune` does it on demand, and `drain` does it at most once a day.
 
+Replies age from receipt, so a creator-keyed answer may outlive its request
+record. Without the record, `reply()` and `wait()` find the unique `R-h(C).json`
+answer before considering `R.json`, excluding refused replies. Multiple
+creator-keyed answers without a request record raise `StoreError`.
+
 **All agents on the machine.** Several agent sessions on one machine have
 different agent IDs and so different folders. `tl inbox --all` and
 `tl monitor` read every agent folder under `requests/` and `replies/`.

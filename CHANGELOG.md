@@ -32,6 +32,10 @@ Release preparation and verification are documented in
 - A reply from the wrong creator could take a request's reply slot, so the
   genuine reply that followed was taken for a duplicate and deleted unseen
   (provos/tasklease#17). Use `reply_from` to prevent it.
+- `Store.reply()` and `Store.wait()` can still find a retained creator-keyed
+  answer after pruning removes its older request intent. The accepted answer
+  takes precedence over a message saved under the same ID; refused replies
+  never count as answers.
 
 ### Compatibility and deployment
 
