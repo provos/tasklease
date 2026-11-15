@@ -1,4 +1,5 @@
 import { env, exports } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import worker, { streamIdentities } from "../src/index";
 import type {
@@ -76,6 +77,87 @@ async function expectError(
 }
 
 describe("HTTP routing and validation", () => {
+  it.each([
+    [400, "invalid"],
+    [401, "unauthenticated"],
+    [403, "forbidden"],
+    [413, "too_large"],
+  ] as const)(
+    "does not claim or bypass a key on HTTP %s",
+    async (status, code) => {
+      const { token, domain } = await provision({
+        scopes: { create: ["work"], own: [], read: [] },
+      });
+      const body = {
+        domain,
+        topic: "work",
+        data: {},
+        idempotency_key: "017f22e2-79b0-7cc3-98c4-dc0c0c07398f",
+      };
+      const rejected = {
+        ...body,
+        ...(status === 400 ? { data: [] } : {}),
+        ...(status === 403 ? { topic: "forbidden" } : {}),
+        ...(status === 413 ? { data: { text: "x".repeat(256 * 1024) } } : {}),
+      };
+      await expectError(
+        await post("create", rejected, status === 401 ? undefined : token),
+        status,
+        code,
+      );
+      await runInDurableObject(
+        env.DOMAINS.getByName(domain),
+        (_instance, state) => {
+          expect(
+            state.storage.sql
+              .exec("SELECT COUNT(*) AS count FROM create_keys")
+              .one(),
+          ).toEqual({ count: 0 });
+        },
+      );
+      const created = await post("create", body, token);
+      expect(created.status).toBe(200);
+      await expectError(
+        await post("create", rejected, status === 401 ? undefined : token),
+        status,
+        code,
+      );
+      await runInDurableObject(
+        env.DOMAINS.getByName(domain),
+        (_instance, state) => {
+          expect(
+            state.storage.sql
+              .exec("SELECT COUNT(*) AS count FROM create_keys")
+              .one(),
+          ).toEqual({ count: 1 });
+          expect(
+            state.storage.sql.exec("SELECT COUNT(*) AS count FROM tasks").one(),
+          ).toEqual({ count: 1 });
+        },
+      );
+    },
+  );
+
+  it("retains a creator's key namespace after token rotation", async () => {
+    const name = `key-${crypto.randomUUID()}`;
+    const { token, domain } = await provision({ name });
+    const body = {
+      domain,
+      topic: "work",
+      data: {},
+      idempotency_key: "017f22e2-79b0-7cc3-98c4-dc0c0c07398f",
+    };
+    const first = await (
+      await post("create", body, token)
+    ).json<CreateResponse>();
+    const rotated = await (
+      await post("identity.rotate", { name }, "test-admin-token")
+    ).json<{ token: string }>();
+    expect(
+      await (await post("create", body, rotated.token)).json<CreateResponse>(),
+    ).toEqual(first);
+  });
+
   it("serves only the public version route without credentials", async () => {
     const response = await exports.default.fetch(
       "https://tasklease/v1/version",

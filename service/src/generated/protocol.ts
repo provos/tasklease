@@ -5,6 +5,7 @@ export type TopicName1 = string;
 export type TopicName2 = string;
 export type TopicGlob = string;
 export type TaskId = string;
+export type IdempotencyKey = string;
 /**
  * Milliseconds since the Unix epoch (UTC).
  */
@@ -29,6 +30,7 @@ export interface ProtocolTypes {
   TopicName?: TopicName;
   TopicGlob?: TopicGlob;
   TaskId?: TaskId;
+  IdempotencyKey?: IdempotencyKey;
   Timestamp?: Timestamp;
   WorkerLabel?: WorkerLabel;
   IdentityName?: IdentityName;
@@ -502,6 +504,7 @@ export interface CreateRequest {
   domain: DomainName;
   topic: TopicName;
   data: Data;
+  idempotency_key?: IdempotencyKey;
 }
 export interface CreateResponse {
   ok: true;

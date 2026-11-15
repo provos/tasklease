@@ -34,6 +34,7 @@ import type { Caller, Result } from "./types";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
+const KEY_RETENTION_MS = 7 * DAY;
 const PAGE_SIZE = 500;
 const SNAPSHOT_CHUNK_BYTES = 64 * 1024;
 const SNAPSHOT_TTL = 5 * 60 * 1000;
@@ -63,6 +64,10 @@ type TaskRow = {
 };
 
 type TaskMetadataRow = Omit<TaskRow, "data" | "root">;
+type CreateKeyRow = {
+  origin_id: string;
+  created_at: number;
+};
 const metadataColumns = `id, origin_id, topic, created_at, lease_until, owned_count, creator,
   owner_identity, owner_worker, owned_at`;
 
@@ -339,6 +344,12 @@ const migrations = [
   ALTER TABLE tasks ADD COLUMN root INTEGER NOT NULL DEFAULT 0;
   UPDATE tasks SET origin_id = id;
   CREATE UNIQUE INDEX tasks_root_origin ON tasks (origin_id) WHERE root = 1;`,
+  `CREATE TABLE create_keys (
+    creator TEXT NOT NULL, key TEXT NOT NULL,
+    origin_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+    PRIMARY KEY (creator, key)
+  );
+  CREATE INDEX create_keys_expiry ON create_keys (created_at);`,
 ];
 
 export class DomainObject extends DurableObject<Env> {
@@ -385,17 +396,42 @@ export class DomainObject extends DurableObject<Env> {
     request: CreateRequest,
     caller: Caller,
   ): Promise<Result<CreateResponse>> {
+    const key = request.idempotency_key;
+    let inserted = false;
     const result = await this.operation((now) => {
+      if (key !== undefined) {
+        const existing = this.ctx.storage.sql
+          .exec<CreateKeyRow>(
+            "SELECT origin_id, created_at FROM create_keys WHERE creator = ? AND key = ?",
+            caller.identity,
+            key,
+          )
+          .toArray()[0];
+        if (existing && existing.created_at >= now - KEY_RETENTION_MS) {
+          return { ok: true, id: existing.origin_id };
+        }
+      }
       const id = this.insertTask(
         request.topic,
         JSON.stringify(request.data),
         caller,
         now,
       );
+      if (key !== undefined) {
+        this.ctx.storage.sql.exec(
+          `INSERT OR REPLACE INTO create_keys (creator, key, origin_id, created_at)
+           VALUES (?, ?, ?, ?)`,
+          caller.identity,
+          key,
+          id,
+          now,
+        );
+      }
+      inserted = true;
       return { ok: true, id };
     });
     // A new task is available immediately (lease_until is in the past).
-    if (result.ok) this.notify(request.topic);
+    if (result.ok && inserted) this.notify(request.topic);
     return result;
   }
 
@@ -1097,6 +1133,10 @@ export class DomainObject extends DurableObject<Env> {
     const now = Date.now();
     this.ctx.storage.transactionSync(() => {
       this.expireSnapshots(now);
+      this.ctx.storage.sql.exec(
+        "DELETE FROM create_keys WHERE created_at < ?",
+        now - KEY_RETENTION_MS,
+      );
       this.ctx.storage.sql.exec(
         "DELETE FROM pollers WHERE last_polled_at < ?",
         now - 7 * DAY,

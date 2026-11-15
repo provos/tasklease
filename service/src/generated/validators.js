@@ -2744,6 +2744,10 @@ validate38.evaluated = {
   dynamicItems: false,
 };
 var validateCreateRequest = validate40;
+var pattern22 = new RegExp(
+  "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])",
+  "u",
+);
 function validate41(
   data,
   {
@@ -2871,7 +2875,12 @@ function validate40(
       errors++;
     }
     for (const key0 in data) {
-      if (!(key0 === "domain" || key0 === "topic" || key0 === "data")) {
+      if (!(
+        key0 === "domain" ||
+        key0 === "topic" ||
+        key0 === "data" ||
+        key0 === "idempotency_key"
+      )) {
         const err3 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -3178,8 +3187,80 @@ function validate40(
         errors = vErrors.length;
       }
     }
+    if (data.idempotency_key !== void 0) {
+      let data3 = data.idempotency_key;
+      if (typeof data3 === "string") {
+        if (func1(data3) > 36) {
+          const err19 = {
+            instancePath: instancePath + "/idempotency_key",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/IdempotencyKey/maxLength",
+            keyword: "maxLength",
+            params: { limit: 36 },
+            message: "must NOT have more than 36 characters",
+          };
+          if (vErrors === null) {
+            vErrors = [err19];
+          } else {
+            vErrors.push(err19);
+          }
+          errors++;
+        }
+        if (func1(data3) < 36) {
+          const err20 = {
+            instancePath: instancePath + "/idempotency_key",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/IdempotencyKey/minLength",
+            keyword: "minLength",
+            params: { limit: 36 },
+            message: "must NOT have fewer than 36 characters",
+          };
+          if (vErrors === null) {
+            vErrors = [err20];
+          } else {
+            vErrors.push(err20);
+          }
+          errors++;
+        }
+        if (!pattern22.test(data3)) {
+          const err21 = {
+            instancePath: instancePath + "/idempotency_key",
+            schemaPath:
+              "https://tasklease.dev/schema/common.json#/$defs/IdempotencyKey/pattern",
+            keyword: "pattern",
+            params: {
+              pattern:
+                "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])",
+            },
+            message:
+              'must match pattern "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![\\s\\S])"',
+          };
+          if (vErrors === null) {
+            vErrors = [err21];
+          } else {
+            vErrors.push(err21);
+          }
+          errors++;
+        }
+      } else {
+        const err22 = {
+          instancePath: instancePath + "/idempotency_key",
+          schemaPath:
+            "https://tasklease.dev/schema/common.json#/$defs/IdempotencyKey/type",
+          keyword: "type",
+          params: { type: "string" },
+          message: "must be string",
+        };
+        if (vErrors === null) {
+          vErrors = [err22];
+        } else {
+          vErrors.push(err22);
+        }
+        errors++;
+      }
+    }
   } else {
-    const err19 = {
+    const err23 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -3187,9 +3268,9 @@ function validate40(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err19];
+      vErrors = [err23];
     } else {
-      vErrors.push(err19);
+      vErrors.push(err23);
     }
     errors++;
   }
@@ -3886,8 +3967,8 @@ validate47.evaluated = {
   dynamicItems: false,
 };
 var validateIdentityAddRequest = validate49;
-var pattern27 = new RegExp("^[a-z0-9-]{1,64}(?![\\s\\S])", "u");
-var pattern29 = new RegExp(
+var pattern28 = new RegExp("^[a-z0-9-]{1,64}(?![\\s\\S])", "u");
+var pattern30 = new RegExp(
   "^(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+)(?:/(?:\\*\\*|(?!(?:[^/]*\\*\\*))[a-z0-9.*_-]+))*(?![\\s\\S])",
   "u",
 );
@@ -4027,7 +4108,7 @@ function validate50(
               }
               errors++;
             }
-            if (!pattern29.test(data1)) {
+            if (!pattern30.test(data1)) {
               const err7 = {
                 instancePath: instancePath + "/create/" + i0,
                 schemaPath:
@@ -4134,7 +4215,7 @@ function validate50(
               }
               errors++;
             }
-            if (!pattern29.test(data3)) {
+            if (!pattern30.test(data3)) {
               const err13 = {
                 instancePath: instancePath + "/own/" + i1,
                 schemaPath:
@@ -4241,7 +4322,7 @@ function validate50(
               }
               errors++;
             }
-            if (!pattern29.test(data5)) {
+            if (!pattern30.test(data5)) {
               const err19 = {
                 instancePath: instancePath + "/read/" + i2,
                 schemaPath:
@@ -4422,7 +4503,7 @@ function validate49(
     if (data.name !== void 0) {
       let data0 = data.name;
       if (typeof data0 === "string") {
-        if (!pattern27.test(data0)) {
+        if (!pattern28.test(data0)) {
           const err5 = {
             instancePath: instancePath + "/name",
             schemaPath:
@@ -4656,7 +4737,7 @@ validate49.evaluated = {
   dynamicItems: false,
 };
 var validateIdentityAddResponse = validate52;
-var pattern33 = new RegExp("^tl_[A-Za-z0-9_-]{43}(?![\\s\\S])", "u");
+var pattern34 = new RegExp("^tl_[A-Za-z0-9_-]{43}(?![\\s\\S])", "u");
 function validate52(
   data,
   {
@@ -4759,7 +4840,7 @@ function validate52(
     if (data.name !== void 0) {
       let data1 = data.name;
       if (typeof data1 === "string") {
-        if (!pattern27.test(data1)) {
+        if (!pattern28.test(data1)) {
           const err5 = {
             instancePath: instancePath + "/name",
             schemaPath:
@@ -4795,7 +4876,7 @@ function validate52(
     if (data.token !== void 0) {
       let data2 = data.token;
       if (typeof data2 === "string") {
-        if (!pattern33.test(data2)) {
+        if (!pattern34.test(data2)) {
           const err7 = {
             instancePath: instancePath + "/token",
             schemaPath: "#/properties/token/pattern",
@@ -5045,7 +5126,7 @@ function validate57(
               }
               errors++;
             }
-            if (!pattern29.test(data1)) {
+            if (!pattern30.test(data1)) {
               const err7 = {
                 instancePath: instancePath + "/create/" + i0,
                 schemaPath:
@@ -5152,7 +5233,7 @@ function validate57(
               }
               errors++;
             }
-            if (!pattern29.test(data3)) {
+            if (!pattern30.test(data3)) {
               const err13 = {
                 instancePath: instancePath + "/own/" + i1,
                 schemaPath:
@@ -5259,7 +5340,7 @@ function validate57(
               }
               errors++;
             }
-            if (!pattern29.test(data5)) {
+            if (!pattern30.test(data5)) {
               const err19 = {
                 instancePath: instancePath + "/read/" + i2,
                 schemaPath:
@@ -5472,7 +5553,7 @@ function validate56(
     if (data.name !== void 0) {
       let data0 = data.name;
       if (typeof data0 === "string") {
-        if (!pattern27.test(data0)) {
+        if (!pattern28.test(data0)) {
           const err7 = {
             instancePath: instancePath + "/name",
             schemaPath:
@@ -6000,7 +6081,7 @@ function validate61(
     if (data.name !== void 0) {
       let data0 = data.name;
       if (typeof data0 === "string") {
-        if (!pattern27.test(data0)) {
+        if (!pattern28.test(data0)) {
           const err2 = {
             instancePath: instancePath + "/name",
             schemaPath:
@@ -6205,7 +6286,7 @@ function validate64(
     if (data.name !== void 0) {
       let data0 = data.name;
       if (typeof data0 === "string") {
-        if (!pattern27.test(data0)) {
+        if (!pattern28.test(data0)) {
           const err2 = {
             instancePath: instancePath + "/name",
             schemaPath:
@@ -6349,7 +6430,7 @@ function validate65(
     if (data.token !== void 0) {
       let data1 = data.token;
       if (typeof data1 === "string") {
-        if (!pattern33.test(data1)) {
+        if (!pattern34.test(data1)) {
           const err4 = {
             instancePath: instancePath + "/token",
             schemaPath: "#/properties/token/pattern",
@@ -6599,7 +6680,7 @@ function validate69(
               }
               errors++;
             }
-            if (!pattern29.test(data1)) {
+            if (!pattern30.test(data1)) {
               const err7 = {
                 instancePath: instancePath + "/create/" + i0,
                 schemaPath:
@@ -6706,7 +6787,7 @@ function validate69(
               }
               errors++;
             }
-            if (!pattern29.test(data3)) {
+            if (!pattern30.test(data3)) {
               const err13 = {
                 instancePath: instancePath + "/own/" + i1,
                 schemaPath:
@@ -6813,7 +6894,7 @@ function validate69(
               }
               errors++;
             }
-            if (!pattern29.test(data5)) {
+            if (!pattern30.test(data5)) {
               const err19 = {
                 instancePath: instancePath + "/read/" + i2,
                 schemaPath:
@@ -7027,7 +7108,7 @@ function validate68(
     if (data.name !== void 0) {
       let data1 = data.name;
       if (typeof data1 === "string") {
-        if (!pattern27.test(data1)) {
+        if (!pattern28.test(data1)) {
           const err7 = {
             instancePath: instancePath + "/name",
             schemaPath:
@@ -7498,7 +7579,7 @@ validate72.evaluated = {
   dynamicItems: false,
 };
 var validateMonitorSnapshotResponse = validate73;
-var pattern52 = new RegExp("^[A-Za-z0-9._-]+(?![\\s\\S])", "u");
+var pattern53 = new RegExp("^[A-Za-z0-9._-]+(?![\\s\\S])", "u");
 function validate75(
   data,
   {
@@ -7604,7 +7685,7 @@ function validate75(
     if (data.identity !== void 0) {
       let data0 = data.identity;
       if (typeof data0 === "string") {
-        if (!pattern27.test(data0)) {
+        if (!pattern28.test(data0)) {
           const err5 = {
             instancePath: instancePath + "/identity",
             schemaPath:
@@ -7672,7 +7753,7 @@ function validate75(
           }
           errors++;
         }
-        if (!pattern52.test(data1)) {
+        if (!pattern53.test(data1)) {
           const err9 = {
             instancePath: instancePath + "/worker",
             schemaPath:
@@ -7823,7 +7904,7 @@ validate75.evaluated = {
   dynamicProps: false,
   dynamicItems: false,
 };
-var schema126 = {
+var schema127 = {
   title: "TaskSummary",
   type: "object",
   properties: {
@@ -7868,7 +7949,7 @@ var schema126 = {
   ],
   additionalProperties: false,
 };
-var func62 = Object.prototype.hasOwnProperty;
+var func64 = Object.prototype.hasOwnProperty;
 function validate78(
   data,
   {
@@ -7939,7 +8020,7 @@ function validate78(
     if (data.identity !== void 0) {
       let data0 = data.identity;
       if (typeof data0 === "string") {
-        if (!pattern27.test(data0)) {
+        if (!pattern28.test(data0)) {
           const err3 = {
             instancePath: instancePath + "/identity",
             schemaPath:
@@ -8007,7 +8088,7 @@ function validate78(
           }
           errors++;
         }
-        if (!pattern52.test(data1)) {
+        if (!pattern53.test(data1)) {
           const err7 = {
             instancePath: instancePath + "/worker",
             schemaPath:
@@ -8219,7 +8300,7 @@ function validate77(
       errors++;
     }
     for (const key0 in data) {
-      if (!func62.call(schema126.properties, key0)) {
+      if (!func64.call(schema127.properties, key0)) {
         const err9 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -8400,7 +8481,7 @@ function validate77(
     if (data.creator !== void 0) {
       let data5 = data.creator;
       if (typeof data5 === "string") {
-        if (!pattern27.test(data5)) {
+        if (!pattern28.test(data5)) {
           const err18 = {
             instancePath: instancePath + "/creator",
             schemaPath:
@@ -8576,7 +8657,7 @@ function validate77(
           instancePath: instancePath + "/state",
           schemaPath: "#/properties/state/enum",
           keyword: "enum",
-          params: { allowedValues: schema126.properties.state.enum },
+          params: { allowedValues: schema127.properties.state.enum },
           message: "must be equal to one of the allowed values",
         };
         if (vErrors === null) {
@@ -9226,7 +9307,7 @@ validate74.evaluated = {
   dynamicProps: false,
   dynamicItems: false,
 };
-var schema136 = {
+var schema137 = {
   title: "HourlyStats",
   type: "object",
   properties: {
@@ -9479,7 +9560,7 @@ function validate82(
       errors++;
     }
     for (const key0 in data) {
-      if (!func62.call(schema136.properties, key0)) {
+      if (!func64.call(schema137.properties, key0)) {
         const err13 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -11008,7 +11089,7 @@ validate85.evaluated = {
   dynamicItems: false,
 };
 var validateOwnResponse = validate86;
-var schema144 = {
+var schema145 = {
   title: "Task",
   type: "object",
   properties: {
@@ -11247,7 +11328,7 @@ function validate87(
       errors++;
     }
     for (const key0 in data) {
-      if (!func62.call(schema144.properties, key0)) {
+      if (!func64.call(schema145.properties, key0)) {
         const err11 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -11702,7 +11783,7 @@ function validate87(
     if (data.creator !== void 0) {
       let data7 = data.creator;
       if (typeof data7 === "string") {
-        if (!pattern27.test(data7)) {
+        if (!pattern28.test(data7)) {
           const err35 = {
             instancePath: instancePath + "/creator",
             schemaPath:
@@ -12639,7 +12720,7 @@ function validate94(
       errors++;
     }
     for (const key0 in data) {
-      if (!func62.call(schema144.properties, key0)) {
+      if (!func64.call(schema145.properties, key0)) {
         const err11 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -13094,7 +13175,7 @@ function validate94(
     if (data.creator !== void 0) {
       let data7 = data.creator;
       if (typeof data7 === "string") {
-        if (!pattern27.test(data7)) {
+        if (!pattern28.test(data7)) {
           const err35 = {
             instancePath: instancePath + "/creator",
             schemaPath:
@@ -14106,7 +14187,7 @@ function validate101(
       errors++;
     }
     for (const key0 in data) {
-      if (!func62.call(schema144.properties, key0)) {
+      if (!func64.call(schema145.properties, key0)) {
         const err11 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -14561,7 +14642,7 @@ function validate101(
     if (data.creator !== void 0) {
       let data7 = data.creator;
       if (typeof data7 === "string") {
-        if (!pattern27.test(data7)) {
+        if (!pattern28.test(data7)) {
           const err35 = {
             instancePath: instancePath + "/creator",
             schemaPath:
@@ -15450,7 +15531,7 @@ function validate108(
       errors++;
     }
     for (const key0 in data) {
-      if (!func62.call(schema126.properties, key0)) {
+      if (!func64.call(schema127.properties, key0)) {
         const err9 = {
           instancePath,
           schemaPath: "#/additionalProperties",
@@ -15631,7 +15712,7 @@ function validate108(
     if (data.creator !== void 0) {
       let data5 = data.creator;
       if (typeof data5 === "string") {
-        if (!pattern27.test(data5)) {
+        if (!pattern28.test(data5)) {
           const err18 = {
             instancePath: instancePath + "/creator",
             schemaPath:
@@ -15807,7 +15888,7 @@ function validate108(
           instancePath: instancePath + "/state",
           schemaPath: "#/properties/state/enum",
           keyword: "enum",
-          params: { allowedValues: schema126.properties.state.enum },
+          params: { allowedValues: schema127.properties.state.enum },
           message: "must be equal to one of the allowed values",
         };
         if (vErrors === null) {
@@ -16995,7 +17076,7 @@ function validate117(
     if (data.identity !== void 0) {
       let data0 = data.identity;
       if (typeof data0 === "string") {
-        if (!pattern27.test(data0)) {
+        if (!pattern28.test(data0)) {
           const err5 = {
             instancePath: instancePath + "/identity",
             schemaPath:
@@ -17063,7 +17144,7 @@ function validate117(
           }
           errors++;
         }
-        if (!pattern52.test(data1)) {
+        if (!pattern53.test(data1)) {
           const err9 = {
             instancePath: instancePath + "/worker",
             schemaPath:
@@ -17552,7 +17633,7 @@ function validate120(
           }
           errors++;
         }
-        if (!pattern29.test(data1)) {
+        if (!pattern30.test(data1)) {
           const err10 = {
             instancePath: instancePath + "/glob",
             schemaPath:
@@ -18294,7 +18375,7 @@ validate125.evaluated = {
   dynamicItems: false,
 };
 var validateVersionResponse = validate126;
-var pattern107 = new RegExp(
+var pattern108 = new RegExp(
   "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?(?![\\s\\S])",
   "u",
 );
@@ -18368,7 +18449,7 @@ function validate126(
     if (data.service_version !== void 0) {
       let data0 = data.service_version;
       if (typeof data0 === "string") {
-        if (!pattern107.test(data0)) {
+        if (!pattern108.test(data0)) {
           const err3 = {
             instancePath: instancePath + "/service_version",
             schemaPath: "#/properties/service_version/pattern",
@@ -18444,7 +18525,7 @@ validate126.evaluated = {
   dynamicItems: false,
 };
 var validateErrorResponse = validate127;
-var schema223 = {
+var schema224 = {
   title: "ErrorCode",
   type: "string",
   enum: [
@@ -18556,7 +18637,7 @@ function validate128(
           schemaPath:
             "https://tasklease.dev/schema/common.json#/$defs/ErrorCode/enum",
           keyword: "enum",
-          params: { allowedValues: schema223.enum },
+          params: { allowedValues: schema224.enum },
           message: "must be equal to one of the allowed values",
         };
         if (vErrors === null) {

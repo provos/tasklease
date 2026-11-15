@@ -1004,7 +1004,7 @@ describe("DomainObject task transactions", () => {
     const { domain, stub } = fixture("migration");
     await runInDurableObject(stub, (_instance, state) => {
       state.storage.sql.exec(
-        `DROP TABLE tasks; DROP TABLE pollers; DROP TABLE declared_topics; DROP TABLE stats_hourly; DROP TABLE monitor_snapshot_chunks; DROP TABLE monitor_snapshots; UPDATE schema_version SET version = 1; CREATE TABLE phase_one_marker (value TEXT); INSERT INTO phase_one_marker VALUES ('retained')`,
+        `DROP TABLE tasks; DROP TABLE pollers; DROP TABLE declared_topics; DROP TABLE stats_hourly; DROP TABLE monitor_snapshot_chunks; DROP TABLE monitor_snapshots; DROP TABLE create_keys; UPDATE schema_version SET version = 1; CREATE TABLE phase_one_marker (value TEXT); INSERT INTO phase_one_marker VALUES ('retained')`,
       );
     });
     await evictDurableObject(stub);
@@ -1017,7 +1017,7 @@ describe("DomainObject task transactions", () => {
     await runInDurableObject(stub, (_instance, state) => {
       expect(
         state.storage.sql.exec("SELECT version FROM schema_version").one(),
-      ).toEqual({ version: 4 });
+      ).toEqual({ version: 5 });
       expect(
         state.storage.sql.exec("SELECT value FROM phase_one_marker").one(),
       ).toEqual({ value: "retained" });
@@ -1172,7 +1172,7 @@ describe("origin identity and first-stage cancellation", () => {
     ).task;
     await runInDurableObject(stub, (_instance, state) => {
       state.storage.sql.exec(
-        "DROP INDEX tasks_root_origin; ALTER TABLE tasks DROP COLUMN root; ALTER TABLE tasks DROP COLUMN origin_id; UPDATE schema_version SET version = 3",
+        "DROP TABLE create_keys; DROP INDEX tasks_root_origin; ALTER TABLE tasks DROP COLUMN root; ALTER TABLE tasks DROP COLUMN origin_id; UPDATE schema_version SET version = 3",
       );
     });
     await evictDurableObject(stub);
@@ -1192,7 +1192,245 @@ describe("origin identity and first-stage cancellation", () => {
     await runInDurableObject(stub, (_instance, state) => {
       expect(
         state.storage.sql.exec("SELECT version FROM schema_version").one(),
-      ).toEqual({ version: 4 });
+      ).toEqual({ version: 5 });
+    });
+  });
+});
+
+describe("Create idempotency", () => {
+  const key = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
+
+  it("serializes competing submissions and keeps the first task, statistics and expiry", async () => {
+    const { domain, stub } = fixture("key-concurrent");
+    const request = {
+      domain,
+      topic: "work/linux",
+      data: { first: true },
+      idempotency_key: key,
+    };
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => stub.create(request, creator)),
+    );
+    const id = success(results[0]!).id;
+    expect(results.every((result) => success(result).id === id)).toBe(true);
+    await evictDurableObject(stub);
+    expect(
+      success(
+        await stub.create(
+          { ...request, topic: "work/other", data: { changed: true } },
+          creator,
+        ),
+      ).id,
+    ).toBe(id);
+    expect(
+      success(await stub.read({ domain, topic: request.topic, id }, creator))
+        .task.data,
+    ).toEqual(request.data);
+    expect(
+      success(await stub.tasksList({ domain, topic: "work/other" }, operator))
+        .tasks,
+    ).toEqual([]);
+    await runInDurableObject(stub, (_instance, state) => {
+      expect(
+        state.storage.sql
+          .exec("SELECT COUNT(*) AS count FROM create_keys")
+          .one(),
+      ).toEqual({ count: 1 });
+      expect(
+        state.storage.sql
+          .exec("SELECT SUM(created) AS count FROM stats_hourly")
+          .one(),
+      ).toEqual({ count: 1 });
+    });
+  });
+
+  it.each(["own", "consume", "delete", "cancel"] as const)(
+    "recovers the original origin after %s",
+    async (operation) => {
+      const { domain, stub } = fixture(`key-${operation}`);
+      const request = {
+        domain,
+        topic: "work/linux",
+        data: {},
+        idempotency_key: key,
+      };
+      const id = success(await stub.create(request, creator)).id;
+      if (operation === "cancel") {
+        success(
+          await stub.cancel(
+            { domain, topic: request.topic, origin_id: id },
+            creator,
+          ),
+        );
+      } else {
+        const held = success(
+          await stub.own(
+            { domain, topic: request.topic, hold_seconds: 60 },
+            worker,
+          ),
+        ).task;
+        expect(held.id).not.toBe(id);
+        if (operation === "consume")
+          success(
+            await stub.consume(
+              { domain, topic: request.topic, id: held.id, tasks: [] },
+              worker,
+            ),
+          );
+        if (operation === "delete")
+          success(
+            await stub.delete(
+              { domain, topic: request.topic, id: held.id },
+              worker,
+            ),
+          );
+      }
+      expect(success(await stub.create(request, creator)).id).toBe(id);
+      error(
+        await stub.own(
+          { domain, topic: request.topic, hold_seconds: 60 },
+          worker,
+        ),
+        "empty",
+      );
+    },
+  );
+
+  it("separates domains and creators, while keeping unkeyed creates independent", async () => {
+    const { domain, stub } = fixture("key-scope");
+    const request = {
+      domain,
+      topic: "work/linux",
+      data: {},
+      idempotency_key: key,
+    };
+    const first = success(await stub.create(request, creator)).id;
+    const second = success(await stub.create(request, operator)).id;
+    const other = fixture("key-other-domain");
+    const third = success(
+      await other.stub.create({ ...request, domain: other.domain }, creator),
+    ).id;
+    const unkeyed = { domain, topic: request.topic, data: {} };
+    const ids = [
+      first,
+      second,
+      third,
+      success(await stub.create(unkeyed, creator)).id,
+      success(await stub.create(unkeyed, creator)).id,
+    ];
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it.each([
+    [false, key],
+    [true, key],
+    [false, "ffffffff-ffff-7fff-bfff-ffffffffffff"],
+    [true, "ffffffff-ffff-7fff-bfff-ffffffffffff"],
+  ] as const)(
+    "expires exactly seven days after acceptance, with alarm cleanup %s and key %s",
+    async (cleanup, idempotencyKey) => {
+      const { domain, stub } = fixture(`key-expiry-${cleanup}`);
+      await runInDurableObject(stub, async (instance: DomainObject, state) => {
+        const base = Date.now();
+        const clock = vi.spyOn(Date, "now").mockReturnValue(base);
+        const request = {
+          domain,
+          topic: "work/linux",
+          data: {},
+          idempotency_key: idempotencyKey,
+        };
+        try {
+          const id = success(await instance.create(request, creator)).id;
+          clock.mockReturnValue(base + 7 * DAY);
+          if (cleanup) await instance.alarm();
+          expect(success(await instance.create(request, creator)).id).toBe(id);
+          expect(
+            state.storage.sql.exec("SELECT created_at FROM create_keys").one(),
+          ).toEqual({ created_at: base });
+          clock.mockReturnValue(base + 7 * DAY + 1);
+          if (cleanup) {
+            await instance.alarm();
+            expect(
+              state.storage.sql
+                .exec("SELECT COUNT(*) AS count FROM create_keys")
+                .one(),
+            ).toEqual({ count: 0 });
+          }
+          expect(success(await instance.create(request, creator)).id).not.toBe(
+            id,
+          );
+          expect(
+            state.storage.sql.exec("SELECT created_at FROM create_keys").one(),
+          ).toEqual({ created_at: base + 7 * DAY + 1 });
+        } finally {
+          clock.mockRestore();
+        }
+      });
+    },
+  );
+
+  it("does not notify parked waiters on a replay", async () => {
+    const { domain, stub } = fixture("key-notify");
+    await runInDurableObject(stub, async (instance: DomainObject) => {
+      const notify = vi.spyOn(
+        instance as unknown as { notify(topic: string): void },
+        "notify",
+      );
+      try {
+        const request = {
+          domain,
+          topic: "work/linux",
+          data: {},
+          idempotency_key: key,
+        };
+        const id = success(await instance.create(request, creator)).id;
+        success(
+          await instance.cancel(
+            { domain, topic: request.topic, origin_id: id },
+            creator,
+          ),
+        );
+        notify.mockClear();
+        expect(success(await instance.create(request, creator)).id).toBe(id);
+        expect(notify).not.toHaveBeenCalled();
+      } finally {
+        notify.mockRestore();
+      }
+    });
+  });
+
+  it("upgrades schema version 4 without changing held tasks", async () => {
+    const { domain, stub } = fixture("key-migration");
+    const request = { domain, topic: "work/linux", data: {} };
+    success(await stub.create(request, creator));
+    const held = success(
+      await stub.own(
+        { domain, topic: request.topic, hold_seconds: 60 },
+        worker,
+      ),
+    ).task;
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        "DROP TABLE create_keys; UPDATE schema_version SET version = 4",
+      );
+    });
+    await evictDurableObject(stub);
+    expect(
+      success(
+        await stub.read({ domain, topic: request.topic, id: held.id }, creator),
+      ).task,
+    ).toEqual(held);
+    const id = success(
+      await stub.create({ ...request, idempotency_key: key }, creator),
+    ).id;
+    expect(
+      success(await stub.create({ ...request, idempotency_key: key }, creator))
+        .id,
+    ).toBe(id);
+    await runInDurableObject(stub, (_instance, state) => {
+      expect(
+        state.storage.sql.exec("SELECT version FROM schema_version").one(),
+      ).toEqual({ version: 5 });
     });
   });
 });

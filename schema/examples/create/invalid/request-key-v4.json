@@ -1,0 +1,9 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "topic": "work/linux",
+    "data": {},
+    "idempotency_key": "017f22e2-79b0-4cc3-98c4-dc0c0c07398f"
+  }
+}
