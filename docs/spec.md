@@ -675,6 +675,10 @@ expose that origin so the caller can inspect it or cancel directly. A crash
 before publication can still leave an unmatched submission. No sidecars or
 `submission_unknown` state are used.
 
+If the request intent was saved and verified but reading its reply state
+fails, `StoreError` instead identifies the saved origin and the `tl wait`
+recovery command. It does not report that the request failed to save.
+
 **Local reply store.** Each drain or poll:
 
 1. Own the reply topic with a short hold (60 s); stop on empty.

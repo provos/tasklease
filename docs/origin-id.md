@@ -310,9 +310,10 @@ cancel: domainRoute(
 - `client.py`:
   - Add `"cancel": {}` to `_SUCCESS_FIELDS`.
   - Add `Client.cancel(self, request: p.CancelRequest, *, timeout: float | None = None) -> p.CancelResponse`.
-  - Validate `is_task_id(task.get("origin_id"))` on `own`, `renew`, and
-    `read` responses (raising `ProtocolError` if talking to an un-upgraded
-    `< 0.5.0` service).
+  - Validate canonical IDs on Create and `origin_id` on tasks and summaries
+    in `own`, `renew`, `read`, `tasks.list`, and `monitor.snapshot` responses,
+    raising `ProtocolError` on invalid or missing IDs. Task-bearing responses
+    from an un-upgraded `< 0.5.0` service fail this check.
 - `names.py`:
   - Remove `is_request_id` (only `data.request_id` used it; callers now validate
     `origin_id` with `is_task_id`). Keep `hash_id` in `store.py` (still used
@@ -343,9 +344,10 @@ cancel: domainRoute(
   readable in directory listings.
 - `.task.json` sidecars and `unmatched/` are removed.
 - `store.py` stays strictly fail-closed with **no `0.4.x` legacy file
-  compatibility branches**: any `.json` file in `requests/h(agent)/` or
-  `replies/h(agent)/` (apart from `agent.json` and `.*` dotfiles) whose stem is
-  not a valid `TaskId` matching `record.origin_id` raises `StoreError`. Local
+  compatibility branches**: apart from `agent.json` and `.*` dotfiles, every
+  entry must be a `<TaskId>.json` record matching `record.origin_id`.
+  Unrecognized entries, including the legacy `unmatched/` directory, raise
+  `StoreError` without deleting data. Local
   store directories on existing `0.4.x` machines are cleared once during the
   `0.5.0` upgrade (§8).
 
@@ -396,10 +398,12 @@ class ReplyRecord:
      inject `request_id` into `payload`.
   2. Call `response = client.create({"domain": domain, "topic": topic, "data": payload})`.
   3. Validate `origin_id = _task_id(response["id"])`.
-  4. Publish `requests/h(agent)/<origin_id>.json` with `publish_new` and return
-     `self._required_request(origin_id)`. Local publication/read failure after
-     Create raises `SubmissionError(origin_id)`, preserving the known ID in
-     the exception and CLI cancellation hint.
+  4. Publish `requests/h(agent)/<origin_id>.json` with `publish_new` and verify
+     its saved intent. Failure of this publication or intent readback raises
+     `SubmissionError(origin_id)`, preserving the known ID and cancellation hint.
+  5. Derive the returned record's state from its reply. If reply inspection
+     fails after the intent was verified, raise `StoreError` identifying the
+     saved origin and `tl wait` recovery command, without claiming a save failure.
 - **`_save_reply(task, domain, reply_topic) -> ReplyRecord`:**
   - Read `origin_id = _task_id(task.get("origin_id"))` and
     `task_id = _task_id(task.get("id"))`.
@@ -541,6 +545,8 @@ Update the in-memory `FakeBoard` to match `DomainObject` semantics:
        `"Moved to <error_topic>"` instead of falsely reporting
        `"Not on the board: finished, reply on its way"`.
 - **`monitor/src/App.svelte` & `monitor/src/mock/snapshot.ts`:**
+  - Expanded topic task rows display the full origin alongside a rotated task
+    ID so an operator can copy it for correlation or first-stage cancellation.
   - Pending-requests table displays `item.request.origin_id` instead of
     `request_id`.
   - Inbox entries display `reply.origin_id` (with an `"Unmatched"` label when

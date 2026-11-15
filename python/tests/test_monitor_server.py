@@ -18,7 +18,8 @@ import httpx
 import pytest
 
 from tasklease.client import Client
-from tasklease.errors import TransportError
+from tasklease.errors import ProtocolError, TransportError
+from tasklease.generated import protocol as p
 from tasklease.monitor.server import MonitorServer
 from tasklease.store import Store
 
@@ -464,10 +465,21 @@ def test_service_failure_is_safe_and_does_not_replace_previous_cache(
     assert running.server.cache._content == previous
 
 
+@pytest.mark.parametrize("failure", ["forbidden", "protocol"])
 def test_domain_error_preserves_other_domains_with_safe_message(
-    running: Running,
+    running: Running, monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
-    running.service.denied = "acme/a"
+    if failure == "forbidden":
+        running.service.denied = "acme/a"
+    else:
+        original = running.api.monitor_snapshot
+
+        def invalid(request: p.MonitorSnapshotRequest) -> p.MonitorSnapshotResponse:
+            if request["domain"] == "acme/a":
+                raise ProtocolError(TOKEN)
+            return original(request)
+
+        monkeypatch.setattr(running.api, "monitor_snapshot", invalid)
     status, _, body = running.request()
     assert status == 200 and TOKEN.encode() not in body
     value = decoded(body)

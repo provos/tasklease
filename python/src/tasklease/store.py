@@ -10,9 +10,11 @@ import hashlib
 import json
 import math
 import re
+import stat
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, replace
+from os import stat_result
 from pathlib import Path
 from random import uniform
 from typing import Literal, cast
@@ -134,16 +136,33 @@ def _remove(path: Path) -> int:
     return 1
 
 
+def _stat(path: Path) -> stat_result | None:
+    try:
+        return path.stat()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise StoreError("Cannot inspect local requester state") from None
+
+
+def _exists(path: Path) -> bool:
+    return _stat(path) is not None
+
+
+def _is_file(path: Path) -> bool:
+    result = _stat(path)
+    return result is not None and stat.S_ISREG(result.st_mode)
+
+
 def _records(directory: Path) -> Iterator[tuple[Path, dict[str, object]]]:
     for path in _files(directory):
-        if (
-            path.name == "agent.json"
-            or path.name.startswith(".")
-            or path.suffix != ".json"
-        ):
+        if path.name == "agent.json" or path.name.startswith("."):
             continue
-        if not is_task_id(path.stem):
-            raise StoreError("Requester record has an invalid storage name")
+        if path.suffix != ".json" or not is_task_id(path.stem):
+            raise StoreError(
+                "Requester record has an invalid storage name; "
+                "archive/reset legacy Store directories before using tasklease 0.5.0"
+            )
         value = _read(path)
         if value is not None:
             yield path, value
@@ -201,12 +220,12 @@ class ReplyRecord:
 
     agent_id: str
     task_id: str
+    origin_id: str
     topic: str
     creator: str
     created_at: int
     received_at: int
     data: dict[str, object]
-    origin_id: str
     matched: bool = False
 
     def _saved(self) -> dict[str, object]:
@@ -250,7 +269,7 @@ class Store:
             if initialize and metadata is None:
                 _publish(path, {"agent_id": agent_id})
                 metadata = _read(path)
-            if not initialize and metadata is None and not directory.exists():
+            if not initialize and metadata is None and not _exists(directory):
                 continue
             if metadata != {"agent_id": agent_id}:
                 raise StoreError("Agent metadata does not match its storage directory")
@@ -287,15 +306,15 @@ class Store:
         if not isinstance(creator, str) or not creator:
             raise StoreError("Invalid reply creator in requester state")
         return ReplyRecord(
-            self.agent_id,
-            _task_id(value.get("task_id")),
-            _name(value.get("topic")),
-            creator,
-            _integer(value.get("created_at")),
-            _integer(value.get("received_at")),
-            data,
-            origin_id,
-            matched=self._request_path(origin_id).is_file(),
+            agent_id=self.agent_id,
+            task_id=_task_id(value.get("task_id")),
+            origin_id=origin_id,
+            topic=_name(value.get("topic")),
+            creator=creator,
+            created_at=_integer(value.get("created_at")),
+            received_at=_integer(value.get("received_at")),
+            data=data,
+            matched=_is_file(self._request_path(origin_id)),
         )
 
     def reply(self, origin_id: str) -> ReplyRecord | None:
@@ -308,13 +327,17 @@ class Store:
         return result
 
     def request(self, origin_id: str) -> RequestRecord | None:
+        record = self._request_intent(origin_id)
+        return None if record is None else self._request_state(record)
+
+    def _request_intent(self, origin_id: str) -> RequestRecord | None:
         value = _read(self._request_path(origin_id))
         if value is None:
             return None
         record = self._parse_intent(value)
         if record.origin_id != origin_id:
             raise StoreError("Request correlation does not match its storage name")
-        return self._request_state(record)
+        return record
 
     def _request_state(self, record: RequestRecord) -> RequestRecord:
         state: RequestState = (
@@ -361,13 +384,24 @@ class Store:
             self.agent_id, origin_id, domain, topic, reply_topic, created_at, payload
         )
         try:
-            if _publish(self._request_path(origin_id), record._intent()) == "exists":
-                saved = self._required_request(origin_id)
-                if _encode(saved._intent()) != _encode(record._intent()):
-                    raise StoreError("Origin already belongs to another saved request")
-            return self._required_request(origin_id)
+            result = _publish(self._request_path(origin_id), record._intent())
+            saved = self._request_intent(origin_id)
+            if saved is None:
+                raise StoreError("Saved request disappeared after publication")
+            if result == "exists" and _encode(saved._intent()) != _encode(
+                record._intent()
+            ):
+                raise StoreError("Origin already belongs to another saved request")
         except StoreError as error:
             raise SubmissionError(origin_id) from error
+        try:
+            return self._request_state(saved)
+        except StoreError:
+            raise StoreError(
+                f"Request {origin_id} was saved, "
+                "but its reply state could not be read. "
+                f"Resume with tl wait --origin-id {origin_id}."
+            ) from None
 
     def cancel(self, client: Client, origin_id: str) -> CancelResult:
         """Cancel the initial task, even after Own has rotated its fencing ID."""
@@ -618,9 +652,8 @@ class Store:
             if reply.received_at < cutoff:
                 count += _remove(self._reply_path(reply.origin_id))
         for record in self._intents():
-            if (
-                record.created_at < cutoff
-                and not self._reply_path(record.origin_id).exists()
+            if record.created_at < cutoff and not _exists(
+                self._reply_path(record.origin_id)
             ):
                 count += _remove(self._request_path(record.origin_id))
         for directory in (
@@ -645,7 +678,7 @@ class Store:
         path = self.reply_directory / f".prune-{day}.json"
         # Checking first skips a full publication on every call after the first.
         if (
-            not path.exists()
+            not _exists(path)
             and _publish(path, {"created_at": int(now * 1000)}) == "created"
         ):
             self.prune()

@@ -53,6 +53,12 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function origin(value: unknown): boolean {
+  return (
+    typeof value === "string" && /^t_[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(value)
+  );
+}
+
 export function decodeSnapshot(value: unknown): Snapshot {
   if (
     !record(value) ||
@@ -63,11 +69,25 @@ export function decodeSnapshot(value: unknown): Snapshot {
         record(domain) &&
         typeof domain.domain === "string" &&
         Array.isArray(domain.topics) &&
+        domain.topics.every(
+          (topic: unknown) =>
+            record(topic) &&
+            Array.isArray(topic.tasks) &&
+            topic.tasks.every(
+              (task: unknown) => record(task) && origin(task.origin_id),
+            ),
+        ) &&
         Array.isArray(domain.stats),
     ) ||
     !record(value.local) ||
     !Array.isArray(value.local.requests) ||
+    !value.local.requests.every(
+      (request: unknown) => record(request) && origin(request.origin_id),
+    ) ||
     !Array.isArray(value.local.replies) ||
+    !value.local.replies.every(
+      (reply: unknown) => record(reply) && origin(reply.origin_id),
+    ) ||
     (value.errors !== undefined &&
       (!Array.isArray(value.errors) ||
         !value.errors.every((error: unknown) => typeof error === "string")))

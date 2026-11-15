@@ -211,6 +211,22 @@ def test_failed_local_publication_exposes_the_created_origin(
     assert store.requests() == []
 
 
+def test_reply_read_failure_after_submit_reports_the_saved_request(
+    store: Store, client: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unreadable(origin_id: str) -> None:
+        raise StoreError("private reply diagnostic")
+
+    monkeypatch.setattr(store, "reply", unreadable)
+    with pytest.raises(StoreError) as error:
+        submit(store, client)
+    assert not isinstance(error.value, SubmissionError)
+    assert "was saved" in str(error.value)
+    assert f"tl wait --origin-id {TASK}" in str(error.value)
+    assert "private" not in str(error.value)
+    assert json.loads(store._request_path(TASK).read_text())["origin_id"] == TASK
+
+
 def test_a_reply_can_arrive_before_local_submission_is_saved(
     store: Store, client: Client, backend: Backend
 ) -> None:
@@ -373,6 +389,69 @@ def test_legacy_state_files_fail_closed(store: Store, folder: str, name: str) ->
     (directory / name).write_text("{}")
     with pytest.raises(StoreError, match="storage name"):
         store.requests() if folder == "requests" else store.inbox()
+
+
+@pytest.mark.parametrize("entry", ["unmatched", "notes.txt"])
+def test_unrecognized_store_entries_fail_closed_without_removing_data(
+    store: Store, entry: str
+) -> None:
+    path = store.reply_directory / entry
+    if entry == "unmatched":
+        path.mkdir()
+        (path / f"{TASK}.json").write_text('{"legacy":true}')
+    else:
+        path.write_text("legacy state")
+    for operation in (store.inbox, store.prune):
+        with pytest.raises(StoreError, match="archive/reset legacy Store"):
+            operation()
+    assert path.exists()
+    if path.is_dir():
+        assert (path / f"{TASK}.json").read_text() == '{"legacy":true}'
+
+
+@pytest.mark.parametrize("operation", ["initialize", "matched", "prune", "automatic"])
+def test_state_probe_errors_are_sanitized(
+    store: Store,
+    client: Client,
+    backend: Backend,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    if operation == "initialize":
+        (store.request_directory / "agent.json").unlink()
+        store.request_directory.rmdir()
+        target = store.request_directory
+    elif operation == "matched":
+        backend.replies = [task({})]
+        store.drain(client, DOMAIN, REPLY)
+        target = store._request_path(TASK)
+    elif operation == "prune":
+        submit(store, client)
+        future = time.time() + 8 * 86400
+        monkeypatch.setattr(time, "time", lambda: future)
+        target = store._reply_path(TASK)
+    else:
+        target = store.reply_directory / f".prune-{int(time.time() // 86400)}.json"
+    original = Path.stat
+
+    def inspect(path: Path, *, follow_symlinks: bool = True) -> os.stat_result:
+        if path == target:
+            raise PermissionError("private filesystem diagnostic")
+        return original(path, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(Path, "stat", inspect)
+    with pytest.raises(
+        StoreError, match="Cannot inspect local requester state"
+    ) as error:
+        if operation == "initialize":
+            Store(store.agent_id, store.root, initialize=False)
+        elif operation == "matched":
+            store.reply(TASK)
+        elif operation == "prune":
+            store.prune()
+        else:
+            store.drain(client, DOMAIN, REPLY)
+    assert "private" not in str(error.value)
 
 
 def test_opaque_surrogate_data_is_saved_before_delete(

@@ -21,13 +21,17 @@ from tasklease.cli.common import (
     text,
 )
 from tasklease.client import Client, reject_nonfinite
+from tasklease.config import Config
 from tasklease.errors import ConfigError, NotFound, SubmissionError, TaskleaseError
+from tasklease.names import is_task_id, is_topic
 from tasklease.store import CancelResult, RequestRecord, Store
 
 
-def agent_store(args: argparse.Namespace) -> Store:
+def agent_store(args: argparse.Namespace, *, config: Config | None = None) -> Store:
     """Select a single agent without requiring any network configuration."""
-    agent_id = configuration(args).agent_id
+    if config is None:
+        config = configuration(args)
+    agent_id = config.agent_id
     if agent_id is None:
         raise ConfigError("Set agent_id in config.toml or TL_AGENT_ID")
     return Store(agent_id)
@@ -93,14 +97,15 @@ def _wait_for(
 
 def _request(args: argparse.Namespace) -> int:
     timeout = duration_seconds(text(args, "timeout"), name="Timeout")
+    config = configuration(args)
     # Validated before Create, but only when this request will wait.
-    wait = requester_wait_seconds(args) if flag(args, "wait") else 0
-    selected = domain(args, configuration(args))
+    wait = requester_wait_seconds(args, config=config) if flag(args, "wait") else 0
+    selected = domain(args, config)
     topic = text(args, "topic")
     reply_topic = text(args, "reply_topic")
     payload = _data(text(args, "data"))
-    store = agent_store(args)
-    with client(args) as api:
+    store = agent_store(args, config=config)
+    with client(args, config=config) as api:
         try:
             record = store.submit(api, selected, topic, reply_topic, payload)
         except SubmissionError as error:
@@ -121,25 +126,31 @@ def _request(args: argparse.Namespace) -> int:
 
 def _wait(args: argparse.Namespace) -> int:
     timeout = duration_seconds(text(args, "timeout"), name="Timeout")
-    wait = requester_wait_seconds(args)
-    store = agent_store(args)
-    with client(args) as api:
+    config = configuration(args)
+    wait = requester_wait_seconds(args, config=config)
+    store = agent_store(args, config=config)
+    with client(args, config=config) as api:
         return _wait_for(store, api, text(args, "origin_id"), timeout, wait)
 
 
 def _cancel(args: argparse.Namespace) -> int:
     origin_id = text(args, "origin_id")
     topic = optional_text(args, "topic")
+    if not is_task_id(origin_id):
+        raise ConfigError("origin_id must be a valid task ID")
+    if topic is not None and not is_topic(topic):
+        raise ConfigError("topic must be a valid topic name")
     if topic is None and optional_text(args, "domain") is not None:
         raise ConfigError("--domain requires --topic for direct cancellation")
-    store = agent_store(args) if topic is None else None
+    config = configuration(args)
+    selected = domain(args, config) if topic is not None else None
+    store = agent_store(args, config=config) if topic is None else None
     result: CancelResult
-    with client(args) as api:
+    with client(args, config=config) as api:
         if store is not None:
             result = store.cancel(api, origin_id)
         else:
-            assert topic is not None
-            selected = domain(args, configuration(args))
+            assert topic is not None and selected is not None
             try:
                 api.cancel({"domain": selected, "topic": topic, "origin_id": origin_id})
             except NotFound:

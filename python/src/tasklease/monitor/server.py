@@ -19,6 +19,7 @@ from tasklease.errors import (
     APIError,
     ConfigError,
     Forbidden,
+    ProtocolError,
     StoreError,
     TaskleaseError,
     TransportError,
@@ -108,7 +109,7 @@ class SnapshotCache:
                 domains.append(
                     self.client.monitor_snapshot({"domain": domain, "hours": hours})
                 )
-            except APIError:
+            except (APIError, ProtocolError):
                 # The exception can contain arbitrary upstream text. The browser
                 # only needs to know which configured domain could not refresh.
                 errors.append(f"Snapshot unavailable for domain {domain}")

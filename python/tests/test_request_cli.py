@@ -312,6 +312,42 @@ def test_local_save_failure_reports_known_origin_and_stateless_cancel_hint(
     assert "private disk diagnostic" not in captured.err
 
 
+def test_reply_read_failure_reports_wait_recovery_instead_of_failed_save(
+    cli: CLI, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tasklease import fsio
+
+    original = fsio.read_json
+    reply_path = cli.root / "replies" / hashed(AGENT) / f"{TASK_ID}.json"
+
+    def read(path: Path) -> object:
+        if path == reply_path:
+            raise PermissionError("private filesystem diagnostic")
+        return original(path)
+
+    monkeypatch.setattr(fsio, "read_json", read)
+    cli.respond = lambda request: httpx.Response(200, json={"ok": True, "id": TASK_ID})
+    assert cli.run(request_args()) == 1
+    captured = capsys.readouterr()
+    assert "was saved" in captured.err
+    assert f"tl wait --origin-id {TASK_ID}" in captured.err
+    assert "tl cancel" not in captured.err and "private" not in captured.err
+    assert cli.record_path().exists()
+    assert len(cli.requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("origin_id", "topic"), [("invalid", TOPIC), (TASK_ID, "invalid//topic")]
+)
+def test_direct_cancel_validates_coordinates_before_configuration_or_network(
+    cli: CLI, capsys: pytest.CaptureFixture[str], origin_id: str, topic: str
+) -> None:
+    cli.config.write_text("invalid TOML =")
+    assert cli.run(["cancel", "--origin-id", origin_id, "--topic", topic]) == 1
+    assert "must be a valid" in capsys.readouterr().err
+    assert cli.requests == [] and not cli.root.exists()
+
+
 @pytest.mark.parametrize("not_found", [False, True])
 def test_cancel_uses_saved_origin_and_retains_record_on_not_found(
     cli: CLI, capsys: pytest.CaptureFixture[str], not_found: bool

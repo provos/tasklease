@@ -439,7 +439,11 @@
                                 task.owner !== null &&
                                 task.lease_until <= topic.generatedAt}<tr
                                 ><td class="wide"
-                                  ><code>{task.id}</code><span class="secondary"
+                                  ><code>{task.id}</code
+                                  >{#if task.origin_id !== task.id}<span
+                                      class="secondary mono"
+                                      >Origin {task.origin_id}</span
+                                    >{/if}<span class="secondary"
                                     >Created by {task.creator} · {age(
                                       task.created_at,
                                       topic.generatedAt,
