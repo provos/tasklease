@@ -2,8 +2,8 @@
   "version": "0.5.0",
   "date": "2026-11-15",
   "date_timezone": "America/Los_Angeles",
-  "status": "pending_windows_native",
-  "implementation": "complete; PR draft until remaining native acceptance",
+  "status": "passed",
+  "implementation": "complete; native and isolated service acceptance passed",
   "pr": "https://github.com/provos/tasklease/pull/21",
   "source_commit": "8b7ed782ce6a9297c2c640222004ec838be9c76f",
   "source_dirty": false,
@@ -233,9 +233,151 @@
       }
     },
     "windows": {
-      "status": "pending",
-      "reason": "Windows 11 VM is suspended; resume requested. No result claimed for this candidate.",
-      "prepared_guest_root": "C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78"
+      "architecture": "ARM64",
+      "archive_sha256": "db6c9252e6ab700c05d5fbc8d5c7d98fa4cb065040230b2ab63b0a4c6fb112fa",
+      "ignored_node_suites": ["test_build.py", "test_deploy.py"],
+      "installed_wheel_probe": {
+        "command": [
+          "C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78\\venv\\Scripts\\python.exe",
+          "-I",
+          "-c",
+          "\nimport io, json, plistlib, sys, zipfile\nfrom contextlib import redirect_stdout\nfrom importlib.resources import files\nfrom pathlib import Path, PurePosixPath\nfrom xml.etree import ElementTree\nimport tasklease\nfrom tasklease.cli import main\nfrom tasklease.client import Client\n\nroot = Path(tasklease.__file__).resolve().parent\nassert sys.prefix != sys.base_prefix, 'Use a clean virtual environment'\nassert root.is_relative_to(Path(sys.prefix).resolve()), (\n    'Editable/source import is not an installed-wheel check'\n)\nassert 'site-packages' in str(root).lower(), 'Use installed site-packages'\nassert tasklease.__version__ == sys.argv[2], 'Installed version differs'\nwith zipfile.ZipFile(sys.argv[1]) as wheel:\n    for name in wheel.namelist():\n        if name.startswith('tasklease/') and not name.endswith('/'):\n            relative = PurePosixPath(name).parts[1:]\n            assert root.joinpath(*relative).read_bytes() == wheel.read(name), (\n                'Installed package differs from wheel: ' + name\n            )\np = files('tasklease')\nhtml = p.joinpath('monitor/static/index.html').read_text()\nassert '<html' in html and p.joinpath('monitor/static/assets').is_dir()\nbundle = json.loads(p.joinpath('service_bundle/manifest.json').read_text())\ntemplate = json.loads(p.joinpath('service_bundle/wrangler.template.jsonc').read_text())\nassert bundle['service_version'] == tasklease.__version__\nassert template['no_bundle'] is True\nassert p.joinpath('service_bundle', template['main']).read_bytes()\nfor target in ('systemd', 'launchd', 'windows', 'windows-stop'):\n    output = io.StringIO()\n    with redirect_stdout(output):\n        assert main(['worker', 'template', '--platform', target]) == 0\n    text = output.getvalue()\n    assert text\n    if target == 'launchd':\n        assert plistlib.loads(text.encode())['RunAtLoad'] is True\n    if target == 'windows':\n        ElementTree.fromstring(text)\nClient('http://127.0.0.1:1', 'acceptance-fake-token').close()\nprint(json.dumps({\n    'version': tasklease.__version__, 'package_path': str(root),\n    'templates': 4, 'node_path': 'absent',\n}))\n",
+          "C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78\\bundle\\artifacts\\tasklease-0.5.0-py3-none-any.whl",
+          "0.5.0"
+        ],
+        "cwd": "C:\\Users\\provos\\AppData\\Local\\Temp\\tasklease-native-work-q6mm5jcl",
+        "exit_code": 0,
+        "log": "C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78\\native-report.probe.log",
+        "seconds": 1.579,
+        "timed_out": false
+      },
+      "package_version": "0.5.0",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.12.12",
+      "python_executable": "C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78\\venv\\Scripts\\python.exe",
+      "release": "11",
+      "runtime": {
+        "command": [
+          "C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78\\venv\\Scripts\\python.exe",
+          "-I",
+          "-m",
+          "pytest",
+          "-c",
+          "C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78\\bundle\\source\\python\\pyproject.toml",
+          "C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78\\bundle\\source\\python\\tests",
+          "--ignore=C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78\\bundle\\source\\python\\tests\\test_build.py",
+          "--ignore=C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78\\bundle\\source\\python\\tests\\test_deploy.py",
+          "--junitxml=C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78\\native-report.junit.xml",
+          "-q"
+        ],
+        "cwd": "C:\\Users\\provos\\AppData\\Local\\Temp\\tasklease-native-work-q6mm5jcl",
+        "exit_code": 0,
+        "log": "C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78\\native-report.pytest.log",
+        "seconds": 34.671,
+        "timed_out": false
+      },
+      "source_commit": "8b7ed782ce6a9297c2c640222004ec838be9c76f",
+      "source_dirty": false,
+      "source_tree_sha256": "dbb45076223357e466ca428be45780a031b26ba6afb192cccba480aaba63c329",
+      "status": "passed",
+      "system": "Windows",
+      "tests": {
+        "errors": 0,
+        "failed_cases": [],
+        "failures": 0,
+        "passed": 1112,
+        "skipped": 18,
+        "skipped_cases": [
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_cli::test_insecure_token_file_reports_fix_without_stdout_secret_or_request[False]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_cli::test_insecure_token_file_reports_fix_without_stdout_secret_or_request[True]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[420]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[416]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[388]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[400]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_token_files_with_group_or_other_access_are_rejected[385]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_private_token_files_are_accepted[384]"
+          },
+          {
+            "reason": "POSIX token permission bits",
+            "test": "tests.test_config::test_private_token_files_are_accepted[256]"
+          },
+          {
+            "reason": "POSIX symlinks and permissions",
+            "test": "tests.test_config::test_token_permissions_follow_the_open_file_not_the_symlink"
+          },
+          {
+            "reason": "POSIX supports unprivileged symlinks",
+            "test": "tests.test_fsio::test_temp_cleanup_does_not_follow_symlinks"
+          },
+          {
+            "reason": "Darwin flush uses POSIX fcntl",
+            "test": "tests.test_fsio::test_darwin_full_flush_follows_namespace_flush"
+          },
+          {
+            "reason": "Darwin flush uses POSIX fcntl",
+            "test": "tests.test_fsio::test_darwin_full_flush_failure_is_not_ignored"
+          },
+          {
+            "reason": "Windows denies unlink of an open file",
+            "test": "tests.test_worker_control::test_consumer_can_remove_marker_before_creator_closes"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[False-False]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[False-True]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[True-False]"
+          },
+          {
+            "reason": "POSIX signals; Windows uses stop files",
+            "test": "tests.test_worker_control::test_actual_first_signal_finishes_work_second_signal_exits[True-True]"
+          }
+        ],
+        "tests": 1130
+      },
+      "uv": {
+        "command": [
+          "C:\\Users\\provos\\AppData\\Local\\Temp\\tasklease-040-offline-35150128\\uv.EXE",
+          "--version"
+        ],
+        "cwd": "C:\\Users\\provos\\AppData\\Local\\Temp\\tasklease-native-work-q6mm5jcl",
+        "exit_code": 0,
+        "log": "C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78\\native-report.uv.log",
+        "seconds": 0.031,
+        "timed_out": false,
+        "version": "uv 0.9.15 (5eafae332 2025-12-02)"
+      },
+      "wheel_sha256": "4c524755b67284a5121c45bdac8b5566ccbb3f6321e8c669fa33a80616af4063",
+      "scheduler_com": "passed; no task registered",
+      "installation_source": "Candidate wheel; existing seven-day-qualified offline test dependency wheelhouse"
     }
   },
   "live": {
@@ -360,11 +502,11 @@
   },
   "retained_evidence": {
     "path": "/Users/provos/src/tasklease/python/dist/acceptance-0.5.0-idempotency-8b7ed78/evidence.zip",
-    "sha256": "c6ea4c3d735be3874d3733139214d4b2424477c06f477f8d93a19d6f36dc1e4f",
-    "files": 38,
+    "sha256": "9cead4b559c5b4eab3e6451975d04c876dbe4e47f2a6676fe554b542ce64077e",
+    "files": 45,
     "secret_scan": {
       "status": "passed",
-      "files_and_archive_members": 685,
+      "files_and_archive_members": 692,
       "actual_credential_values_checked": 6,
       "private_state_excluded": true
     }

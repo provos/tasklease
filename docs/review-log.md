@@ -1268,15 +1268,18 @@ Status: accepted after corrections, independent reviews and native qualification
   the old client tolerated new service metadata. All temporary identities were
   revoked, the run-owned Worker was deleted with API 404 verification, and the
   existing acceptance bucket and lifecycle were unchanged.
-- **Windows native acceptance is pending:** the Windows 11 VM is suspended,
-  and manual resume was requested. The fresh bundle and runner are prepared;
-  no Windows result is claimed for this candidate. The
-  [acceptance report](acceptance/0.5.0-idempotency.json) records this open gate.
-  The PR remains draft. Publication remains on hold; the existing `v0.5.0` tag
+- After the Windows 11 VM resumed, the exact candidate passed native acceptance:
+  1,112 tests passed, 18 expected skips, and no failures or errors. The installed
+  wheel/no-Node probe and Task Scheduler COM XML parsing passed; no task was
+  registered. Dependencies came from the existing age-qualified offline
+  wheelhouse. Source commit, ZIP and wheel hashes match the candidate above.
+  The [acceptance report](acceptance/0.5.0-idempotency.json) now records all native
+  and isolated service checks as passed, and the PR is ready for review.
+  Publication remains on hold; the existing `v0.5.0` tag
   still identifies `cb036405e49c51ed56a8aef1f3910d0ab4b06e2e` and has not moved.
   No publishing workflow or GitHub Release was created for this revision.
 - Evidence is retained in
   `python/dist/acceptance-0.5.0-idempotency-8b7ed78/evidence.zip`, SHA-256
-  `c6ea4c3d735be3874d3733139214d4b2424477c06f477f8d93a19d6f36dc1e4f`.
-  It contains 38 files and a hash manifest. Recursive scanning of 685 files
+  `9cead4b559c5b4eab3e6451975d04c876dbe4e47f2a6676fe554b542ce64077e`.
+  It contains 45 files and a hash manifest. Recursive scanning of 692 files
   and archive members against actual credentials passed; private state is excluded.
