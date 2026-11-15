@@ -1268,6 +1268,19 @@ Status: accepted after corrections, independent reviews and native qualification
   the old client tolerated new service metadata. All temporary identities were
   revoked, the run-owned Worker was deleted with API 404 verification, and the
   existing acceptance bucket and lifecycle were unchanged.
+- At the user's request, the persistent
+  [acceptance service](https://tasklease-acceptance-90d25ae.provos.workers.dev/v1/version)
+  was also upgraded from 0.4.1 to this exact candidate wheel and left running
+  0.5.0. Its held task, scoped credential and statistics survived the upgrade.
+  The deployment probe, origin/idempotency checks, real R2 transfers and 14
+  shared conformance scenarios passed against it. The remote scenarios include
+  lost responses, replay across task lifecycle transitions, creator isolation,
+  cancellation, duplicate archives and direct/confused-deputy forgeries.
+  Test tasks and identities were removed; the final identity count is zero,
+  matching preflight. The original admin credential still authenticates and
+  the existing bucket and lifecycle are unchanged. R2 test objects expire
+  under the existing seven-day rule. The report and sanitized logs are included
+  in the retained evidence below.
 - After the Windows 11 VM resumed, the exact candidate passed native acceptance:
   1,112 tests passed, 18 expected skips, and no failures or errors. The installed
   wheel/no-Node probe and Task Scheduler COM XML parsing passed; no task was
@@ -1280,6 +1293,6 @@ Status: accepted after corrections, independent reviews and native qualification
   No publishing workflow or GitHub Release was created for this revision.
 - Evidence is retained in
   `python/dist/acceptance-0.5.0-idempotency-8b7ed78/evidence.zip`, SHA-256
-  `9cead4b559c5b4eab3e6451975d04c876dbe4e47f2a6676fe554b542ce64077e`.
-  It contains 45 files and a hash manifest. Recursive scanning of 692 files
+  `2e52df5503d89841d591003ba7f12b8ab2440b5941b6e497935fd13e5f153f61`.
+  It contains 55 files and a hash manifest. Recursive scanning of 702 files
   and archive members against actual credentials passed; private state is excluded.

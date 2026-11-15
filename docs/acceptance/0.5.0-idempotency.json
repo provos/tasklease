@@ -3,7 +3,7 @@
   "date": "2026-11-15",
   "date_timezone": "America/Los_Angeles",
   "status": "passed",
-  "implementation": "complete; native and isolated service acceptance passed",
+  "implementation": "complete; native, isolated and persistent service acceptance passed",
   "pr": "https://github.com/provos/tasklease/pull/21",
   "source_commit": "8b7ed782ce6a9297c2c640222004ec838be9c76f",
   "source_dirty": false,
@@ -500,14 +500,185 @@
     "publishing_workflow_dispatched": false,
     "github_release_created": false
   },
+  "persistent_acceptance": {
+    "status": "passed",
+    "checks": {
+      "persistent_worker_and_config_verified": true,
+      "exact_installed_candidate_wheel_bytes": true,
+      "new_client_prior_service_explicit_key_error": true,
+      "new_client_prior_service_explicit_origin_error": true,
+      "legacy_origin_backfill_root_zero": true,
+      "upgrade_exact_task_credentials_stats_preserved": true,
+      "snapshot_atomic_reply_and_stale_id_fencing": true,
+      "signed_content_length_rejection_and_r2_roundtrip": true,
+      "public_blob_helpers_live_r2": true,
+      "key_replay_after_cancel_and_creator_isolation": true,
+      "concurrent_key_first_request_wins_and_lifecycle_replay": true,
+      "creator_cancel_held_without_own_scope": true,
+      "store_replay_recovers_already_answered_origin": true,
+      "origin_fanout_duplicate_archive_and_post_consume_cancel": true,
+      "payload_forgery_does_not_take_answer_slot": true,
+      "origin_cancel_archive_live": true,
+      "remote_conformance_tasks_and_identities_cleaned": true,
+      "shared_conformance_on_persistent_service": true,
+      "old_client_new_service_wire": true,
+      "upgrade_test_domain_has_no_live_tasks": true,
+      "temporary_identities_revoked": true,
+      "persistent_service_left_on_candidate": true,
+      "preexisting_identities_and_admin_credential_preserved": true
+    },
+    "events": [
+      "Persistent acceptance 0.4.1 prepared with held work and a temporary identity; admin credential preserved",
+      "Upgrading the same isolated Worker from installed candidate wheel",
+      "Bucket tasklease-acceptance-90d25ae: unchanged",
+      "Lifecycle tasklease-expire: unchanged",
+      "Worker uploaded; deployment coordinates saved. Verification is pending.",
+      "Task and R2 upload/download checks passed.",
+      "Next: tl identity add for each machine; tl topic declare for well-known topics.",
+      "Exact held task, credentials and hourly stats survived; reply/fencing passed",
+      "Real R2 signed-size rejection, SHA-256 and public file helpers passed",
+      "Live origin, creator cancellation, duplicate archive and forgery isolation passed",
+      "Candidate live upgrade, origin and idempotency acceptance passed",
+      "Prior client accepts new wire metadata; coordinated profile upgrade remains required",
+      "Persistent acceptance remains on 0.5.0; temporary identities revoked, admin and bucket lifecycle preserved"
+    ],
+    "worker_api_observations": [
+      {
+        "name": "tasklease-acceptance-90d25ae",
+        "http_status": 200
+      },
+      {
+        "name": "tasklease-acceptance-90d25ae",
+        "http_status": 200
+      }
+    ],
+    "name": "tasklease-acceptance-90d25ae",
+    "url": "https://tasklease-acceptance-90d25ae.provos.workers.dev",
+    "bucket": "tasklease-acceptance-90d25ae",
+    "prior_version": "0.4.1",
+    "target_kind": "existing persistent acceptance service",
+    "preexisting_identity_count": 0,
+    "candidate_source_commit": "8b7ed782ce6a9297c2c640222004ec838be9c76f",
+    "candidate_source_dirty": false,
+    "candidate_source_tree_sha256": "dbb45076223357e466ca428be45780a031b26ba6afb192cccba480aaba63c329",
+    "candidate_archive_sha256": "db6c9252e6ab700c05d5fbc8d5c7d98fa4cb065040230b2ab63b0a4c6fb112fa",
+    "candidate_wheel_sha256": "4c524755b67284a5121c45bdac8b5566ccbb3f6321e8c669fa33a80616af4063",
+    "helper_total_timeout_seconds": 60,
+    "helper_roundtrip_elapsed_seconds": 0.6421769168227911,
+    "helper_blob": {
+      "size": 1048593,
+      "sha256": "90a841533f9ddc8345278d56414696421f8e55fe34ec5a31d04d10edf948c90e"
+    },
+    "candidate_version": "0.5.0",
+    "remote_conformance": [
+      {
+        "case": "key-after-queued",
+        "status": "passed"
+      },
+      {
+        "case": "key-after-own",
+        "status": "passed"
+      },
+      {
+        "case": "key-after-consume",
+        "status": "passed"
+      },
+      {
+        "case": "key-after-delete",
+        "status": "passed"
+      },
+      {
+        "case": "key-after-cancel",
+        "status": "passed"
+      },
+      {
+        "case": "key-concurrency-and-creator-isolation",
+        "status": "passed"
+      },
+      {
+        "case": "key-lost-response-already-drained-reply",
+        "status": "passed"
+      },
+      {
+        "case": "creator-cancel-held-False",
+        "status": "passed"
+      },
+      {
+        "case": "creator-cancel-held-True",
+        "status": "passed"
+      },
+      {
+        "case": "origin-fanout-cancel-boundary",
+        "status": "passed"
+      },
+      {
+        "case": "lost-delete-response",
+        "status": "passed"
+      },
+      {
+        "case": "redelivery-reply-deduplication",
+        "status": "passed"
+      },
+      {
+        "case": "duplicate-reply-archive",
+        "status": "passed"
+      },
+      {
+        "case": "direct-and-confused-deputy-forgeries",
+        "status": "passed"
+      }
+    ],
+    "remote_conformance_passed": 14,
+    "mixed_profile_compatibility": "Wire metadata is tolerated; mixed payload conventions remain unsupported and require the documented coordinated upgrade.",
+    "cleanup": {
+      "temporary_identities_revoked": true,
+      "persistent_worker_retained": true,
+      "service_version": "0.5.0",
+      "bucket_unchanged": true,
+      "bucket_lifecycle_unchanged": true,
+      "lifecycle_before": [
+        {
+          "name": "Default Multipart Abort Rule",
+          "enabled": "Yes",
+          "prefix": "(all prefixes)",
+          "action": "Abort incomplete multipart uploads after 7 days"
+        },
+        {
+          "name": "tasklease-expire",
+          "enabled": "Yes",
+          "prefix": "(all prefixes)",
+          "action": "Expire objects after 7 days"
+        }
+      ],
+      "lifecycle_after": [
+        {
+          "name": "Default Multipart Abort Rule",
+          "enabled": "Yes",
+          "prefix": "(all prefixes)",
+          "action": "Abort incomplete multipart uploads after 7 days"
+        },
+        {
+          "name": "tasklease-expire",
+          "enabled": "Yes",
+          "prefix": "(all prefixes)",
+          "action": "Expire objects after 7 days"
+        }
+      ],
+      "test_objects_expire_under_existing_seven_day_rule": true
+    },
+    "remote_harness_notes": [
+      "Initial harness invocation signature corrected; first attempt test tasks and identities cleaned.",
+      "Rerun given fresh local Store directories per run, matching pytest fixture isolation; final full run passed."
+    ]
+  },
   "retained_evidence": {
     "path": "/Users/provos/src/tasklease/python/dist/acceptance-0.5.0-idempotency-8b7ed78/evidence.zip",
-    "sha256": "9cead4b559c5b4eab3e6451975d04c876dbe4e47f2a6676fe554b542ce64077e",
-    "files": 45,
+    "sha256": "2e52df5503d89841d591003ba7f12b8ab2440b5941b6e497935fd13e5f153f61",
+    "files": 55,
     "secret_scan": {
       "status": "passed",
-      "files_and_archive_members": 692,
-      "actual_credential_values_checked": 6,
+      "files_and_archive_members": 702,
+      "actual_credential_values_checked": 53,
       "private_state_excluded": true
     }
   }
