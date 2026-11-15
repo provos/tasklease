@@ -1334,3 +1334,43 @@ Status: accepted after corrections, independent reviews and native qualification
   Recursive scanning of 843 files/archive members against 53 actual credential
   values passed; private state is excluded. No PyPI publishing dispatch or
   GitHub Release was created during final preparation.
+
+## 0.5.0 publication (2026-11-15)
+
+- The user authorized publication. The [publishing workflow](https://github.com/provos/tasklease/actions/runs/43758321303)
+  passed its build and publish jobs and uploaded 0.5.0 through PyPI Trusted
+  Publishing. Its log confirms checkout of tagged commit
+  `087f25306a941755c624df98b1321ff82916a114`. The published tag is fixed.
+- Both [PyPI distributions](https://pypi.org/project/tasklease/0.5.0/) match that
+  publishing run byte for byte. Metadata, license, RECORD and resource checks
+  passed. Compared with the qualified candidate, the only changes are Worker
+  source-path comments, source-map paths, its README timestamp and RECORD;
+  Python, dashboard and executable Worker code match. SHA-256 values:
+  - wheel: `24b14ea998ed91253271d1c386662e669cf7f23b3fb79569a4a83aed4efc0b4d`;
+  - sdist: `1be615c7540a101146461731a2f2d2534866112ef9254e3a1037e430f27c6dcb`.
+- Fresh installs of the SHA-256-verified PyPI wheel passed on macOS, Linux
+  (Docker Desktop Linux VM) and Windows 11. Each verified exact installed bytes,
+  CLI version/help, dashboard and Worker resources, four startup templates,
+  no-Node operation and offline UUIDv7 retry/cancel behavior. Windows additionally
+  passed native Task Scheduler COM XML parsing; no task was registered.
+  Runtime dependencies were age-qualified; Windows used the existing offline
+  wheelhouse. Full native runtime suites were already qualified and were not
+  repeated for publication.
+- A fresh macOS PyPI installation deployed a new, guarded isolated Cloudflare
+  Worker. Built-in origin/idempotency and R2 probes, concurrent keyed Creates,
+  creator isolation, lifecycle replay, cancellation, duplicate archives,
+  forgery isolation and a 1 MiB + 17 byte public-helper R2 round trip passed.
+  No tasks remained, test identities were revoked, and the run-owned Worker
+  was deleted with API 404 verification. The existing acceptance bucket and
+  lifecycle were unchanged; test objects expire under its seven-day rule.
+- The [GitHub release](https://github.com/provos/tasklease/releases/tag/v0.5.0)
+  is published with the matching changelog notes, exact PyPI wheel/sdist and
+  distribution checksums. All attached files were downloaded and compared
+  before publication. The upgrade link targets the fixed release tag.
+- [The publication report](acceptance/0.5.0-publication.json) records the final
+  results. Artifacts and evidence are retained in
+  `python/dist/publication-0.5.0-087f253/`. The evidence ZIP contains 45 files plus
+  a hash manifest, SHA-256
+  `75fe13956e501a676ea9b4cebe02909bde6c9c96c43934e8ba88257f8b0a8fcf`.
+  Recursive scanning of 166 files/archive members against 56 actual credential
+  values passed; private state is excluded.

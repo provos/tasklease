@@ -1,0 +1,146 @@
+{
+  "version": "0.5.0",
+  "tag": "v0.5.0",
+  "release_commit": "087f25306a941755c624df98b1321ff82916a114",
+  "tag_object": "111b4e90a937c0b50c1b49bd593c8bd41a81457a",
+  "status": "passed",
+  "date": "2026-11-15",
+  "date_timezone": "America/Los_Angeles",
+  "rehearsal_run": 43754000171,
+  "rehearsal_url": "https://github.com/provos/tasklease/actions/runs/43754000171",
+  "publishing_run": 43758321303,
+  "publishing_url": "https://github.com/provos/tasklease/actions/runs/43758321303",
+  "publishing_workflow_result": "success; build and publish jobs passed",
+  "pypi_matches_publishing_run": true,
+  "distributions": {
+    "tasklease-0.5.0-py3-none-any.whl": {
+      "sha256": "24b14ea998ed91253271d1c386662e669cf7f23b3fb79569a4a83aed4efc0b4d",
+      "size": 274490,
+      "url": "https://files.pythonhosted.org/packages/ad/52/7645d7c7fbe16f3330fc0c60b5a5ef947fa851efbb8ca2c8ee3385d5eb5f/tasklease-0.5.0-py3-none-any.whl",
+      "workflow_bytes_match": true
+    },
+    "tasklease-0.5.0.tar.gz": {
+      "sha256": "1be615c7540a101146461731a2f2d2534866112ef9254e3a1037e430f27c6dcb",
+      "size": 403515,
+      "url": "https://files.pythonhosted.org/packages/f8/41/a4dcec3ddfa64830b23822fb42366dad7ed9498dacbab419732f06beaed4/tasklease-0.5.0.tar.gz",
+      "workflow_bytes_match": true
+    }
+  },
+  "pypi_url": "https://pypi.org/project/tasklease/0.5.0/",
+  "github_release": "https://github.com/provos/tasklease/releases/tag/v0.5.0",
+  "github_release_published_at": "2026-11-15T20:54:35Z",
+  "github_release_assets_match_pypi": true,
+  "github_release_notes": "Matching CHANGELOG entry, with upgrade link resolved to the release tag",
+  "qualified_candidate_comparison": "Only source-path comments, source-map paths, bundle README build timestamp and wheel RECORD. Python, dashboard and executable Worker code match the qualified candidate.",
+  "metadata_license_RECORD_and_resources": "passed",
+  "native": {
+    "macos": {
+      "status": "passed",
+      "installation": "Fresh venv from SHA256-verified PyPI wheel; runtime dependencies >=7 days old",
+      "no_node_probe": true,
+      "exact_installed_wheel_bytes": true,
+      "version_and_help": "passed",
+      "dashboard_worker_and_four_startup_templates": "passed",
+      "offline_idempotency_and_cancel": "passed"
+    },
+    "linux": {
+      "status": "passed",
+      "platform": "Linux aarch64, Docker Desktop Linux VM",
+      "installation": "Fresh venv from SHA256-verified PyPI wheel; runtime dependencies >=7 days old",
+      "no_node_probe": true,
+      "exact_installed_wheel_bytes": true,
+      "version_and_help": "passed",
+      "dashboard_worker_and_four_startup_templates": "passed",
+      "offline_idempotency_and_cancel": "passed"
+    },
+    "windows": {
+      "scheduler_com": "passed; no task registered",
+      "platform": "Windows 11",
+      "version_and_help": "passed",
+      "installation": "Fresh venv from SHA256-verified PyPI wheel; prequalified offline runtime dependencies",
+      "dashboard_worker_and_four_startup_templates": "passed",
+      "offline_idempotency_and_cancel": "passed",
+      "no_node_probe": true,
+      "status": "passed",
+      "exact_installed_wheel_bytes": true
+    }
+  },
+  "native_scope": "Fresh PyPI wheel installs with exact installed-byte verification, CLI version/help, no-Node resources and all startup templates; offline UUIDv7 replay/cancel probe. Full native runtime suites passed during candidate qualification and were not repeated.",
+  "linux_environment": {
+    "kind": "Docker Desktop Linux VM; run-owned container removed",
+    "image_id": "sha256:f1ec535b79003d491fd9d60a223904a31e0032cca185cf1e0c8694bef863c7b1"
+  },
+  "live_checks": {
+    "version": "0.5.0",
+    "source": "Exact SHA256-verified published PyPI wheel",
+    "worker": "tasklease-050-pypi-95f69b4eeb",
+    "url": "https://tasklease-050-pypi-95f69b4eeb.provos.workers.dev",
+    "checks": {
+      "pypi_installed_deploy_and_builtin_idempotency_origin_r2_probe": true,
+      "key_replay_after_cancel_and_creator_isolation": true,
+      "concurrent_key_first_request_wins_and_lifecycle_replay": true,
+      "creator_cancel_held_without_own_scope": true,
+      "store_replay_recovers_already_answered_origin": true,
+      "origin_fanout_duplicate_archive_and_post_consume_cancel": true,
+      "payload_forgery_does_not_take_answer_slot": true,
+      "origin_cancel_archive_live": true,
+      "live_public_upload_download_helpers_sha256": true,
+      "no_tasks_left_in_test_domain": true,
+      "temporary_identities_revoked": true,
+      "new_worker_deleted_existing_bucket_untouched": true
+    },
+    "blob": {
+      "size": 1048593,
+      "sha256": "aa3f8d57441a0d8911be6d4eb4ae61cad50f1adb9ddf99b099559911affc25b7"
+    },
+    "cleanup": {
+      "temporary_identities_revoked": true,
+      "worker_api_status": 404,
+      "worker_deleted": true,
+      "existing_bucket_unchanged": true,
+      "existing_bucket_lifecycle_unchanged": true,
+      "lifecycle_before": [
+        {
+          "name": "Default Multipart Abort Rule",
+          "enabled": "Yes",
+          "prefix": "(all prefixes)",
+          "action": "Abort incomplete multipart uploads after 7 days"
+        },
+        {
+          "name": "tasklease-expire",
+          "enabled": "Yes",
+          "prefix": "(all prefixes)",
+          "action": "Expire objects after 7 days"
+        }
+      ],
+      "lifecycle_after": [
+        {
+          "name": "Default Multipart Abort Rule",
+          "enabled": "Yes",
+          "prefix": "(all prefixes)",
+          "action": "Abort incomplete multipart uploads after 7 days"
+        },
+        {
+          "name": "tasklease-expire",
+          "enabled": "Yes",
+          "prefix": "(all prefixes)",
+          "action": "Expire objects after 7 days"
+        }
+      ],
+      "test_objects_retained_under_seven_day_expiry": true
+    }
+  },
+  "persistent_acceptance_service": "Remains on the previously qualified 0.5.0 bundle; post-publication deployment used a new isolated Worker",
+  "artifacts_directory": "/Users/provos/src/tasklease/python/dist/publication-0.5.0-087f253",
+  "evidence": {
+    "path": "/Users/provos/src/tasklease/python/dist/publication-0.5.0-087f253/evidence.zip",
+    "sha256": "75fe13956e501a676ea9b4cebe02909bde6c9c96c43934e8ba88257f8b0a8fcf",
+    "files": 45,
+    "secret_scan": {
+      "status": "passed",
+      "files_and_archive_members": 166,
+      "actual_credential_values_checked": 56,
+      "private_state_excluded": true
+    }
+  }
+}

@@ -5,8 +5,8 @@
   "date": "2026-11-15",
   "date_timezone": "America/Los_Angeles",
   "acceptance_status": "passed",
-  "release_preparation_status": "prepared",
-  "publication": "held_by_user",
+  "release_preparation_status": "complete",
+  "publication": "published",
   "qualified_candidate": {
     "source_commit": "8b7ed782ce6a9297c2c640222004ec838be9c76f",
     "source_tree_sha256": "dbb45076223357e466ca428be45780a031b26ba6afb192cccba480aaba63c329",
@@ -151,6 +151,22 @@
       "status": "passed",
       "files_and_archive_members": 843,
       "actual_credential_values_checked": 53,
+      "private_state_excluded": true
+    }
+  },
+  "publication_report": "0.5.0-publication.json",
+  "pypi_url": "https://pypi.org/project/tasklease/0.5.0/",
+  "github_release": "https://github.com/provos/tasklease/releases/tag/v0.5.0",
+  "publishing_run": 43758321303,
+  "publishing_url": "https://github.com/provos/tasklease/actions/runs/43758321303",
+  "post_publication_evidence": {
+    "path": "/Users/provos/src/tasklease/python/dist/publication-0.5.0-087f253/evidence.zip",
+    "sha256": "75fe13956e501a676ea9b4cebe02909bde6c9c96c43934e8ba88257f8b0a8fcf",
+    "files": 45,
+    "secret_scan": {
+      "status": "passed",
+      "files_and_archive_members": 166,
+      "actual_credential_values_checked": 56,
       "private_state_excluded": true
     }
   }
