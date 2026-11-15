@@ -5,7 +5,7 @@
   "date": "2026-11-15",
   "date_timezone": "America/Los_Angeles",
   "acceptance_status": "passed",
-  "release_preparation_status": "pending_rehearsal",
+  "release_preparation_status": "prepared",
   "publication": "held_by_user",
   "qualified_candidate": {
     "source_commit": "8b7ed782ce6a9297c2c640222004ec838be9c76f",
@@ -112,8 +112,27 @@
     "admin_credential_and_bucket_lifecycle_preserved": true
   },
   "rehearsal": {
-    "status": "pending",
-    "publish": false
+    "status": "passed",
+    "run_id": 43754000171,
+    "url": "https://github.com/provos/tasklease/actions/runs/43754000171",
+    "publish": false,
+    "publish_job": "skipped",
+    "workflow_dispatch_commit": "763ae90f27e380c6c09b8a637e1ad0b361ec0138",
+    "built_tag_commit": "087f25306a941755c624df98b1321ff82916a114",
+    "distributions": {
+      "tasklease-0.5.0.tar.gz": {
+        "sha256": "a830f1ae2e7f0eb77c94be8c3d5ca52b34c736f6287e3b887253647a3d8b0a40",
+        "bytes": 403517
+      },
+      "tasklease-0.5.0-py3-none-any.whl": {
+        "sha256": "4029df4e3c3c361125bde22a2abe0ba2087933d534dbc2f4ab189d81b6c9cd5e",
+        "bytes": 274492
+      }
+    },
+    "qualified_candidate_comparison": "Only source-path comments, source-map paths, bundle README build timestamp and wheel RECORD. Python, dashboard and executable Worker code match the qualified candidate.",
+    "metadata_license_RECORD_and_resources": "passed",
+    "fresh_installed_wheel_no_node_probe": "passed",
+    "UUIDv7_Create_and_cancel_replay_smoke": "passed"
   },
   "tag_transition": {
     "from_commit": "cb036405e49c51ed56a8aef1f3910d0ab4b06e2e",
@@ -122,5 +141,17 @@
     "status": "replaced_unpublished_candidate",
     "superseded_report": "archive/0.5.0-pre-idempotency.json",
     "to_tag_object": "111b4e90a937c0b50c1b49bd593c8bd41a81457a"
+  },
+  "artifacts_directory": "/Users/provos/src/tasklease/python/dist/release-0.5.0-087f253",
+  "final_evidence": {
+    "path": "/Users/provos/src/tasklease/python/dist/release-0.5.0-087f253/evidence.zip",
+    "sha256": "4250ec4f73f287676a428bad7ce431474947a8570d2806d9fecef8eacceeadab",
+    "files": 18,
+    "secret_scan": {
+      "status": "passed",
+      "files_and_archive_members": 843,
+      "actual_credential_values_checked": 53,
+      "private_state_excluded": true
+    }
   }
 }

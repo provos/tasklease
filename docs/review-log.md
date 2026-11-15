@@ -1296,3 +1296,41 @@ Status: accepted after corrections, independent reviews and native qualification
   `2e52df5503d89841d591003ba7f12b8ab2440b5941b6e497935fd13e5f153f61`.
   It contains 55 files and a hash manifest. Recursive scanning of 702 files
   and archive members against actual credentials passed; private state is excluded.
+
+## 0.5.0 final release preparation (2026-11-15)
+
+- PR #21 now includes the Migration 4/deployment-probe clarification and was
+  squash-merged as `087f25306a941755c624df98b1321ff82916a114`; its remote and
+  local feature branches were deleted. The unpublished annotated `v0.5.0` tag
+  was replaced from `cb03640` to this merge commit, using a lease on the old
+  remote tag object. PyPI 0.5.0 and a GitHub Release were both absent before
+  replacement. Publication remains on hold.
+- A tracked-tree comparison with qualified candidate
+  `8b7ed782ce6a9297c2c640222004ec838be9c76f` found only three changed metadata
+  documents: `docs/acceptance/0.5.0-idempotency.json`, `docs/releasing.md`, and
+  this log. All other tracked bytes and file modes match, so the package/build
+  inputs and completed native/live acceptance carry forward. The comparison
+  digest is `1509bd916c62296264ae34dea9344f0ac9e0faf196125ca751cc3811409b96a0`.
+- [0.5.0.json](acceptance/0.5.0.json) is the canonical release report and records
+  the final tag commit separately from its qualified candidate. Earlier reports
+  are preserved as [the initial candidate](acceptance/archive/0.5.0-pre-idempotency.json)
+  and [the idempotency candidate](acceptance/archive/0.5.0-idempotency-candidate.json).
+- The new [build-only rehearsal](https://github.com/provos/tasklease/actions/runs/43754000171)
+  passed `make install`, `make check` and `make build` from the corrected tag.
+  The log confirms checkout of `087f253`; the publishing job was skipped.
+  Its distributions passed metadata, license, RECORD, resource and source
+  comparisons. Differences from the qualified candidate are limited to Worker
+  source-path comments, source-map paths, its README timestamp and RECORD.
+- A fresh installation of the exact rehearsal wheel passed the installed-byte,
+  no-Node resource and four-startup-template probes, plus UUIDv7 Create replay
+  and post-Cancel replay smoke checks. Distribution SHA-256 values:
+  - wheel: `4029df4e3c3c361125bde22a2abe0ba2087933d534dbc2f4ab189d81b6c9cd5e`;
+  - sdist: `a830f1ae2e7f0eb77c94be8c3d5ca52b34c736f6287e3b887253647a3d8b0a40`.
+- Final artifacts, matching changelog notes, a release manifest, `SHA256SUMS`
+  and evidence are retained in `python/dist/release-0.5.0-087f253/`.
+  The final evidence ZIP contains 18 files plus a hash manifest, including the
+  complete qualified-candidate evidence. SHA-256:
+  `4250ec4f73f287676a428bad7ce431474947a8570d2806d9fecef8eacceeadab`.
+  Recursive scanning of 843 files/archive members against 53 actual credential
+  values passed; private state is excluded. No PyPI publishing dispatch or
+  GitHub Release was created during final preparation.
