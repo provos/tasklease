@@ -35,7 +35,13 @@ new requests. Do not run both versions on the same work topics.
    replies, post-Own cancellation, and pending-request tracking in the monitor.
 
 A lost Create response may represent accepted work with an unknown origin;
-retrying can execute both submissions. When the origin is known but local
+use one retained UUIDv7 `idempotency_key` across retries to recover the original
+origin for seven days from acceptance. Generate it once per logical submission
+with `tasklease.names.new_idempotency_key()` and persist it with the original
+arguments for crash recovery. `tl request --idempotency-key UUIDV7` forwards the
+same key. The first accepted request wins; changed replay inputs are ignored
+after validation and authorization. Without a key, retrying can execute both
+submissions. When the origin is known but local
 saving fails, use the error's `origin_id` with stateless `tl cancel --domain
 DOMAIN --topic TOPIC --origin-id ID` or inspect the task directly.
 

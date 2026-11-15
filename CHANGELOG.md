@@ -10,6 +10,11 @@ Release preparation and verification are documented in
 
 ### Added
 
+- Optional UUIDv7 `idempotency_key` on Create, `Store.submit` and
+  `tl request --idempotency-key`. Reusing a key within seven days recovers the
+  first accepted origin, including after cancellation or completion, without
+  creating another task. Keys are scoped by domain and creator;
+  `tasklease.names.new_idempotency_key()` generates them on Python 3.12+.
 - Required server-carried `origin_id` on tasks and summaries. Create mints it,
   Own and Renew preserve it, and Consume carries it onto every successor.
   Request/reply correlation no longer trusts `data.request_id`, including
@@ -50,7 +55,8 @@ Release preparation and verification are documented in
 - Remove caller-supplied request IDs, `--request-id`, `--resend`,
   `Store.resend`, `submission_unknown`, sidecars and unmatched directories.
   Use the returned `origin_id` and `tl wait --origin-id`. An uncertain Create
-  leaves no local record, and a retry creates independent work.
+  leaves no local record; reuse its idempotency key within seven days for
+  recovery. A retry without a key creates independent work.
 - Each Store selects one answer per origin for `reply()`/`wait()`. Other
   distinct reply content is retained as inbox observations, without promising
   one record per successor lineage. Migration backfills old server tasks with

@@ -456,9 +456,15 @@ rotations. Operators or callers without a local record can use
 `tl cancel --domain DOMAIN --topic TOPIC --origin-id ID`. Once Consume posts
 successors, cancellation reports `not_found` and leaves those successors alone.
 
-Submission calls Create before saving the local record. If the response is
-lost, retrying creates a separate origin and both requests may execute; no
-automatic resend is attempted. If Create returns an ID but local saving fails,
+Submission calls Create before saving the local record. To recover a lost
+response, generate one UUIDv7 with `tasklease.names.new_idempotency_key()` and
+reuse it in `Store.submit(..., idempotency_key=key)` or
+`tl request --idempotency-key UUIDV7`. For seven days from acceptance, the key
+recovers the original origin even after completion or cancellation. The first
+accepted request wins; changing a replay's topic or payload does not update it.
+Persist the key and original arguments before submission for crash recovery.
+Without a key, retrying creates a separate origin and both requests may execute.
+If Create returns an ID but local saving fails,
 `SubmissionError.origin_id` and the CLI diagnostic expose that ID for direct
 inspection or cancellation. Unrelated messages and replies to uncertain
 submissions remain in the inbox with `matched: false` and cannot take another

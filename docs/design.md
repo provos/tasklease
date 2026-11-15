@@ -167,6 +167,14 @@ storage, with the tables in spec §7.2.
   enforces at most one initial task. Cancel reads its id and creator through
   that index, checks creator/operator ownership, and deletes atomically.
   Migration 3 backfills older tasks with their current ID and `root = 0`.
+- **Create idempotency:** Migration 4 adds `create_keys`, keyed by creator
+  identity name and a canonical UUIDv7 inside the domain. Key lookup, task
+  insertion and key publication share one transaction. A live key returns the
+  original origin without inserting a task, recording creation statistics or
+  notifying waiters. Topic and payload changes are ignored after normal router
+  checks. Retention is seven days from service acceptance, including after the
+  task is owned, consumed, deleted or cancelled. UUID timestamps affect neither
+  retention nor authorization. Unkeyed Create skips the key table.
 - **Every operation is one `ctx.storage.transactionSync(() => …)`** with no
   `await` inside, so it is atomic and other requests wait for it.
 - **Results, not exceptions.** If the function passed to `transactionSync`
@@ -260,7 +268,7 @@ storage, with the tables in spec §7.2.
 - **Delete:** holder and optional `lease_before` cutoff checks precede deletion
   in the same transaction, so pruning cannot race a Renew that retains the ID.
 - **Consume:** delete, then insert each new task, in one transaction.
-- **Alarm:** once a day, delete poller rows older than 7 days and statistics
+- **Alarm:** once a day, delete Create key and poller rows older than 7 days and statistics
   rows older than 30 days, then set the next alarm. It is set on first use,
   so an idle domain has no alarm. The alarm always reschedules itself, so
   each in-memory object checks for it only on its first operation instead
@@ -454,7 +462,11 @@ predates 0.4.0.
 **Identity and state.** `submit` calls Create first, then publishes the
 returned origin's request record. `SubmissionError` exposes the known origin
 if local saving fails. An uncertain Create has no local record; retries are
-independent submissions that may both execute. Selected replies and requests use
+independent submissions unless the caller reuses a UUIDv7 `idempotency_key`
+within seven days. `names.new_idempotency_key()` generates a key once per logical
+submission; callers retain it with the original arguments for recovery. A keyed
+replay preserves an existing local intent and timestamp after validating its
+domain. It does not compare topic or payload. Selected replies and requests use
 `<origin_id>.json`; only agent directories are hashed. There are no sidecars,
 resend operation, unmatched directory, or locally chosen correlation IDs.
 
