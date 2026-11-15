@@ -68,8 +68,8 @@ four problems in the protocol itself.
      exclusively via `origin_id`.
    - `data` remains opaque JSON (`reply_topic` stays an optional convention in
      `data` for `WorkerLoop` and `Store.submit`).
-   - Because `Create` always mints a fresh `origin_id` and only `Consume` of a
-     task with `origin_id = X` can produce another task with `origin_id = X`,
+   - Each new task inserted by `Create` receives a fresh `origin_id`. Only
+     `Consume` of a task with `origin_id = X` can produce another task with that origin,
      no caller using `Create` can ever forge another task's `origin_id`.
 3. **Create-first submission (Option A).**
    - `Store.submit` validates inputs locally, calls `Create` first, receives
@@ -77,8 +77,14 @@ four problems in the protocol itself.
      `requests/h(agent)/<origin_id>.json`.
    - `submission_unknown`, `.task.json` sidecars, `Store.resend`, and
      `tl request --resend` are removed.
-   - *Fault behaviour:* if `Create` fails or times out before returning `{id}`,
-     no local request record is written. If the caller retries, `Create` mints
+   - Optional UUIDv7 keys in [create-idempotency.md](create-idempotency.md)
+     extend this design with seven-day Create retry recovery. Keys are scoped
+     to domain and creator and never choose an origin or reply slot. The first
+     accepted request wins; replay can recover the origin even after Consume
+     or Cancel. Callers retain the key and original request arguments.
+   - *Unkeyed fault behaviour:* if `Create` fails or times out before returning
+     `{id}`, no local request record is written. If the caller retries without
+     a key, `Create` mints
      a new `origin_id` (`T2`). Even if the timed-out first `Create` (`T1`) had
      landed on the server, any eventual reply to `T1` carries `origin_id = T1`,
      saves harmlessly at `replies/h(agent)/<T1>.json` as an unmatched inbox

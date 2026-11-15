@@ -7,12 +7,18 @@ error type, so configuration, store and protocol errors stay distinct.
 from __future__ import annotations
 
 import re
+import secrets
+import time
 from typing import TypeGuard
+from uuid import UUID
 
 _PATH = re.compile(r"[a-z0-9._-]+(?:/[a-z0-9._-]+)*")
 _SEGMENT = re.compile(r"[a-z0-9._-]{1,128}")
 _WORKER_LABEL = re.compile(r"[A-Za-z0-9._-]{1,256}")
 _TASK_ID = re.compile(r"t_[0-7][0-9A-HJKMNP-TV-Z]{25}")
+_IDEMPOTENCY_KEY = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+)
 _TOPIC_GLOB = re.compile(r"[a-z0-9.*_-]+(?:/[a-z0-9.*_-]+)*")
 _ERROR = "/error"
 
@@ -51,6 +57,26 @@ def is_worker_label(value: object) -> TypeGuard[str]:
 def is_task_id(value: object) -> TypeGuard[str]:
     """A fencing ID: ``t_`` followed by a canonical ULID."""
     return isinstance(value, str) and _TASK_ID.fullmatch(value) is not None
+
+
+def is_idempotency_key(value: object) -> TypeGuard[str]:
+    """A canonical lowercase UUIDv7 for a logical Create submission."""
+    return isinstance(value, str) and _IDEMPOTENCY_KEY.fullmatch(value) is not None
+
+
+def new_idempotency_key() -> str:
+    """Mint one UUIDv7 to retain across all retries of a logical submission."""
+    milliseconds = time.time_ns() // 1_000_000
+    if not 0 <= milliseconds < (1 << 48):
+        raise ValueError("Clock is outside UUIDv7's timestamp range")
+    value = (
+        (milliseconds << 80)
+        | (7 << 76)
+        | (secrets.randbits(12) << 64)
+        | (2 << 62)
+        | secrets.randbits(62)
+    )
+    return str(UUID(int=value))
 
 
 def is_topic_glob(value: object) -> TypeGuard[str]:

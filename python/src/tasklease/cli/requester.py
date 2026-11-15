@@ -28,8 +28,9 @@ from tasklease.errors import (
     ReplyStateError,
     SubmissionError,
     TaskleaseError,
+    TransportError,
 )
-from tasklease.names import is_task_id, is_topic
+from tasklease.names import is_idempotency_key, is_task_id, is_topic
 from tasklease.store import CancelResult, RequestRecord, Store
 
 
@@ -103,6 +104,9 @@ def _wait_for(
 
 def _request(args: argparse.Namespace) -> int:
     timeout = duration_seconds(text(args, "timeout"), name="Timeout")
+    key = optional_text(args, "idempotency_key")
+    if key is not None and not is_idempotency_key(key):
+        raise ConfigError("idempotency_key must be a canonical lowercase UUIDv7")
     config = configuration(args)
     # Validated before Create, but only when this request will wait.
     wait = requester_wait_seconds(args, config=config) if flag(args, "wait") else 0
@@ -113,12 +117,26 @@ def _request(args: argparse.Namespace) -> int:
     store = agent_store(args, config=config)
     with client(args, config=config) as api:
         try:
-            record = store.submit(api, selected, topic, reply_topic, payload)
+            record = store.submit(
+                api, selected, topic, reply_topic, payload, idempotency_key=key
+            )
+        except TransportError:
+            if key is not None:
+                message(
+                    "Submission outcome is uncertain; retry within 7 days using "
+                    f"--idempotency-key={key}."
+                )
+            raise
         except SubmissionError as error:
             message(
                 f"Cancel the created request with tl cancel --domain {selected} "
                 f"--topic {topic} --origin-id {error.origin_id}."
             )
+            if key is not None:
+                message(
+                    "After fixing local storage, retry within 7 days using "
+                    f"--idempotency-key={key} to save the existing origin."
+                )
             raise
         except ReplyStateError as error:
             message(f"Resume with tl wait --origin-id {error.origin_id}.")
@@ -188,6 +206,9 @@ def configure_parser(
     request.add_argument("--topic", required=True)
     request.add_argument("--reply-topic", required=True)
     request.add_argument("--data", required=True, help="JSON object or @file")
+    request.add_argument(
+        "--idempotency-key", help="Deduplicate Create retries for 7 days"
+    )
     request.add_argument("--wait", action="store_true")
     request.add_argument("--timeout", default="6h", help="Wait duration, e.g. 6h")
     request.add_argument(

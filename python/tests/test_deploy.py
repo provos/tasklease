@@ -170,6 +170,8 @@ class Service:
         self.blob_failure = False
         self.wrong_download = False
         self.version = __version__
+        self.consumed = False
+        self.creates: list[dict[str, object]] = []
 
     def request(self, request: httpx.Request) -> httpx.Response:
         operation = request.url.path.rsplit("/", 1)[-1]
@@ -208,10 +210,27 @@ class Service:
                 200, json={"ok": True, "name": body["name"], "token": "identity-token"}
             )
         if operation == "create":
+            if (
+                not self.creates
+                or body["idempotency_key"] != self.creates[-1]["idempotency_key"]
+            ):
+                self.consumed = False
+            self.creates.append(body)
             return httpx.Response(
-                200, json={"ok": True, "id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAV"}
+                200,
+                json={
+                    "ok": True,
+                    "id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAW"
+                    if self.fail == "replay" and len(self.creates) > 1
+                    else "t_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                },
             )
         if operation == "own":
+            if self.consumed and self.fail != "duplicate":
+                return httpx.Response(
+                    404,
+                    json={"ok": False, "error": {"code": "empty", "message": "empty"}},
+                )
             return httpx.Response(
                 200,
                 json={
@@ -224,6 +243,7 @@ class Service:
             )
         if operation == "consume":
             assert body["id"] == "owned-id" and body["tasks"] == []
+            self.consumed = True
             return httpx.Response(200, json={"ok": True, "ids": []})
         if operation == "blob.put_url":
             assert body["size"] == 16
@@ -268,6 +288,7 @@ def test_upgrade_pin_environment_config_and_probe(fake: Fake, tmp_path: Path) ->
         retry_seconds=0,
     )
     assert result["verified"] is True
+    assert len(service.creates) == 2 and service.creates[0] == service.creates[1]
     assert len(service.payload) == 16
     assert service.calls[-1] == "identity.revoke"
     calls = fake.calls()
@@ -704,7 +725,8 @@ def test_admin_propagation_and_unreachable_outcomes(
 
 
 @pytest.mark.parametrize(
-    "failure", ["version", "identity.add", "upload", "download", "cleanup"]
+    "failure",
+    ["version", "identity.add", "replay", "duplicate", "upload", "download", "cleanup"],
 )
 def test_http_verification_failures_keep_checkpoint_and_clean_up(
     fake: Fake, tmp_path: Path, failure: str

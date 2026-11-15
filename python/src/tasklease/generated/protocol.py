@@ -20,6 +20,9 @@ type TopicGlob = str
 type TaskId = str
 
 
+type IdempotencyKey = str
+
+
 type Timestamp = int
 
 
@@ -328,6 +331,7 @@ class ProtocolTypes(TypedDict):
     TopicName: NotRequired[TopicName]
     TopicGlob: NotRequired[TopicGlob]
     TaskId: NotRequired[TaskId]
+    IdempotencyKey: NotRequired[IdempotencyKey]
     Timestamp: NotRequired[Timestamp]
     WorkerLabel: NotRequired[WorkerLabel]
     IdentityName: NotRequired[IdentityName]
@@ -427,6 +431,7 @@ class CreateRequest(TypedDict):
     domain: DomainName
     topic: TopicName
     data: Data
+    idempotency_key: NotRequired[IdempotencyKey]
 
 
 class OwnResponse(TypedDict):

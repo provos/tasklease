@@ -329,7 +329,7 @@ describe("monitor snapshots", () => {
     );
     await runInDurableObject(stub, (_instance, state) => {
       state.storage.sql.exec(
-        "DROP TABLE monitor_snapshot_chunks; DROP TABLE monitor_snapshots; DROP INDEX tasks_root_origin; ALTER TABLE tasks DROP COLUMN root; ALTER TABLE tasks DROP COLUMN origin_id; UPDATE schema_version SET version = 2",
+        "DROP TABLE create_keys; DROP TABLE monitor_snapshot_chunks; DROP TABLE monitor_snapshots; DROP INDEX tasks_root_origin; ALTER TABLE tasks DROP COLUMN root; ALTER TABLE tasks DROP COLUMN origin_id; UPDATE schema_version SET version = 2",
       );
     });
     await evictDurableObject(stub);
@@ -339,7 +339,7 @@ describe("monitor snapshots", () => {
     await runInDurableObject(stub, (_instance, state) => {
       expect(
         state.storage.sql.exec("SELECT version FROM schema_version").one(),
-      ).toEqual({ version: 4 });
+      ).toEqual({ version: 5 });
       state.storage.sql.exec(
         "INSERT INTO monitor_snapshots (id, expires_at) VALUES ('orphan', ?)",
         Date.now() + DAY,

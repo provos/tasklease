@@ -1,6 +1,7 @@
 # tasklease specification
 
-Draft 4, 2026-11-14. Origin correlation and first-stage cancellation require 0.5.0.
+Draft 5, 2026-11-15. Origin correlation, first-stage cancellation and keyed
+Create retries require 0.5.0.
 
 ## 1. Purpose
 
@@ -224,11 +225,28 @@ writes anything.
 
 ### 4.1 Create
 
-`create {domain, topic, data}` → `{id}`
+`create {domain, topic, data, idempotency_key?}` → `{id}`
 
 Posts a task with `lease_until = now − 5 s`, `owned_count = 0`,
 `owner = null`, `creator` = the caller, and `origin_id = id`. It is marked as
 the initial task internally.
+
+An optional `idempotency_key` is a canonical lowercase, hyphenated UUIDv7.
+Generate one fresh key per logical submission and reuse it for retries.
+The key is scoped to `(domain, creator identity name, key)`. The first accepted
+request wins: for seven days from that acceptance, valid and authorized replays
+return the original `id` without creating work, changing the original task,
+incrementing creation statistics, extending retention, or waking Own waiters.
+Replays ignore changes to topic or payload after normal validation and scope
+checks. There is no content-conflict error. Token rotation preserves this
+namespace; different creators and domains have independent namespaces.
+
+The mapping survives Own, Consume, Delete and Cancel, so replay returns the
+original origin even after the task's fencing ID rotates or the task is gone.
+Retention uses service acceptance time, never the UUID's timestamp. At exactly
+seven days the mapping is still live; after that it may create another task.
+Omitting a key creates independent work on every call. This controls duplicate
+creation; worker lease expiry can still cause repeated execution.
 
 ### 4.2 Own
 
@@ -513,7 +531,7 @@ first worker's Renew or Consume fails with `not_found`.
 | Consume | timeout; a retry returns `not_found` | the task was consumed, cancelled, deleted, or re-owned; the stale ID cannot post successors. `not_found` alone does not prove a reply was delivered |
 | Delete | timeout; a retry returns `not_found` | the task is gone either way |
 | Cancel | timeout; a retry returns `not_found` | the initial task is gone, but it may have been consumed before Cancel; successors are left alone |
-| Create | timeout; a retry may post a second task | each accepted submission has an independent origin; both may execute. Applications needing deduplication supply a business key and handle it explicitly |
+| Create | timeout; acceptance is uncertain | reuse the original UUIDv7 `idempotency_key` within seven days to recover its origin; without a key, a retry may create a second task |
 
 **Lease deadline on the client.** A client works out its deadline as the
 local monotonic time when it *sent* the Own or Renew, plus `hold_seconds`.
@@ -646,8 +664,10 @@ It prints `origin_id`, the reply's `data`, and `creator` as JSON. Exit codes:
 0 reply delivered, 3 timed out (the pending request remains saved), 1 service
 or local-state error.
 
-- `tl request` requires `--topic`, `--reply-topic`, and `--data`. It always
-  creates a new origin; caller-supplied request IDs and resend are removed.
+- `tl request` requires `--topic`, `--reply-topic`, and `--data`. It
+  makes one Create attempt. Optional `--idempotency-key UUIDV7` recovers the
+  same origin across retries within seven days. Without a key, each call creates
+  independent work; caller-supplied request IDs and resend are removed.
 - `tl wait --origin-id …` resumes a saved request, checking local replies first.
 - `tl cancel --origin-id …` uses the saved request's domain and initial topic.
 - `tl cancel --origin-id … --topic … [--domain …]` cancels directly without
@@ -667,13 +687,25 @@ sets `data.reply_topic`, calls Create, validates its returned ID, then publishes
 `data.request_id` is neither injected nor used for correlation.
 
 If Create fails or its response is lost, there is no local request record.
-A retry creates another origin and both submissions may execute. An eventual
+With `Store.submit(..., idempotency_key=key)` or `tl request --idempotency-key`,
+retrying with the same retained UUIDv7 recovers the original origin within seven
+days. Keep the original arguments and persist the key before the first Create
+for recovery across process crashes. `tasklease.names.new_idempotency_key()`
+generates a fresh UUIDv7 on Python 3.12+. A new key creates independent work.
+
+Without a key, a retry creates another origin and both submissions may execute.
+An eventual
 reply from an uncertain first submission is retained as an unmatched inbox
 entry and cannot collide with the retry. If Create returns a known origin
 but local publication fails, `SubmissionError.origin_id` and the CLI error
 expose that origin so the caller can inspect it or cancel directly. A crash
 before publication can still leave an unmatched submission. No sidecars or
 `submission_unknown` state are used.
+
+When a keyed replay finds an existing local request, Store validates its domain
+and returns the first saved intent with its original timestamp and current reply
+state. Other input changes are ignored. The service returns only the origin,
+so rebuilding a missing local record requires the original request arguments.
 
 If the request intent was saved and verified but reading its reply state
 fails, `ReplyStateError(StoreError)` instead exposes the saved `origin_id`
@@ -704,9 +736,8 @@ archived conflicting observations with `duplicate: true`; selected replies have
 after its first local receipt. Archives do not replace an expired selected reply.
 Two successor lineages with identical stable content remain indistinguishable;
 the archive preserves distinct content, not a count of independent executions.
-A distinct
-Create always has a distinct origin, so unsolicited messages cannot take a
-request's answer slot. Session conversations that answer with another Create
+Independent Create submissions receive distinct origins, so unsolicited messages
+cannot take a request's answer slot. Session conversations that answer with another Create
 use application fields such as `in_reply_to` and validate sender identity.
 
 **`publish_new(path, bytes) → created | exists`.** Every immutable data file
@@ -795,6 +826,12 @@ CREATE TABLE tasks (
 );
 CREATE INDEX tasks_pick ON tasks (topic, created_at, id, lease_until);
 CREATE UNIQUE INDEX tasks_root_origin ON tasks (origin_id) WHERE root = 1;
+CREATE TABLE create_keys (
+  creator TEXT NOT NULL, key TEXT NOT NULL,
+  origin_id TEXT NOT NULL, created_at INTEGER NOT NULL,
+  PRIMARY KEY (creator, key)
+);
+CREATE INDEX create_keys_expiry ON create_keys (created_at);
 CREATE TABLE pollers (
   topic TEXT, identity TEXT, worker TEXT,
   last_polled_at INTEGER, last_owned_at INTEGER,
@@ -813,8 +850,8 @@ CREATE TABLE stats_hourly (
 );
 ```
 
-`topics.list` is one query over the first three tables in one database, and
-`monitor.snapshot` reads all four.
+`topics.list` queries tasks, pollers and declared topics in one database;
+`monitor.snapshot` also reads hourly statistics. Key rows are internal to Create.
 
 Own scans `tasks_pick` for the first row with `lease_until <= now`. The index
 includes the lease expiry so held tasks can be filtered before fetching task
@@ -824,8 +861,8 @@ and reuses that aggregate for live topic names. See the README's
 [scale guidance](../README.md#scale-guidance) for local measurements and
 capacity planning.
 
-A daily alarm drops poller rows older than 7 days and statistics rows older
-than 30 days. The service never deletes tasks by itself; pruning is the
+A daily alarm drops Create key and poller rows older than 7 days and statistics
+rows older than 30 days. The service never deletes tasks by itself; pruning is the
 operator's job (§9).
 
 ### 7.3 Polling cost

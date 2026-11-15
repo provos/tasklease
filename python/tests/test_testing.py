@@ -25,6 +25,7 @@ from tasklease.errors import (
     Unauthenticated,
 )
 from tasklease.generated import protocol as p
+from tasklease.names import new_idempotency_key
 from tasklease.testing import BlobPutGrant, FakeBoard
 
 
@@ -46,6 +47,32 @@ def board(clock: Clock) -> FakeBoard:
     service = FakeBoard("acme/project", clock=clock)
     service.add_identity("worker", "token", create=["**"], own=["**"], read=["**"])
     return service
+
+
+def test_create_key_concurrency_and_expiry_use_acceptance_time(
+    board: FakeBoard, clock: Clock
+) -> None:
+    # A UUID generated on a differently dated client still expires by board time.
+    key = new_idempotency_key()
+    request: p.CreateRequest = {
+        "domain": board.domain,
+        "topic": "work",
+        "data": {"original": True},
+        "idempotency_key": key,
+    }
+    with board.client("token") as client:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: client.create(request)["id"], range(20)))
+        assert len(set(results)) == 1 and len(board.tasks) == 1
+        origin = results[0]
+        client.cancel({"domain": board.domain, "topic": "work", "origin_id": origin})
+        clock.now += 7 * 86400 * 1000
+        assert (
+            client.create({**request, "topic": "changed", "data": {}})["id"] == origin
+        )
+        assert len(board.tasks) == 0
+        clock.now += 1
+        assert client.create(request)["id"] != origin and len(board.tasks) == 1
 
 
 def test_clients_are_offline_and_closing_one_does_not_close_board(

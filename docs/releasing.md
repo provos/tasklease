@@ -21,7 +21,9 @@ new requests. Do not run both versions on the same work topics.
    `tl service deploy`. Migration 3 backfills any remaining tasks with
    `origin_id = current id` and `root = 0`; those legacy tasks remain usable
    through fenced operations but are not eligible for first-stage Cancel.
-   The deploy probe verifies that a newly created origin survives Own.
+   Migration 4 adds `create_keys` for seven-day Create deduplication. The deploy
+   probe verifies that a newly created origin survives Own and that repeated
+   Create returns the same origin without queuing a second task.
 3. Archive and reset the old `requests/` and `replies/` directories under
    every Store root, including custom application roots. The default root is
    `platformdirs.user_data_path("tasklease")`. Keep configuration, credentials
@@ -35,7 +37,13 @@ new requests. Do not run both versions on the same work topics.
    replies, post-Own cancellation, and pending-request tracking in the monitor.
 
 A lost Create response may represent accepted work with an unknown origin;
-retrying can execute both submissions. When the origin is known but local
+use one retained UUIDv7 `idempotency_key` across retries to recover the original
+origin for seven days from acceptance. Generate it once per logical submission
+with `tasklease.names.new_idempotency_key()` and persist it with the original
+arguments for crash recovery. `tl request --idempotency-key UUIDV7` forwards the
+same key. The first accepted request wins; changed replay inputs are ignored
+after validation and authorization. Without a key, retrying can execute both
+submissions. When the origin is known but local
 saving fails, use the error's `origin_id` with stateless `tl cancel --domain
 DOMAIN --topic TOPIC --origin-id ID` or inspect the task directly.
 

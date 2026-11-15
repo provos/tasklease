@@ -46,6 +46,7 @@ MAX_WAIT_SECONDS = 30
 MAX_WAIT_GRACE = 15.0
 # The first service release that accepts Own's wait_seconds.
 WAIT_SERVICE_VERSION = (0, 4, 0)
+IDEMPOTENCY_SERVICE_VERSION = (0, 5, 0)
 # The service's message for a request that fails its schema.
 _INVALID_BODY = "Invalid request body"
 # The version lookup explaining a refused long poll is brief.
@@ -116,7 +117,8 @@ class _TimedResponseStream(httpx.SyncByteStream):
 class Client:
     """One HTTP connection pool, identity credential and worker label.
 
-    Own, Renew, Consume, Delete and blob signing accept a per-call timeout cap.
+    Create, Own, Renew, Consume, Delete, Cancel and blob signing accept a per-call
+    timeout cap.
     It limits each configured HTTPX phase timeout, including unlimited phases.
     Omitting the cap preserves settings. The one lengthened limit is a long
     poll's read phase: Own with ``wait_seconds`` reads for up to the wait plus
@@ -323,8 +325,27 @@ class Client:
                 _check_origins(topic["tasks"])
         return body
 
-    def create(self, request: p.CreateRequest) -> p.CreateResponse:
-        return cast(p.CreateResponse, self._post("create", request))
+    def create(
+        self, request: p.CreateRequest, *, timeout: float | None = None
+    ) -> p.CreateResponse:
+        """Create once; reuse an idempotency_key to recover an uncertain result."""
+        try:
+            return cast(
+                p.CreateResponse, self._post("create", request, timeout=timeout)
+            )
+        except Invalid as error:
+            if (
+                "idempotency_key" in request
+                and type(error) is Invalid
+                and str(error) == _INVALID_BODY
+            ):
+                reported = self._older_service(IDEMPOTENCY_SERVICE_VERSION, timeout)
+                if reported is not None:
+                    raise ProtocolError(
+                        f"The tasklease service (version {reported}) rejected Create's "
+                        "idempotency_key; upgrade to tasklease 0.5.0 or later"
+                    ) from error
+            raise
 
     def own(
         self, request: p.OwnRequest, *, timeout: float | None = None
@@ -363,8 +384,10 @@ class Client:
                 self._check_wait_support(error, timeout)
             raise
 
-    def _check_wait_support(self, error: Invalid, timeout: float | None) -> None:
-        """Explain an Invalid long poll if the service predates wait_seconds."""
+    def _older_service(
+        self, required: tuple[int, int, int], timeout: float | None
+    ) -> str | None:
+        """Best-effort version diagnostic after an unknown-field refusal."""
         try:
             reported = self.version(
                 timeout=_VERSION_TIMEOUT
@@ -372,11 +395,20 @@ class Client:
                 else min(timeout, _VERSION_TIMEOUT)
             )["service_version"]
         except TaskleaseError:
-            return
+            return None
         release = re.match(r"([0-9]+)\.([0-9]+)\.([0-9]+)", reported)
         if release is None:
-            return
-        if tuple(int(part) for part in release.groups()) >= WAIT_SERVICE_VERSION:
+            return None
+        return (
+            reported
+            if tuple(int(part) for part in release.groups()) < required
+            else None
+        )
+
+    def _check_wait_support(self, error: Invalid, timeout: float | None) -> None:
+        """Explain an Invalid long poll if the service predates wait_seconds."""
+        reported = self._older_service(WAIT_SERVICE_VERSION, timeout)
+        if reported is None:
             return
         required = ".".join(str(part) for part in WAIT_SERVICE_VERSION)
         raise WaitUnsupported(

@@ -16,6 +16,9 @@
         },
         "data": {
           "$ref": "https://tasklease.dev/schema/common.json#/$defs/Data"
+        },
+        "idempotency_key": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/IdempotencyKey"
         }
       },
       "required": ["domain", "topic", "data"],

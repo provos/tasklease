@@ -36,6 +36,7 @@ from tasklease.generated import protocol as p
 from tasklease.names import (
     is_bearer_token,
     is_domain,
+    is_idempotency_key,
     is_task_id,
     is_topic,
     is_topic_glob,
@@ -241,6 +242,8 @@ def _valid_request(operation: str, body: dict[str, object]) -> bool:
         return False
     if "origin_id" in body and not is_task_id(body["origin_id"]):
         return False
+    if "idempotency_key" in body and not is_idempotency_key(body["idempotency_key"]):
+        return False
     if "hold_seconds" in body:
         hold = body["hold_seconds"]
         if not _integer(hold) or not 1 <= cast(int, hold) <= 86400:
@@ -345,6 +348,7 @@ class FakeBoard:
         self._identities: dict[str, p.Identity] = {}
         self._tasks: dict[str, p.Task] = {}
         self._roots: set[str] = set()
+        self._create_keys: dict[tuple[str, str], tuple[str, int]] = {}
         self._pollers: dict[tuple[str, str, str], p.Poller] = {}
         self._blobs: dict[str, bytes] = {}
         self._grants: dict[str, _BlobGrant] = {}
@@ -665,7 +669,14 @@ class FakeBoard:
             return self._blob_url(operation, body, now)
         topic = cast(str, body.get("topic", ""))
         if operation == "create":
+            key = body.get("idempotency_key")
+            if isinstance(key, str):
+                existing = self._create_keys.get((identity, key))
+                if existing is not None and existing[1] >= now - _WEEK:
+                    return _success({"ok": True, "id": existing[0]})
             task_id = self._insert(topic, cast(p.Data, body["data"]), identity, now)
+            if isinstance(key, str):
+                self._create_keys[(identity, key)] = (task_id, now)
             self._wake()
             return _success({"ok": True, "id": task_id})
         if operation == "own":
