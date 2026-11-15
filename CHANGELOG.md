@@ -6,7 +6,7 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-11-14
+## [0.5.0] - 2026-11-15
 
 ### Added
 
