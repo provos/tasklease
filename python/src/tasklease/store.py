@@ -26,6 +26,7 @@ from tasklease.client import MAX_WAIT_SECONDS, Client
 from tasklease.errors import (
     Empty,
     NotFound,
+    ReplyStateError,
     StoreError,
     SubmissionError,
     TransportError,
@@ -157,6 +158,8 @@ def _is_file(path: Path) -> bool:
 def _records(directory: Path) -> Iterator[tuple[Path, dict[str, object]]]:
     for path in _files(directory):
         if path.name == "agent.json" or path.name.startswith("."):
+            continue
+        if path.suffix.casefold() != ".json" and path.name.casefold() != "unmatched":
             continue
         if path.suffix != ".json" or not is_task_id(path.stem):
             raise StoreError(
@@ -362,7 +365,8 @@ class Store:
         """Create a new origin, then durably publish its local request record.
 
         An uncertain Create may have succeeded; retrying creates another origin.
-        A local failure after Create raises SubmissionError with the known origin.
+        Intent persistence failures raise SubmissionError with the known origin.
+        Later reply inspection failures raise ReplyStateError for that saved origin.
         """
         domain, topic, reply_topic = (
             _name(domain, domain=True),
@@ -397,11 +401,7 @@ class Store:
         try:
             return self._request_state(saved)
         except StoreError:
-            raise StoreError(
-                f"Request {origin_id} was saved, "
-                "but its reply state could not be read. "
-                f"Resume with tl wait --origin-id {origin_id}."
-            ) from None
+            raise ReplyStateError(origin_id) from None
 
     def cancel(self, client: Client, origin_id: str) -> CancelResult:
         """Cancel the initial task, even after Own has rotated its fencing ID."""

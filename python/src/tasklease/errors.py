@@ -108,6 +108,19 @@ class SubmissionError(StoreError):
         )
 
 
+class ReplyStateError(StoreError):
+    """Submit saved its request, but could not determine its reply state.
+
+    ``origin_id`` identifies the saved request for application recovery.
+    """
+
+    def __init__(self, origin_id: str) -> None:
+        self.origin_id = origin_id
+        super().__init__(
+            f"Request {origin_id} was saved, but its reply state could not be read"
+        )
+
+
 API_ERRORS: dict[str, type[APIError]] = {
     error.code: error
     for error in (

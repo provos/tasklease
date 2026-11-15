@@ -676,8 +676,9 @@ before publication can still leave an unmatched submission. No sidecars or
 `submission_unknown` state are used.
 
 If the request intent was saved and verified but reading its reply state
-fails, `StoreError` instead identifies the saved origin and the `tl wait`
-recovery command. It does not report that the request failed to save.
+fails, `ReplyStateError(StoreError)` instead exposes the saved `origin_id`
+and a diagnostic that the request was saved. The CLI adds `tl wait` recovery
+guidance; library applications can present their own recovery action.
 
 **Local reply store.** Each drain or poll:
 

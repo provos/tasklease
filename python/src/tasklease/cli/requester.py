@@ -22,7 +22,13 @@ from tasklease.cli.common import (
 )
 from tasklease.client import Client, reject_nonfinite
 from tasklease.config import Config
-from tasklease.errors import ConfigError, NotFound, SubmissionError, TaskleaseError
+from tasklease.errors import (
+    ConfigError,
+    NotFound,
+    ReplyStateError,
+    SubmissionError,
+    TaskleaseError,
+)
 from tasklease.names import is_task_id, is_topic
 from tasklease.store import CancelResult, RequestRecord, Store
 
@@ -113,6 +119,9 @@ def _request(args: argparse.Namespace) -> int:
                 f"Cancel the created request with tl cancel --domain {selected} "
                 f"--topic {topic} --origin-id {error.origin_id}."
             )
+            raise
+        except ReplyStateError as error:
+            message(f"Resume with tl wait --origin-id {error.origin_id}.")
             raise
         try:
             if flag(args, "wait"):

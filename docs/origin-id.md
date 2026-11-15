@@ -344,11 +344,11 @@ cancel: domainRoute(
   readable in directory listings.
 - `.task.json` sidecars and `unmatched/` are removed.
 - `store.py` stays strictly fail-closed with **no `0.4.x` legacy file
-  compatibility branches**: apart from `agent.json` and `.*` dotfiles, every
-  entry must be a `<TaskId>.json` record matching `record.origin_id`.
-  Unrecognized entries, including the legacy `unmatched/` directory, raise
-  `StoreError` without deleting data. Local
-  store directories on existing `0.4.x` machines are cleared once during the
+  compatibility branches**: JSON records must be named `<TaskId>.json` and
+  match `record.origin_id`. Invalid record names and the legacy `unmatched/`
+  directory raise `StoreError` without deleting data. Agent metadata, dotfiles
+  and unrelated non-JSON files (such as `desktop.ini` or `Thumbs.db`) are ignored.
+  Local store directories on existing `0.4.x` machines are cleared once during the
   `0.5.0` upgrade (§8).
 
 #### Data types
@@ -402,8 +402,9 @@ class ReplyRecord:
      its saved intent. Failure of this publication or intent readback raises
      `SubmissionError(origin_id)`, preserving the known ID and cancellation hint.
   5. Derive the returned record's state from its reply. If reply inspection
-     fails after the intent was verified, raise `StoreError` identifying the
-     saved origin and `tl wait` recovery command, without claiming a save failure.
+     fails after the intent was verified, raise `ReplyStateError(StoreError)`
+     with the saved `origin_id` and a neutral diagnostic. The CLI adds the
+     `tl wait` recovery command; library applications choose their own guidance.
 - **`_save_reply(task, domain, reply_topic) -> ReplyRecord`:**
   - Read `origin_id = _task_id(task.get("origin_id"))` and
     `task_id = _task_id(task.get("id"))`.

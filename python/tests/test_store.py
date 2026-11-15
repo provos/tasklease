@@ -20,6 +20,7 @@ from tasklease.client import Client
 from tasklease.errors import (
     Invalid,
     NotFound,
+    ReplyStateError,
     StoreError,
     SubmissionError,
     TransportError,
@@ -218,11 +219,11 @@ def test_reply_read_failure_after_submit_reports_the_saved_request(
         raise StoreError("private reply diagnostic")
 
     monkeypatch.setattr(store, "reply", unreadable)
-    with pytest.raises(StoreError) as error:
+    with pytest.raises(ReplyStateError) as error:
         submit(store, client)
-    assert not isinstance(error.value, SubmissionError)
+    assert error.value.origin_id == TASK
     assert "was saved" in str(error.value)
-    assert f"tl wait --origin-id {TASK}" in str(error.value)
+    assert "tl wait" not in str(error.value)
     assert "private" not in str(error.value)
     assert json.loads(store._request_path(TASK).read_text())["origin_id"] == TASK
 
@@ -381,7 +382,9 @@ def test_pruned_request_cannot_be_answered_by_a_fresh_forged_origin(
 
 
 @pytest.mark.parametrize("folder", ["requests", "replies"])
-@pytest.mark.parametrize("name", ["a" * 32 + ".json", TASK + ".task.json"])
+@pytest.mark.parametrize(
+    "name", ["a" * 32 + ".json", TASK + ".task.json", TASK + ".JSON"]
+)
 def test_legacy_state_files_fail_closed(store: Store, folder: str, name: str) -> None:
     directory = (
         store.request_directory if folder == "requests" else store.reply_directory
@@ -391,22 +394,36 @@ def test_legacy_state_files_fail_closed(store: Store, folder: str, name: str) ->
         store.requests() if folder == "requests" else store.inbox()
 
 
-@pytest.mark.parametrize("entry", ["unmatched", "notes.txt"])
-def test_unrecognized_store_entries_fail_closed_without_removing_data(
+@pytest.mark.parametrize("entry", ["unmatched", "UNMATCHED"])
+def test_legacy_unmatched_entries_fail_closed_without_removing_data(
     store: Store, entry: str
 ) -> None:
     path = store.reply_directory / entry
-    if entry == "unmatched":
-        path.mkdir()
-        (path / f"{TASK}.json").write_text('{"legacy":true}')
-    else:
-        path.write_text("legacy state")
+    path.mkdir()
+    (path / f"{TASK}.json").write_text('{"legacy":true}')
     for operation in (store.inbox, store.prune):
         with pytest.raises(StoreError, match="archive/reset legacy Store"):
             operation()
     assert path.exists()
-    if path.is_dir():
-        assert (path / f"{TASK}.json").read_text() == '{"legacy":true}'
+    assert (path / f"{TASK}.json").read_text() == '{"legacy":true}'
+
+
+def test_unrelated_files_do_not_block_store_reads_or_automatic_pruning(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    for directory in (store.request_directory, store.reply_directory):
+        for name in ("desktop.ini", "Thumbs.db", "notes.txt"):
+            (directory / name).write_bytes(b"not a requester record")
+    request = submit(store, client)
+    backend.replies = [task({"result": "done"})]
+    assert store.drain(client, DOMAIN, REPLY) == 1
+    reply = store.wait(client, request.origin_id, 0)
+    assert reply is not None and reply.data == {"result": "done"}
+    assert len(store.requests()) == 1 and len(store.inbox()) == 1
+    store.prune()
+    for directory in (store.request_directory, store.reply_directory):
+        for name in ("desktop.ini", "Thumbs.db", "notes.txt"):
+            assert (directory / name).read_bytes() == b"not a requester record"
 
 
 @pytest.mark.parametrize("operation", ["initialize", "matched", "prune", "automatic"])
