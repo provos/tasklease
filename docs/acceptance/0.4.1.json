@@ -92,7 +92,7 @@
   "windows_network": "The VM has no outbound network; dependencies came from the 0.4.0 wheelhouse resolved on the host under a seven-day cutoff (2026-11-06T01:54:27Z). A first run was cut off when Parallels paused the VM; the rerun in a fresh folder is the one recorded.",
   "prior_version": "0.4.0",
   "prior_package": "Published 0.4.0 wheel, SHA-256 checked against PyPI, installed from the file",
-  "live_target": "Existing acceptance Worker tasklease-acceptance-90d25ae, redeployed from published 0.4.0 and upgraded in place; no temporary Worker was created.",
+  "live_target": "Existing acceptance Worker [SERVICE], redeployed from published 0.4.0 and upgraded in place; no temporary Worker was created.",
   "live_checks": {
     "published_prior_deploy_verified": true,
     "exact_installed_candidate_wheel_bytes": true,
@@ -124,5 +124,6 @@
   },
   "evidence_archive": "python/dist/acceptance-0.4.1-09a7e9f/evidence.zip",
   "evidence_archive_sha256": "d65c842456f26885a85152d77f840982b0e83ff8caf6923855393c3ba51e1ff4",
-  "secret_scan_passed": true
+  "secret_scan_passed": true,
+  "metadata_redaction": "Public copy; artifact hashes describe original validation inputs and private evidence."
 }

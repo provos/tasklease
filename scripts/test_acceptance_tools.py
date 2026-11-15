@@ -29,8 +29,11 @@ from native_acceptance import (
     junit_summary,
     run_logged,
     stop_process,
+    write_report,
 )
 from prepare_acceptance import matching_wheel, prepare
+from public_evidence import MANIFEST as PUBLIC_MANIFEST
+from public_evidence import Redactor, export
 
 
 def git(root: Path, *arguments: str) -> None:
@@ -493,3 +496,184 @@ def test_windows_taskkill_failure_still_kills_and_reaps_parent(
     process = Process()
     stop_process(cast(subprocess.Popen[bytes], process), {"SystemRoot": str(tmp_path)})
     assert process.killed and process.reaped
+
+
+def test_public_report_redacts_paths_and_identifiers_without_changing_results(
+    tmp_path: Path,
+) -> None:
+    original: dict[str, object] = {
+        "status": "passed",
+        "source_commit": "a" * 40,
+        "wheel_sha256": "b" * 64,
+        "tests": {"passed": 42, "skipped": 3},
+        "python_executable": "/Users/Jane Doe/venv/bin/python",
+        "log": r"C:\Users\Jörg Smith\AppData\Local\Temp\run-123\probe.log",
+        "cwd": "/private/var/folders/ab/private-id/T/run-123",
+        "cloudflare": {
+            "account_id": "0123456789abcdef0123456789abcdef",
+            "bucket": "private-evidence-bucket",
+            "url": "https://private-worker.personal.workers.dev",
+            "name": "private-worker",
+        },
+        "normal_host": "buildbox.localdomain",
+        "message": "private-evidence-bucket on 192.168.1.12",
+    }
+    path = tmp_path / "native.json"
+    write_report(path, original)
+    result = json.loads(path.read_text())
+    for field in ("status", "source_commit", "wheel_sha256", "tests"):
+        assert result[field] == original[field]
+    for private in (
+        "Jane Doe",
+        "Jörg Smith",
+        "private-id",
+        "run-123",
+        "0123456789abcdef0123456789abcdef",
+        "private-evidence-bucket",
+        "private-worker",
+        "personal.workers.dev",
+        "buildbox.localdomain",
+        "192.168.1.12",
+    ):
+        assert private not in path.read_text()
+    assert original["python_executable"] == "/Users/Jane Doe/venv/bin/python"
+
+
+def test_public_zip_redacts_nested_logs_and_keeps_verifiable_public_manifest(
+    tmp_path: Path,
+) -> None:
+    account = "0123456789abcdef0123456789abcdef"
+    nested = tmp_path / "nested.zip"
+    with zipfile.ZipFile(nested, "w") as archive:
+        archive.writestr(
+            "native.xml",
+            '<testsuite hostname="buildbox.local" tests="42"/>'.encode("utf-16"),
+        )
+        archive.writestr("command.log", f"account {account}; bucket private-bucket")
+    original = tmp_path / "checks.zip"
+    with zipfile.ZipFile(original, "w") as archive:
+        archive.write(nested, "logs.zip")
+        archive.writestr(
+            "live.log",
+            json.dumps({"account_id": account, "bucket": "private-bucket"})
+            + "\nsecond log line\n",
+        )
+        archive.writestr("summary.json", '{"passed":42,"wheel_sha256":"unchanged"}')
+    before = original.read_bytes()
+    output = tmp_path / "public.zip"
+    assert export(original, output) == digest(output.read_bytes())
+    assert original.read_bytes() == before
+    with zipfile.ZipFile(output) as archive:
+        manifest = json.loads(archive.read(PUBLIC_MANIFEST))
+        assert manifest["source_sha256"] == digest(before)
+        assert manifest["metadata_redacted"] is True
+        assert json.loads(archive.read("summary.json"))["passed"] == 42
+        for name, checksum in manifest["files"].items():
+            assert digest(archive.read(name)) == checksum
+        nested.write_bytes(archive.read("logs.zip"))
+        assert account.encode() not in archive.read("live.log")
+    with zipfile.ZipFile(nested) as archive:
+        assert "buildbox.local" not in archive.read("native.xml").decode("utf-16")
+        assert account.encode() not in archive.read("command.log")
+        assert b"private-bucket" not in archive.read("command.log")
+
+
+@pytest.mark.parametrize("name", ["package.whl", "private.png", "source.tar.gz"])
+def test_public_export_rejects_packages_and_unreviewed_binary_files(
+    tmp_path: Path, name: str
+) -> None:
+    source = tmp_path / "evidence.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr(name, "not a report")
+    output = tmp_path / "public.zip"
+    with pytest.raises(ValueError, match="only reports/logs"):
+        export(source, output)
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("name", ["../private.log", "/private.log", "host.local.log"])
+def test_public_export_rejects_unsafe_or_identifying_member_names(
+    tmp_path: Path, name: str
+) -> None:
+    source = tmp_path / "evidence.zip"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr(name, "report")
+    with pytest.raises(ValueError):
+        export(source, tmp_path / "public.zip")
+
+
+def test_public_export_preserves_original_and_failed_destination(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "report.json"
+    source.write_text('{"status":"passed"}')
+    with pytest.raises(ValueError, match="original evidence"):
+        export(source, source)
+    assert source.read_text() == '{"status":"passed"}'
+    invalid = tmp_path / "broken.zip"
+    invalid.write_bytes(b"not a zip")
+    with pytest.raises(zipfile.BadZipFile):
+        export(invalid, source)
+    assert source.read_text() == '{"status":"passed"}'
+
+
+def test_redaction_keeps_markdown_quotes_and_public_digests() -> None:
+    redactor = Redactor()
+    text = "Log `/tmp/private-run/output.log`; Python '/home/person/bin/python'."
+    assert redactor.text(text) == "Log `[TEMP]/output.log`; Python '[HOME]/bin/python'."
+    assert redactor.text("a" * 64) == "a" * 64
+
+
+def test_xml_and_shell_metadata_do_not_require_a_json_sibling() -> None:
+    redactor = Redactor()
+    text = (
+        '<testsuite hostname="private-macbook" tests="42"/>'
+        '\naccount_id="0123456789abcdef0123456789abcdef"'
+        "\nbucket='private-bucket'"
+        "\nprivate-macbook used private-bucket"
+    )
+    redactor.discover(text)
+    result = redactor.text(text)
+    for private in (
+        "private-macbook",
+        "0123456789abcdef0123456789abcdef",
+        "private-bucket",
+    ):
+        assert private not in result
+    assert 'tests="42"' in result
+
+
+def test_metadata_collisions_do_not_change_status_or_counts() -> None:
+    redactor = Redactor()
+    text = '{"bucket":"passed","status":"passed","tests":{"passed":42}}'
+    redactor.discover(text)
+    assert json.loads(redactor.document(text)) == {
+        "bucket": "[BUCKET]",
+        "status": "passed",
+        "tests": {"passed": 42},
+    }
+
+
+def test_private_map_keys_are_redacted_without_silently_merging_results() -> None:
+    redactor = Redactor()
+    assert redactor.value({"/Users/private/report.log": 42}) == {
+        "[HOME]/report.log": 42
+    }
+    with pytest.raises(ValueError, match="merge report map keys"):
+        redactor.value({"one.local": 42, "two.local": 43})
+
+
+def test_nested_zip_expansion_uses_one_total_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("public_evidence._MAX_EXPANDED_BYTES", 1500)
+    nested = tmp_path / "nested.zip"
+    with zipfile.ZipFile(nested, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("data.log", "x" * 800)
+    source = tmp_path / "original.zip"
+    with zipfile.ZipFile(source, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.write(nested, "one.zip")
+        archive.write(nested, "two.zip")
+    with pytest.raises(ValueError, match="too large"):
+        export(source, tmp_path / "public.zip")

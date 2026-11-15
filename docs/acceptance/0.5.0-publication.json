@@ -73,8 +73,8 @@
   "live_checks": {
     "version": "0.5.0",
     "source": "Exact SHA256-verified published PyPI wheel",
-    "worker": "tasklease-050-pypi-95f69b4eeb",
-    "url": "https://tasklease-050-pypi-95f69b4eeb.provos.workers.dev",
+    "worker": "[SERVICE]",
+    "url": "https://service.example.invalid",
     "checks": {
       "pypi_installed_deploy_and_builtin_idempotency_origin_r2_probe": true,
       "key_replay_after_cancel_and_creator_isolation": true,
@@ -131,9 +131,9 @@
     }
   },
   "persistent_acceptance_service": "Remains on the previously qualified 0.5.0 bundle; post-publication deployment used a new isolated Worker",
-  "artifacts_directory": "/Users/provos/src/tasklease/python/dist/publication-0.5.0-087f253",
+  "artifacts_directory": "[HOME]/src/tasklease/python/dist/publication-0.5.0-087f253",
   "evidence": {
-    "path": "/Users/provos/src/tasklease/python/dist/publication-0.5.0-087f253/evidence.zip",
+    "path": "[HOME]/src/tasklease/python/dist/publication-0.5.0-087f253/evidence.zip",
     "sha256": "75fe13956e501a676ea9b4cebe02909bde6c9c96c43934e8ba88257f8b0a8fcf",
     "files": 45,
     "secret_scan": {
@@ -142,5 +142,6 @@
       "actual_credential_values_checked": 56,
       "private_state_excluded": true
     }
-  }
+  },
+  "metadata_redaction": "Public copy; artifact hashes describe original validation inputs and private evidence."
 }

@@ -1,5 +1,5 @@
 {
-  "method": "scripts/load_pollers.py against the acceptance deployment (tasklease-acceptance-90d25ae, Workers Paid, service 0.4.0 from the long-poll branch) from one macOS client on 2026-11-12, with no local proxy. Each run used a fresh domain and one topic; a producer created tasks that workers owned, held for 2 s and consumed. Pickup is the time from a Create's send to the claim's arrival at a worker, both on the client's clock; latencies include the client's network path.",
+  "method": "scripts/load_pollers.py against the acceptance deployment ([SERVICE], Workers Paid, service 0.4.0 from the long-poll branch) from one macOS client on 2026-11-12, with no local proxy. Each run used a fresh domain and one topic; a producer created tasks that workers owned, held for 2 s and consumed. Pickup is the time from a Create's send to the claim's arrival at a worker, both on the client's clock; latencies include the client's network path.",
   "runs": [
     {
       "label": "5 workers, 30 s polls, no wait",
@@ -399,5 +399,6 @@
     "The first 1,000-worker waiting run had 49 held polls (0.7%) end in a client-side ReadError, all in its last 50 s; the repeat, tailed with wrangler tail --status error --status canceled, had none and one edge 502. The tail recorded no failed Worker invocation, only canceled Own invocations when the client abandoned held polls at shutdown. Every created task was consumed in every run.",
     "The redeploy uploaded the same 0.4.0 bundle and took 17 s; no held poll failed or was answered wait_refused. It did not replace the running code, so it does not exercise a Durable Object reset.",
     "Not measured: Durable Object duration billing, which needs the Cloudflare dashboard or analytics API."
-  ]
+  ],
+  "metadata_redaction": "Public copy; artifact hashes describe original validation inputs and private evidence."
 }

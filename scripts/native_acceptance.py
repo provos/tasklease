@@ -16,6 +16,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from acceptance_bundle import digest, verify_archive, verify_manifest
+from public_evidence import Redactor
 
 _IGNORED = ("test_build.py", "test_deploy.py")
 _VERSION_TIMEOUT = 15
@@ -206,6 +207,8 @@ def junit_summary(path: Path) -> dict[str, object]:
 
 
 def write_report(path: Path, result: dict[str, object]) -> None:
+    redactor = Redactor()
+    redactor.discover(json.dumps(result))
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     descriptor, filename = tempfile.mkstemp(
         prefix=".native-report-", suffix=".json", dir=path.parent
@@ -213,7 +216,13 @@ def write_report(path: Path, result: dict[str, object]) -> None:
     temporary = Path(filename)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-            json.dump(result, output, ensure_ascii=True, sort_keys=True, indent=2)
+            json.dump(
+                redactor.value(result),
+                output,
+                ensure_ascii=True,
+                sort_keys=True,
+                indent=2,
+            )
             output.write("\n")
         os.replace(temporary, path)
     finally:

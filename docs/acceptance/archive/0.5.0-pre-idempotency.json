@@ -53,41 +53,41 @@
       "ignored_node_suites": ["test_build.py", "test_deploy.py"],
       "installed_wheel_probe": {
         "command": [
-          "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-050-release-rb4k242c/macos-final/venv/bin/python",
+          "[TEMP]/macos-final/venv/bin/python",
           "-I",
           "-c",
           "\nimport io, json, plistlib, sys, zipfile\nfrom contextlib import redirect_stdout\nfrom importlib.resources import files\nfrom pathlib import Path, PurePosixPath\nfrom xml.etree import ElementTree\nimport tasklease\nfrom tasklease.cli import main\nfrom tasklease.client import Client\n\nroot = Path(tasklease.__file__).resolve().parent\nassert sys.prefix != sys.base_prefix, 'Use a clean virtual environment'\nassert root.is_relative_to(Path(sys.prefix).resolve()), (\n    'Editable/source import is not an installed-wheel check'\n)\nassert 'site-packages' in str(root).lower(), 'Use installed site-packages'\nassert tasklease.__version__ == sys.argv[2], 'Installed version differs'\nwith zipfile.ZipFile(sys.argv[1]) as wheel:\n    for name in wheel.namelist():\n        if name.startswith('tasklease/') and not name.endswith('/'):\n            relative = PurePosixPath(name).parts[1:]\n            assert root.joinpath(*relative).read_bytes() == wheel.read(name), (\n                'Installed package differs from wheel: ' + name\n            )\np = files('tasklease')\nhtml = p.joinpath('monitor/static/index.html').read_text()\nassert '<html' in html and p.joinpath('monitor/static/assets').is_dir()\nbundle = json.loads(p.joinpath('service_bundle/manifest.json').read_text())\ntemplate = json.loads(p.joinpath('service_bundle/wrangler.template.jsonc').read_text())\nassert bundle['service_version'] == tasklease.__version__\nassert template['no_bundle'] is True\nassert p.joinpath('service_bundle', template['main']).read_bytes()\nfor target in ('systemd', 'launchd', 'windows', 'windows-stop'):\n    output = io.StringIO()\n    with redirect_stdout(output):\n        assert main(['worker', 'template', '--platform', target]) == 0\n    text = output.getvalue()\n    assert text\n    if target == 'launchd':\n        assert plistlib.loads(text.encode())['RunAtLoad'] is True\n    if target == 'windows':\n        ElementTree.fromstring(text)\nClient('http://127.0.0.1:1', 'acceptance-fake-token').close()\nprint(json.dumps({\n    'version': tasklease.__version__, 'package_path': str(root),\n    'templates': 4, 'node_path': 'absent',\n}))\n",
-          "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-050-release-rb4k242c/bundle/artifacts/tasklease-0.5.0-py3-none-any.whl",
+          "[TEMP]/bundle/artifacts/tasklease-0.5.0-py3-none-any.whl",
           "0.5.0"
         ],
-        "cwd": "/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-native-work-6372yldx",
+        "cwd": "[TEMP]",
         "exit_code": 0,
-        "log": "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-050-release-rb4k242c/evidence/macos/native-report.probe.log",
+        "log": "[TEMP]/evidence/macos/native-report.probe.log",
         "seconds": 0.186,
         "timed_out": false
       },
       "package_version": "0.5.0",
       "platform": "macOS-27.0-arm64-arm-64bit",
       "python": "3.12.12",
-      "python_executable": "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-050-release-rb4k242c/macos-final/venv/bin/python",
+      "python_executable": "[TEMP]/macos-final/venv/bin/python",
       "release": "27.0.0",
       "runtime": {
         "command": [
-          "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-050-release-rb4k242c/macos-final/venv/bin/python",
+          "[TEMP]/macos-final/venv/bin/python",
           "-I",
           "-m",
           "pytest",
           "-c",
-          "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-050-release-rb4k242c/bundle/source/python/pyproject.toml",
-          "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-050-release-rb4k242c/bundle/source/python/tests",
-          "--ignore=/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-050-release-rb4k242c/bundle/source/python/tests/test_build.py",
-          "--ignore=/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-050-release-rb4k242c/bundle/source/python/tests/test_deploy.py",
-          "--junitxml=/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-050-release-rb4k242c/evidence/macos/native-report.junit.xml",
+          "[TEMP]/bundle/source/python/pyproject.toml",
+          "[TEMP]/bundle/source/python/tests",
+          "--ignore=[TEMP]/bundle/source/python/tests/test_build.py",
+          "--ignore=[TEMP]/bundle/source/python/tests/test_deploy.py",
+          "--junitxml=[TEMP]/evidence/macos/native-report.junit.xml",
           "-q"
         ],
-        "cwd": "/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-native-work-6372yldx",
+        "cwd": "[TEMP]",
         "exit_code": 0,
-        "log": "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-050-release-rb4k242c/evidence/macos/native-report.pytest.log",
+        "log": "[TEMP]/evidence/macos/native-report.pytest.log",
         "seconds": 16.329,
         "timed_out": false
       },
@@ -119,10 +119,10 @@
         "tests": 1089
       },
       "uv": {
-        "command": ["/Users/provos/.local/bin/uv", "--version"],
-        "cwd": "/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-native-work-6372yldx",
+        "command": ["[HOME]/.local/bin/uv", "--version"],
+        "cwd": "[TEMP]",
         "exit_code": 0,
-        "log": "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-050-release-rb4k242c/evidence/macos/native-report.uv.log",
+        "log": "[TEMP]/evidence/macos/native-report.uv.log",
         "seconds": 0.012,
         "timed_out": false,
         "version": "uv 0.9.15 (5eafae332 2025-12-02)"
@@ -135,41 +135,41 @@
       "ignored_node_suites": ["test_build.py", "test_deploy.py"],
       "installed_wheel_probe": {
         "command": [
-          "/tmp/tasklease-050-revised.lS1KVMj1/venv/bin/python",
+          "[TEMP]/venv/bin/python",
           "-I",
           "-c",
           "\nimport io, json, plistlib, sys, zipfile\nfrom contextlib import redirect_stdout\nfrom importlib.resources import files\nfrom pathlib import Path, PurePosixPath\nfrom xml.etree import ElementTree\nimport tasklease\nfrom tasklease.cli import main\nfrom tasklease.client import Client\n\nroot = Path(tasklease.__file__).resolve().parent\nassert sys.prefix != sys.base_prefix, 'Use a clean virtual environment'\nassert root.is_relative_to(Path(sys.prefix).resolve()), (\n    'Editable/source import is not an installed-wheel check'\n)\nassert 'site-packages' in str(root).lower(), 'Use installed site-packages'\nassert tasklease.__version__ == sys.argv[2], 'Installed version differs'\nwith zipfile.ZipFile(sys.argv[1]) as wheel:\n    for name in wheel.namelist():\n        if name.startswith('tasklease/') and not name.endswith('/'):\n            relative = PurePosixPath(name).parts[1:]\n            assert root.joinpath(*relative).read_bytes() == wheel.read(name), (\n                'Installed package differs from wheel: ' + name\n            )\np = files('tasklease')\nhtml = p.joinpath('monitor/static/index.html').read_text()\nassert '<html' in html and p.joinpath('monitor/static/assets').is_dir()\nbundle = json.loads(p.joinpath('service_bundle/manifest.json').read_text())\ntemplate = json.loads(p.joinpath('service_bundle/wrangler.template.jsonc').read_text())\nassert bundle['service_version'] == tasklease.__version__\nassert template['no_bundle'] is True\nassert p.joinpath('service_bundle', template['main']).read_bytes()\nfor target in ('systemd', 'launchd', 'windows', 'windows-stop'):\n    output = io.StringIO()\n    with redirect_stdout(output):\n        assert main(['worker', 'template', '--platform', target]) == 0\n    text = output.getvalue()\n    assert text\n    if target == 'launchd':\n        assert plistlib.loads(text.encode())['RunAtLoad'] is True\n    if target == 'windows':\n        ElementTree.fromstring(text)\nClient('http://127.0.0.1:1', 'acceptance-fake-token').close()\nprint(json.dumps({\n    'version': tasklease.__version__, 'package_path': str(root),\n    'templates': 4, 'node_path': 'absent',\n}))\n",
-          "/tmp/tasklease-050-revised.lS1KVMj1/bundle/artifacts/tasklease-0.5.0-py3-none-any.whl",
+          "[TEMP]/bundle/artifacts/tasklease-0.5.0-py3-none-any.whl",
           "0.5.0"
         ],
-        "cwd": "/tmp/tasklease-native-work-slme551m",
+        "cwd": "[TEMP]",
         "exit_code": 0,
-        "log": "/tmp/tasklease-050-revised.lS1KVMj1/reports/native-report.probe.log",
+        "log": "[TEMP]/reports/native-report.probe.log",
         "seconds": 0.214,
         "timed_out": false
       },
       "package_version": "0.5.0",
       "platform": "Linux-6.17.0-1029-nvidia-aarch64-with-glibc2.39",
       "python": "3.12.3",
-      "python_executable": "/tmp/tasklease-050-revised.lS1KVMj1/venv/bin/python",
+      "python_executable": "[TEMP]/venv/bin/python",
       "release": "6.17.0-1029-nvidia",
       "runtime": {
         "command": [
-          "/tmp/tasklease-050-revised.lS1KVMj1/venv/bin/python",
+          "[TEMP]/venv/bin/python",
           "-I",
           "-m",
           "pytest",
           "-c",
-          "/tmp/tasklease-050-revised.lS1KVMj1/bundle/source/python/pyproject.toml",
-          "/tmp/tasklease-050-revised.lS1KVMj1/bundle/source/python/tests",
-          "--ignore=/tmp/tasklease-050-revised.lS1KVMj1/bundle/source/python/tests/test_build.py",
-          "--ignore=/tmp/tasklease-050-revised.lS1KVMj1/bundle/source/python/tests/test_deploy.py",
-          "--junitxml=/tmp/tasklease-050-revised.lS1KVMj1/reports/native-report.junit.xml",
+          "[TEMP]/bundle/source/python/pyproject.toml",
+          "[TEMP]/bundle/source/python/tests",
+          "--ignore=[TEMP]/bundle/source/python/tests/test_build.py",
+          "--ignore=[TEMP]/bundle/source/python/tests/test_deploy.py",
+          "--junitxml=[TEMP]/reports/native-report.junit.xml",
           "-q"
         ],
-        "cwd": "/tmp/tasklease-native-work-slme551m",
+        "cwd": "[TEMP]",
         "exit_code": 0,
-        "log": "/tmp/tasklease-050-revised.lS1KVMj1/reports/native-report.pytest.log",
+        "log": "[TEMP]/reports/native-report.pytest.log",
         "seconds": 21.368,
         "timed_out": false
       },
@@ -202,9 +202,9 @@
       },
       "uv": {
         "command": ["/snap/bin/uv", "--version"],
-        "cwd": "/tmp/tasklease-native-work-slme551m",
+        "cwd": "[TEMP]",
         "exit_code": 0,
-        "log": "/tmp/tasklease-050-revised.lS1KVMj1/reports/native-report.uv.log",
+        "log": "[TEMP]/reports/native-report.uv.log",
         "seconds": 0.114,
         "timed_out": false,
         "version": "uv 0.12.21 (7af826859 2026-09-29 aarch64-unknown-linux-gnu)"
@@ -217,41 +217,41 @@
       "ignored_node_suites": ["test_build.py", "test_deploy.py"],
       "installed_wheel_probe": {
         "command": [
-          "C:\\Users\\provos\\AppData\\Local\\Temp\\tl050-cb036405e49c\\venv\\Scripts\\python.exe",
+          "[TEMP]\\venv\\Scripts\\python.exe",
           "-I",
           "-c",
           "\nimport io, json, plistlib, sys, zipfile\nfrom contextlib import redirect_stdout\nfrom importlib.resources import files\nfrom pathlib import Path, PurePosixPath\nfrom xml.etree import ElementTree\nimport tasklease\nfrom tasklease.cli import main\nfrom tasklease.client import Client\n\nroot = Path(tasklease.__file__).resolve().parent\nassert sys.prefix != sys.base_prefix, 'Use a clean virtual environment'\nassert root.is_relative_to(Path(sys.prefix).resolve()), (\n    'Editable/source import is not an installed-wheel check'\n)\nassert 'site-packages' in str(root).lower(), 'Use installed site-packages'\nassert tasklease.__version__ == sys.argv[2], 'Installed version differs'\nwith zipfile.ZipFile(sys.argv[1]) as wheel:\n    for name in wheel.namelist():\n        if name.startswith('tasklease/') and not name.endswith('/'):\n            relative = PurePosixPath(name).parts[1:]\n            assert root.joinpath(*relative).read_bytes() == wheel.read(name), (\n                'Installed package differs from wheel: ' + name\n            )\np = files('tasklease')\nhtml = p.joinpath('monitor/static/index.html').read_text()\nassert '<html' in html and p.joinpath('monitor/static/assets').is_dir()\nbundle = json.loads(p.joinpath('service_bundle/manifest.json').read_text())\ntemplate = json.loads(p.joinpath('service_bundle/wrangler.template.jsonc').read_text())\nassert bundle['service_version'] == tasklease.__version__\nassert template['no_bundle'] is True\nassert p.joinpath('service_bundle', template['main']).read_bytes()\nfor target in ('systemd', 'launchd', 'windows', 'windows-stop'):\n    output = io.StringIO()\n    with redirect_stdout(output):\n        assert main(['worker', 'template', '--platform', target]) == 0\n    text = output.getvalue()\n    assert text\n    if target == 'launchd':\n        assert plistlib.loads(text.encode())['RunAtLoad'] is True\n    if target == 'windows':\n        ElementTree.fromstring(text)\nClient('http://127.0.0.1:1', 'acceptance-fake-token').close()\nprint(json.dumps({\n    'version': tasklease.__version__, 'package_path': str(root),\n    'templates': 4, 'node_path': 'absent',\n}))\n",
-          "C:\\Users\\provos\\AppData\\Local\\Temp\\tl050-cb036405e49c\\bundle\\artifacts\\tasklease-0.5.0-py3-none-any.whl",
+          "[TEMP]\\bundle\\artifacts\\tasklease-0.5.0-py3-none-any.whl",
           "0.5.0"
         ],
-        "cwd": "C:\\Users\\provos\\AppData\\Local\\Temp\\tasklease-native-work-nlwawgqw",
+        "cwd": "[TEMP]",
         "exit_code": 0,
-        "log": "C:\\Users\\provos\\AppData\\Local\\Temp\\tl050-cb036405e49c\\native-report.probe.log",
+        "log": "[TEMP]\\native-report.probe.log",
         "seconds": 1.093,
         "timed_out": false
       },
       "package_version": "0.5.0",
       "platform": "Windows-11-10.0.26200-SP0",
       "python": "3.12.12",
-      "python_executable": "C:\\Users\\provos\\AppData\\Local\\Temp\\tl050-cb036405e49c\\venv\\Scripts\\python.exe",
+      "python_executable": "[TEMP]\\venv\\Scripts\\python.exe",
       "release": "11",
       "runtime": {
         "command": [
-          "C:\\Users\\provos\\AppData\\Local\\Temp\\tl050-cb036405e49c\\venv\\Scripts\\python.exe",
+          "[TEMP]\\venv\\Scripts\\python.exe",
           "-I",
           "-m",
           "pytest",
           "-c",
-          "C:\\Users\\provos\\AppData\\Local\\Temp\\tl050-cb036405e49c\\bundle\\source\\python\\pyproject.toml",
-          "C:\\Users\\provos\\AppData\\Local\\Temp\\tl050-cb036405e49c\\bundle\\source\\python\\tests",
-          "--ignore=C:\\Users\\provos\\AppData\\Local\\Temp\\tl050-cb036405e49c\\bundle\\source\\python\\tests\\test_build.py",
-          "--ignore=C:\\Users\\provos\\AppData\\Local\\Temp\\tl050-cb036405e49c\\bundle\\source\\python\\tests\\test_deploy.py",
-          "--junitxml=C:\\Users\\provos\\AppData\\Local\\Temp\\tl050-cb036405e49c\\native-report.junit.xml",
+          "[TEMP]\\bundle\\source\\python\\pyproject.toml",
+          "[TEMP]\\bundle\\source\\python\\tests",
+          "--ignore=[TEMP]\\bundle\\source\\python\\tests\\test_build.py",
+          "--ignore=[TEMP]\\bundle\\source\\python\\tests\\test_deploy.py",
+          "--junitxml=[TEMP]\\native-report.junit.xml",
           "-q"
         ],
-        "cwd": "C:\\Users\\provos\\AppData\\Local\\Temp\\tasklease-native-work-nlwawgqw",
+        "cwd": "[TEMP]",
         "exit_code": 0,
-        "log": "C:\\Users\\provos\\AppData\\Local\\Temp\\tl050-cb036405e49c\\native-report.pytest.log",
+        "log": "[TEMP]\\native-report.pytest.log",
         "seconds": 33.047,
         "timed_out": false
       },
@@ -343,13 +343,10 @@
         "tests": 1089
       },
       "uv": {
-        "command": [
-          "C:\\Users\\provos\\AppData\\Local\\Temp\\tasklease-040-offline-35150128\\uv.EXE",
-          "--version"
-        ],
-        "cwd": "C:\\Users\\provos\\AppData\\Local\\Temp\\tasklease-native-work-nlwawgqw",
+        "command": ["[TEMP]\\uv.EXE", "--version"],
+        "cwd": "[TEMP]",
         "exit_code": 0,
-        "log": "C:\\Users\\provos\\AppData\\Local\\Temp\\tl050-cb036405e49c\\native-report.uv.log",
+        "log": "[TEMP]\\native-report.uv.log",
         "seconds": 0.032,
         "timed_out": false,
         "version": "uv 0.9.15 (5eafae332 2025-12-02)"
@@ -379,7 +376,7 @@
     },
     "events": [
       "Bootstrapping new isolated Worker from installed published 0.4.1 wheel",
-      "Bucket tasklease-acceptance-90d25ae: unchanged",
+      "Bucket [SERVICE]: unchanged",
       "Lifecycle tasklease-expire: unchanged",
       "Worker uploaded; deployment coordinates saved. Verification is pending.",
       "Generated bootstrap admin credential, retained only in private state",
@@ -388,7 +385,7 @@
       "Next: tl identity add for each machine; tl topic declare for well-known topics.",
       "Prior service, scoped identity, held task and statistics prepared",
       "Upgrading the same isolated Worker from installed candidate wheel",
-      "Bucket tasklease-acceptance-90d25ae: unchanged",
+      "Bucket [SERVICE]: unchanged",
       "Lifecycle tasklease-expire: unchanged",
       "Worker uploaded; deployment coordinates saved. Verification is pending.",
       "Task and R2 upload/download checks passed.",
@@ -403,17 +400,17 @@
     ],
     "worker_api_observations": [
       {
-        "name": "tasklease-050-acceptance-bc0f101133",
+        "name": "[SERVICE]",
         "http_status": 404
       },
       {
-        "name": "tasklease-050-acceptance-bc0f101133",
+        "name": "[SERVICE]",
         "http_status": 404
       }
     ],
-    "name": "tasklease-050-acceptance-bc0f101133",
-    "url": "https://tasklease-050-acceptance-bc0f101133.provos.workers.dev",
-    "bucket": "tasklease-acceptance-90d25ae",
+    "name": "[SERVICE]",
+    "url": "https://service.example.invalid",
+    "bucket": "[BUCKET]",
     "prior_version": "0.4.1",
     "candidate_source_commit": "c9dd647235d2c59fa292796bc71fa89012a141de",
     "candidate_source_dirty": false,
@@ -531,7 +528,7 @@
   },
   "publication_status": "held_by_user",
   "retained_evidence": {
-    "path": "/Users/provos/src/tasklease/python/dist/acceptance-0.5.0-cb03640/evidence.zip",
+    "path": "[HOME]/src/tasklease/python/dist/acceptance-0.5.0-cb03640/evidence.zip",
     "sha256": "067b647eac0eb5a41f7610a401fb989646ecefcc8a454d05485bb2a5b6d762c7",
     "files": 70,
     "secret_scan": {
@@ -540,5 +537,6 @@
       "actual_credential_values_checked": 8,
       "private_state_excluded": true
     }
-  }
+  },
+  "metadata_redaction": "Public copy; artifact hashes describe original validation inputs and private evidence."
 }

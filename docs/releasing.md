@@ -228,6 +228,39 @@ The bundle contains private repository source when the repository is private.
 Transfer it directly to the intended machine. No Cloudflare, R2, PyPI or other
 credentials belong in the bundle or acceptance report.
 
+### Export public release evidence
+
+Keep the original acceptance ZIP, raw logs and JUnit files private. The source
+bundle is an exact validation input, not a public evidence archive; do not
+rewrite it or its wheel to remove metadata. Native JSON reports redact local
+paths and infrastructure identifiers by default, while adjacent logs retain
+the original diagnostic detail.
+
+Before committing a report or attaching evidence to a release, export a
+separate public copy:
+
+```sh
+python scripts/public_evidence.py --input private/native-report.json \
+  --output public/native-report.json
+python scripts/public_evidence.py --input private/checks.zip \
+  --output public/checks.zip
+```
+
+The exporter redacts home/temporary paths, local hostnames/private addresses,
+Workers endpoints, and identifiers discovered in structured fields such as
+account, bucket, worker and credential fields. It applies those identifiers
+across related logs, including nested ZIPs and UTF-16 Windows logs. Review
+custom application details and scan for credentials separately; redaction is
+not a substitute for that review.
+
+Only text reports/logs and nested ZIPs are accepted. Publish the already
+verified wheel and sdist separately without rewriting their bytes. Each
+public ZIP contains `public-evidence-manifest.json` with hashes of its
+redacted members and the original ZIP hash. Existing report hashes continue
+to describe the original private artifacts, rather than the redacted copies.
+Record the public ZIP's new SHA-256 when replacing a release asset. A cleanup
+commit does not remove metadata from earlier Git commits or existing clones.
+
 ## Native macOS and Windows checks
 
 Use a fresh virtual environment outside the extracted source, install the

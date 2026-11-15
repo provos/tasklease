@@ -1,5 +1,5 @@
 {
-  "method": "scripts/load_pollers.py against the acceptance deployment (tasklease-acceptance-90d25ae, Workers Paid) from one Linux client, 2026-11-08 and 2026-11-09. Each run used a fresh domain and one topic; a producer created tasks that workers owned, held for 2 s and consumed. Latency is client-observed and includes the network path (about 45 ms at light load).",
+  "method": "scripts/load_pollers.py against the acceptance deployment ([SERVICE], Workers Paid) from one Linux client, 2026-11-08 and 2026-11-09. Each run used a fresh domain and one topic; a producer created tasks that workers owned, held for 2 s and consumed. Latency is client-observed and includes the network path (about 45 ms at light load).",
   "same_domain_probe": "Own on another topic of the loaded domain, timed once a second from a separate process, distinguishes queueing in the domain from queueing in the load client.",
   "runs": [
     {
@@ -398,5 +398,6 @@
         "max_ms": 787
       }
     }
-  ]
+  ],
+  "metadata_redaction": "Public copy; artifact hashes describe original validation inputs and private evidence."
 }

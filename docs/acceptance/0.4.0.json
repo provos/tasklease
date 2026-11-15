@@ -89,7 +89,7 @@
   },
   "windows_network": "The VM refused every outbound connection (WinError 10013); dependencies came from a wheelhouse resolved on the host under the same seven-day cutoff, and no guest setting was changed.",
   "prior_version": "0.3.0",
-  "live_target": "Existing acceptance Worker tasklease-acceptance-90d25ae, redeployed from published 0.3.0 and upgraded in place; no temporary Worker was created, so a fresh bootstrap from the prior release was not repeated.",
+  "live_target": "Existing acceptance Worker [SERVICE], redeployed from published 0.3.0 and upgraded in place; no temporary Worker was created, so a fresh bootstrap from the prior release was not repeated.",
   "live_checks": {
     "published_prior_deploy_verified": true,
     "exact_installed_candidate_wheel_bytes": true,
@@ -113,5 +113,6 @@
   },
   "evidence_archive": "python/dist/acceptance-0.4.0-158a288/evidence.zip",
   "evidence_archive_sha256": "90956da3836d3c58dc71873e4826aa582b4cfd4d5bdb1d5b9ebfef5d545e5c65",
-  "secret_scan_passed": true
+  "secret_scan_passed": true,
+  "metadata_redaction": "Public copy; artifact hashes describe original validation inputs and private evidence."
 }

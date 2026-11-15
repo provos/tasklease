@@ -23,7 +23,7 @@
     },
     "report": "archive/0.5.0-idempotency-candidate.json",
     "retained_evidence": {
-      "path": "/Users/provos/src/tasklease/python/dist/acceptance-0.5.0-idempotency-8b7ed78/evidence.zip",
+      "path": "[HOME]/src/tasklease/python/dist/acceptance-0.5.0-idempotency-8b7ed78/evidence.zip",
       "sha256": "2e52df5503d89841d591003ba7f12b8ab2440b5941b6e497935fd13e5f153f61",
       "files": 55,
       "secret_scan": {
@@ -89,7 +89,7 @@
         "kind": "Docker Desktop Linux VM; Linux container filesystem",
         "image_id": "sha256:f1ec535b79003d491fd9d60a223904a31e0032cca185cf1e0c8694bef863c7b1",
         "architecture": "aarch64",
-        "normal_host": "spark.localdomain unavailable in DNS"
+        "normal_host": "[HOST]"
       }
     },
     "windows": {
@@ -104,7 +104,7 @@
   },
   "live_acceptance": {
     "isolated_upgrade": "passed",
-    "persistent_service": "https://tasklease-acceptance-90d25ae.provos.workers.dev",
+    "persistent_service": "https://service.example.invalid",
     "persistent_version": "0.5.0",
     "persistent_acceptance": "passed",
     "remote_conformance_passed": 14,
@@ -142,9 +142,9 @@
     "superseded_report": "archive/0.5.0-pre-idempotency.json",
     "to_tag_object": "111b4e90a937c0b50c1b49bd593c8bd41a81457a"
   },
-  "artifacts_directory": "/Users/provos/src/tasklease/python/dist/release-0.5.0-087f253",
+  "artifacts_directory": "[HOME]/src/tasklease/python/dist/release-0.5.0-087f253",
   "final_evidence": {
-    "path": "/Users/provos/src/tasklease/python/dist/release-0.5.0-087f253/evidence.zip",
+    "path": "[HOME]/src/tasklease/python/dist/release-0.5.0-087f253/evidence.zip",
     "sha256": "4250ec4f73f287676a428bad7ce431474947a8570d2806d9fecef8eacceeadab",
     "files": 18,
     "secret_scan": {
@@ -160,7 +160,7 @@
   "publishing_run": 43758321303,
   "publishing_url": "https://github.com/provos/tasklease/actions/runs/43758321303",
   "post_publication_evidence": {
-    "path": "/Users/provos/src/tasklease/python/dist/publication-0.5.0-087f253/evidence.zip",
+    "path": "[HOME]/src/tasklease/python/dist/publication-0.5.0-087f253/evidence.zip",
     "sha256": "75fe13956e501a676ea9b4cebe02909bde6c9c96c43934e8ba88257f8b0a8fcf",
     "files": 45,
     "secret_scan": {
@@ -169,5 +169,6 @@
       "actual_credential_values_checked": 56,
       "private_state_excluded": true
     }
-  }
+  },
+  "metadata_redaction": "Public copy; artifact hashes describe original validation inputs and private evidence."
 }

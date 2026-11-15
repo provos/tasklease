@@ -80,11 +80,12 @@
   "live_checks": {
     "exact_pypi_installed_package_verified": true,
     "verified_deploy_task_and_r2_checks": true,
-    "target": "tasklease-acceptance-90d25ae"
+    "target": "[SERVICE]"
   },
-  "fluxshot_service": "fse-tasklease runs the 0.4.0 service built from PR #11 head 85eeff6, whose service code matches the release",
+  "fluxshot_service": "[SERVICE]",
   "windows_vm_restored_suspended": false,
   "evidence_archive": "python/dist/acceptance-0.4.0-158a288/evidence.zip",
   "evidence_archive_sha256": "90956da3836d3c58dc71873e4826aa582b4cfd4d5bdb1d5b9ebfef5d545e5c65",
-  "secret_scan_passed": true
+  "secret_scan_passed": true,
+  "metadata_redaction": "Public copy; artifact hashes describe original validation inputs and private evidence."
 }

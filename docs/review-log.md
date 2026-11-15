@@ -159,9 +159,9 @@ Live R2 acceptance subsequently passed; see phase 4 evidence below.
   candidate, then exited 4 for missing R2 keys as designed. Test admin token
   was redacted and not retained; future acceptance will explicitly rotate it.
   No secrets were written to the selected config.
-  Worker: `https://tasklease-acceptance-90d25ae.provos.workers.dev`.
-  Bucket/name: `tasklease-acceptance-90d25ae`.
-  Temporary config: `/tmp/tasklease-acceptance-90d25ae.tYv2Oi/config.toml`.
+  Worker: `https://service.example.invalid`.
+  Bucket/name: `[SERVICE]`.
+  Temporary config: `[TEMP]/config.toml`.
   User was asked for bucket-scoped R2 credentials in an ignored local file;
   full upload/download and wrong-size checks remain pending.
 - Independent Astra high review (`phase3_astra`, fresh `gpt-6-astra`, high)
@@ -195,7 +195,7 @@ Status: accepted after simplify and clean independent Astra focused re-review.
   and stale-ID fencing. Temporary identity was revoked and test tasks removed;
   credentials existed only in the test process's memory. This proves redeploy
   preservation; a later different-bundle upgrade remains a final acceptance
-  check. Test helper: `/tmp/tasklease-acceptance-90d25ae.tYv2Oi/remote_state_check.py`.
+  check. Test helper: `[TEMP]/remote_state_check.py`.
 - Clarification: request-record `data` is the exact Create task payload after
   request/reply correlation fields are set; domain/topic are separate fields.
   Explicit resend applies to submission-unknown records, preserving immutable
@@ -207,7 +207,7 @@ Status: accepted after simplify and clean independent Astra focused re-review.
   was rejected with 403 and created no object; correct-size upload/download
   and SHA-256 matched. No R2/admin values appeared in logs or config. File
   permissions were restricted to 0600. Blob samples expire under the seven-day
-  lifecycle. Test helper: `/tmp/tasklease-acceptance-90d25ae.tYv2Oi/live_r2_check.py`.
+  lifecycle. Test helper: `[TEMP]/live_r2_check.py`.
 - Supervisor added real bundled-Worker conformance: lost committed Create
   response recovers after Store restart, duplicate replies retain the first,
   local replies work offline, and lost committed Delete preserves the durable
@@ -231,7 +231,7 @@ Status: accepted after simplify and clean independent Astra focused re-review.
   passed all 535 tests, Ruff and strict mypy.
 - Native macOS: 257 current filesystem/store/config/client/requester/operator
   CLI/JSON/package tests passed on the supplied Mac in an isolated checkout
-  at `/tmp/tasklease-native-04371b7.NoBqe3/repo`. Publication also passed under
+  at `[TEMP]/repo`. Publication also passed under
   the actual default `~/Library/Application Support/tasklease` directory.
   The original checkout was left untouched. Safe-chain's minimum package age
   blocked new codegen dependencies, so native runtime checks used an
@@ -384,14 +384,14 @@ review; native Windows and public publication remain external checks.
   the preserved task after schema migration. Post-upgrade Consume/reply and
   stale-ID fencing passed, as did deployment's actual R2 probe. All temporary
   test tasks were removed and the identity revoked. Helper:
-  `/tmp/tasklease-acceptance-90d25ae.tYv2Oi/final_upgrade_check.py`.
+  `[TEMP]/final_upgrade_check.py`.
 - Cross-machine acceptance passed using clean installed wheels: Linux Store
   submitted, a macOS generic EchoHandler owned/consumed, and Linux durably
   saved/acknowledged the reply. A restarted Store read it offline; scoped
   snapshot/poller/statistics checks passed. Narrow temporary requester/worker
   identities were revoked and test tasks removed; SSH carried credentials
   through stdin only, with no values persisted or printed. Helpers:
-  `/tmp/tasklease-acceptance-90d25ae.tYv2Oi/cross_machine_check.py` and
+  `[TEMP]/cross_machine_check.py` and
   `cross_worker.py` in that directory.
 - `make release` now runs checks/build and publishes only the current
   version's wheel/sdist when explicitly invoked. Only `make -n release` was
@@ -440,7 +440,7 @@ review; native Windows and public publication remain external checks.
   `fcdeb1e38105eb1ad36d8453abced5bf598a290fd9f9c8d0a8bb2c530aef82ac`.
   It was explicitly exported from the staged review candidate with dirty
   status recorded. Reports are at
-  `/tmp/tasklease-acceptance-90d25ae.tYv2Oi/native-linux.json` and
+  `[TEMP]/native-linux.json` and
   `native-macos.json` in that directory. The clean final Windows ZIP will
   differ only in acceptance-document evidence and commit metadata; package,
   tooling and runtime-test bytes are checked for identity before handoff.
@@ -464,7 +464,7 @@ Status: accepted after corrections, independent reviews and native qualification
   source tree `1c33634ad33815e7479734457624becd786a8c64160c57b198881532f1ac60ff`;
   wheel `4d3bbe0a00e82c71a61ec7f4738543038ae220797be8761738dee780f2eda200`.
 - Mounted evidence was read from
-  `/mnt/c/Users/provo/AppData/Local/Temp/tasklease-native-ee69b803e201495180bfdc23c7164d77/`.
+  `[TEMP]/`.
   Three concurrency failures share errno 13 at the CRT `r+b` publication-flush
   reopen. The fourth is a CP1252-written fixture contradicting the CLI's UTF-8
   input contract. Task Scheduler's real COM parser rejected the UTF-8 XML
@@ -489,7 +489,7 @@ Status: accepted after corrections, independent reviews and native qualification
   working directory. No Task Scheduler task was registered or started.
 - Corrected editable-source native Windows runtime: 678 passed, zero failed,
   six expected POSIX-only skips. Evidence:
-  `/mnt/c/Users/provo/AppData/Local/Temp/tasklease-win-runtime-correction-b6mwfvbg/`.
+  `[TEMP]/`.
   This is preliminary runtime evidence; clean installed-wheel qualification
   follows separately.
 - Replaced young pins and the vulnerable minimatch graph; added a narrowly
@@ -546,17 +546,17 @@ Status: accepted after corrections, independent reviews and native qualification
   the qualified candidate.
 - Windows evidence, including exact commands, JUnit, all skip reasons, probe
   and full pytest logs, is preserved at
-  `/mnt/c/Users/provo/AppData/Local/Temp/tasklease-win-corrected-ihut5w5o/`.
+  `[TEMP]/`.
   Windows qualification separately copied source so Node builds could not
   alter the verified runtime bundle: pre-install and installed-tree age/source
   gates passed at the stricter `2026-11-01T00:00:00Z` cutoff; fresh `npm ci`
   kept lifecycle scripts disabled; audit reports zero at every severity;
   policy/backport tests passed 13/13; Workers tests passed 188/188; complete
   Vite and bundled-Worker asset builds passed with native Windows binaries.
-- Linux report: `/tmp/tasklease-linux-corrected-49zbeoi3/native-report.json`.
-  macOS report: `/private/tmp/tasklease-corrected.r8h5eu/native-report.json` on
-  `provos@macbook.localdomain`, copied to
-  `/tmp/tasklease-macos-corrected-native-report.json`. Native Python versions
+- Linux report: `[TEMP]/native-report.json`.
+  macOS report: `[TEMP]/native-report.json` on
+  `[HOST]`, copied to
+  `[TEMP]`. Native Python versions
   were 3.12.14 on Windows and 3.12.12 on Linux/macOS. All original checkouts
   and initial failed-candidate evidence were left untouched.
 - Phase 7 is closed. All seven implementation phases and their review gates
@@ -613,7 +613,7 @@ Status: accepted after corrections, independent reviews and native qualification
   The unchanged focused case then passed, and the full conformance rerun
   passed all 154 cases. No runtime/test behavior was changed for this setup.
   Final wheel/sdist builds passed. Logs are under
-  `/tmp/tasklease-publisher-{install,check,conformance-focused,conformance-rerun,build}.log`.
+  `[TEMP]`.
 - Independent fresh Astra high review, including simplify reuse/quality/
   efficiency, found no material issues. It checked the PyPA action source,
   permissions, ref/tag guards, artifact isolation, registration matching and
@@ -654,8 +654,8 @@ Status: accepted after corrections, independent reviews and native qualification
   - source tree: `efe8bd51d82da266760442a0cdf7f458ae183f1a22e261d31d5e783413b7cbe4`;
   - wheel: `d45fc55ebbbc8a2e2b2d24c38424ebf83a9cf1a7d16a7df2e954a4abbdb781ae`;
   - sdist: `358c560c5f1639c67bd0f503f8d836d0f7c271d973f8f96dadb3cdb4ee3a9ff7`.
-- A fresh `tasklease-release-010-13d0327d` Worker in the acceptance account
-  reused only the dedicated `tasklease-acceptance-90d25ae` test bucket. An
+- A fresh `[SERVICE]` Worker in the acceptance account
+  reused only the dedicated `[SERVICE]` test bucket. An
   installed earlier phase-3 wheel bootstrapped it; the installed candidate
   upgraded it. The different-bundle upgrade preserved the exact held task,
   identity/admin credentials and statistics, then passed snapshot migration,
@@ -668,7 +668,7 @@ Status: accepted after corrections, independent reviews and native qualification
   or saved in the candidate or service configuration.
 - Full local logs, native JSON/JUnit/probe/pytest reports, the verified ZIP,
   redacted live deployment results and cleanup evidence are preserved under
-  `/tmp/tasklease-release-010.KeK43m/`. This evidence-only documentation update
+  `[TEMP]/`. This evidence-only documentation update
   does not change the qualified package, build inputs or tests.
 
 ### Main README revision
@@ -694,7 +694,7 @@ Status: accepted after corrections, independent reviews and native qualification
   build-timestamp README and debug source map differ. The live Cloudflare/R2
   results therefore cover the same Worker JavaScript. Final reports, full
   check/build logs and byte-comparison evidence are under
-  `/tmp/tasklease-release-010.KeK43m/readme/`. PyPI still returned 404 for
+  `[TEMP]/readme/`. PyPI still returned 404 for
   `tasklease/0.1.0` during preparation; the GitHub release remains a draft.
 
 ## First PyPI publication (2026-11-08)
@@ -729,7 +729,7 @@ Status: accepted after corrections, independent reviews and native qualification
   SHA-256-pinned `tasklease==0.1.0`, installed with `--no-deps`. Runtime and
   test dependencies were installed separately under their existing age
   checks; no persistent security setting was changed.
-- A fresh `tasklease-pypi-010-4992c97a` test Worker, using only the existing
+- A fresh `[SERVICE]` test Worker, using only the existing
   dedicated acceptance bucket, bootstrapped from the earlier installed bundle
   and upgraded from the fresh PyPI installation. The exact held task,
   identity/admin credentials and statistics survived. Snapshot migration,
@@ -742,7 +742,7 @@ Status: accepted after corrections, independent reviews and native qualification
   The release's wheel/sdist match PyPI exactly, and its checks archive retains
   publishing logs, PyPI metadata/hash verification, native reports and
   redacted deployment/cleanup evidence. Local evidence is preserved under
-  `/tmp/tasklease-publish-0.1.0.1Nl0Uq/`.
+  `[TEMP]/`.
 - Updated the main README's PyPI installation instructions, marked the
   first-release setup/publication acceptance complete, and finalized the
   changelog. This documentation follow-up does not modify the published tag
@@ -789,8 +789,8 @@ Status: accepted after corrections, independent reviews and native qualification
   - wheel: `f29e5e1eca7a38f4109953ac893895f7c7fb8f5aa25290760a12fc6c01bfcb85`;
   - sdist: `1fbe86a63778e4c941390157de8aa8864a7c720032238921c66168ea13d37119`.
 - Local logs and artifact inspection are preserved at
-  `/tmp/tasklease-020-check.log`, `/tmp/tasklease-020-build.log` and
-  `/tmp/tasklease-020-artifacts.json`. This is a candidate, not a published
+  `[TEMP]`, `[TEMP]` and
+  `[TEMP]`. This is a candidate, not a published
   release: native Linux/Windows acceptance, deployed R2 transfer/upgrade
   acceptance and the remaining clean-commit/tag/publishing steps from the
   release guide are outstanding. No FluxShot repository, deployment, release
@@ -830,9 +830,9 @@ Status: accepted after corrections, independent reviews and native qualification
 - Updated `0.2.0` artifact identities supersede the earlier candidate hashes:
   - wheel: `d030eaf3119161eed3b5b25968f0bd9c6407f5fb7f82e39525027995fa9f7c06`;
   - sdist: `f4109ee80bd98d13e1d99371f4255aade0dd748f70e0bedf5300029f37e844a5`.
-  Logs and inspection are in `/tmp/tasklease-pr8-review-fixes-check.log`,
-  `/tmp/tasklease-pr8-review-fixes-build.log` and
-  `/tmp/tasklease-pr8-review-fixes-artifacts.json`. Release acceptance and
+  Logs and inspection are in `[TEMP]`,
+  `[TEMP]` and
+  `[TEMP]`. Release acceptance and
   publication prerequisites remain as recorded above.
 
 ### Native and live acceptance of the committed candidate (2026-11-09)
@@ -1121,7 +1121,7 @@ Status: accepted after corrections, independent reviews and native qualification
   ran a verified deployment of the acceptance Worker, including its task and
   R2 checks.
 - Temporary identities were revoked; the acceptance Worker runs 0.4.0. The
-  fluxshot service `fse-tasklease` runs the 0.4.0 service built from PR #11's
+  fluxshot service `[APPLICATION_SERVICE]` runs the 0.4.0 service built from PR #11's
   head, whose service code matches the release. The
   [GitHub Release](https://github.com/provos/tasklease/releases/tag/v0.4.0)
   uses the finalized changelog text.
@@ -1171,7 +1171,7 @@ Status: accepted after corrections, independent reviews and native qualification
   wheel, verified byte for byte, was installed fresh and ran a verified
   deployment of the acceptance Worker.
 - Temporary identities were revoked; the acceptance Worker runs 0.4.1. The
-  fluxshot service `fse-tasklease` stays on 0.4.0, since 0.4.1 needs no
+  fluxshot service `[APPLICATION_SERVICE]` stays on 0.4.0, since 0.4.1 needs no
   service upgrade. The
   [GitHub Release](https://github.com/provos/tasklease/releases/tag/v0.4.1)
   uses the finalized changelog text.
@@ -1269,7 +1269,7 @@ Status: accepted after corrections, independent reviews and native qualification
   revoked, the run-owned Worker was deleted with API 404 verification, and the
   existing acceptance bucket and lifecycle were unchanged.
 - At the user's request, the persistent
-  [acceptance service](https://tasklease-acceptance-90d25ae.provos.workers.dev/v1/version)
+  [acceptance service](https://service.example.invalid/v1/version)
   was also upgraded from 0.4.1 to this exact candidate wheel and left running
   0.5.0. Its held task, scoped credential and statistics survived the upgrade.
   The deployment probe, origin/idempotency checks, real R2 transfers and 14
@@ -1374,3 +1374,42 @@ Status: accepted after corrections, independent reviews and native qualification
   `75fe13956e501a676ea9b4cebe02909bde6c9c96c43934e8ba88257f8b0a8fcf`.
   Recursive scanning of 166 files/archive members against 56 actual credential
   values passed; private state is excluded.
+
+
+## Public evidence metadata cleanup (2026-11-15)
+
+- Sanitized eight acceptance reports, two benchmark reports and earlier entries
+  in this log. Local usernames/home and temporary paths, internal hostnames,
+  Workers endpoints and infrastructure identifiers now use placeholders. Test
+  counts, statuses, versions, commits and original artifact hashes are retained.
+  The affected JSON reports explicitly identify themselves as public copies.
+- Replaced only the [0.1.0 checks ZIP](https://github.com/provos/tasklease/releases/download/v0.1.0/tasklease-0.1.0-checks.zip)
+  with a sanitized copy. Nested publishing logs, native JSON/JUnit reports and
+  helper scripts were redacted, including all three JUnit hostnames. Each ZIP
+  has a public manifest with its redacted member hashes and original ZIP hash;
+  existing report hashes continue to describe original validation artifacts.
+  Original ZIP SHA-256: `6d6f807adc4e147a66a93270ebe386aea2024ec2bacfdebf375ec5773e049ee1`.
+  Public ZIP SHA-256: `64e476f43c2855ca1c33eb9be1c79e68b25bb3f748a2d01fe4b4a181086ecb35`.
+  The replacement was downloaded and matched byte for byte. Release tags,
+  PyPI distributions and GitHub wheel/sdist assets were not changed.
+- Added `scripts/public_evidence.py` for future public report/log/ZIP exports
+  and default metadata redaction for native JSON reports. The exporter handles
+  nested ZIPs and UTF-16 Windows logs, shares discovered identifiers across
+  logs, rejects package/binary inputs and unsafe member names, preserves the
+  private original, and records hashes for the public copy. Raw diagnostic logs
+  and exact source/wheel acceptance bundles remain private validation inputs.
+  [The release guide](releasing.md#export-public-release-evidence) documents the
+  required public-export and separate credential-review steps.
+- Simplify reuse, quality and efficiency reviews completed. Confirmed findings
+  around XML/shell metadata, result-word collisions, map-key collisions and
+  cumulative nested-ZIP expansion limits were fixed and covered by regression
+  tests. The focused acceptance-tool suite passed 47 tests. `make check` passed:
+  239 service, 47 monitor, 1,236 Python/tool tests (three expected skips) and
+  489 conformance cases (36 expected skips), with format/lint/type/dependency
+  and generation checks passing. Public archive manifests and all 58 contained
+  files were verified; all ten JSON reports retained their numeric/boolean,
+  commit/version and digest results. Scanning the cleanup outputs against 62
+  known actual credential values found no matches.
+- This cleanup updates current reports and the public release asset. Earlier
+  Git commits and existing clones retain the historical documents; no history
+  was rewritten.
