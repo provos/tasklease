@@ -244,6 +244,7 @@ function reply(
     data,
     origin_id: originId ?? b.taskId(),
     matched: originId !== null,
+    duplicate: false,
   };
 }
 
@@ -355,6 +356,17 @@ function busy(hours: number, now: number): Snapshot {
           },
           answered,
         ),
+        {
+          ...reply(
+            b,
+            "agent-claude-a1",
+            "linux-1",
+            29,
+            { result: "fail", report: "r2://reports/second-result-linux.json" },
+            answered,
+          ),
+          duplicate: true,
+        },
         reply(
           b,
           "agent-codex-b7",

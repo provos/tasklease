@@ -98,7 +98,7 @@ four problems in the protocol itself.
      preserves `delete`'s strict `id` fence (used by workers draining replies
      and by `tl prune`) and keeps every operation schema a flat object without
      `oneOf` unions in code generation.
-5. **One reply file per `origin_id` (`replies/h(agent)/<origin_id>.json`).**
+5. **One selected reply per origin, with conflicting content archived.**
    - `Store` models 1-request-to-1-reply (`submit` / `wait` / `reply`) plus a
      general drain (`drain` / `poll` / `inbox`). Saving each reply at
      `replies/h(agent)/<origin_id>.json` via `publish_new` (no-replace) keeps
@@ -110,10 +110,14 @@ four problems in the protocol itself.
    - Why not `<origin_id>_<count>.json`? Because `Own` rotates `task.id`, a
      local counter cannot tell a redelivery after a lost `Delete` apart from a
      second fan-out task sharing `origin_id`, so a lost `Delete` would write
-     duplicate reply files. Supporting multi-reply fan-out into a single `Store`
-     would require exposing a per-lineage birth ID on `Task`; nothing in
-     `tasklease` or FluxShot needs multi-reply fan-out per request, so single
-     `<origin_id>.json` slots keep the wire contract minimal.
+     duplicate reply files. `reply()` and `wait()` keep returning the selected
+     first answer. Distinct stable content (`topic`, `creator`, `created_at`,
+     `data`) is saved before acknowledgement under
+     `duplicates/<origin_id>-<sha256>.json` and exposed by `inbox()` with
+     `duplicate: true`. Canonical JSON fingerprints exclude fencing IDs and
+     local receipt times, so repeated delivery adds no archive copies. A stable
+     per-lineage birth ID would still be needed to count separate successors
+     with identical content; this archive preserves observations instead.
    - Because `origin_id` is a mandatory `TaskId` (`^t_[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
      on every task, no reply is ever missing an identifier, and `TaskId` is
      already fixed-length, uppercase-only, and safe on case-insensitive macOS
@@ -334,7 +338,9 @@ cancel: domainRoute(
 └── replies/h(agent_id)/
     ├── agent.json                  {"agent_id": "<agent_id>"}
     ├── .prune-<day>.json           {"created_at": <ms>}
-    └── <origin_id>.json            {"task_id", "origin_id", "topic", "creator", "created_at", "received_at", "data"}
+    ├── <origin_id>.json            {"task_id", "origin_id", "topic", "creator", "created_at", "received_at", "data"}
+    └── duplicates/
+        └── <origin_id>-<sha256>.json  same saved reply fields
 ```
 
 - `agent_id` directories keep `h(agent_id)` because topic segments allow
@@ -342,9 +348,11 @@ cancel: domainRoute(
 - Individual request and reply files are named `<origin_id>.json` (`t_` + 26
   uppercase Crockford base32 chars): portable across POSIX and Windows and
   readable in directory listings.
+- Archive filenames include a 64-character lowercase SHA-256 content digest;
+  reads validate both their syntax and correspondence to the saved content.
 - `.task.json` sidecars and `unmatched/` are removed.
 - `store.py` stays strictly fail-closed with **no `0.4.x` legacy file
-  compatibility branches**: JSON records must be named `<TaskId>.json` and
+  compatibility branches**: request and selected-reply JSON records use `<TaskId>.json` and
   match `record.origin_id`. Invalid record names and the legacy `unmatched/`
   directory raise `StoreError` without deleting data. Agent metadata, dotfiles
   and unrelated non-JSON files (such as `desktop.ini` or `Thumbs.db`) are ignored.
@@ -379,6 +387,7 @@ class ReplyRecord:
     received_at: int
     data: dict[str, object]
     matched: bool = False
+    duplicate: bool = False
 ```
 
 - `RequestRecord.state` is derived at read time: `"answered"` when
@@ -387,6 +396,8 @@ class ReplyRecord:
   `requests/h(agent)/<origin_id>.json` currently exists. It can be `False`
   for a direct message, an uncertain Create, a cancelled/pruned request, or a
   concurrent publication. It is a view of local bookkeeping, not a trust flag.
+- `ReplyRecord.duplicate` is derived from the archive directory. It marks a
+  conflicting observation, even if the selected answer has since expired.
 
 #### Operations
 
@@ -411,7 +422,10 @@ class ReplyRecord:
   - Publish to `replies/h(agent)/<origin_id>.json` via `publish_new`.
   - On `"exists"`, read and validate the existing `ReplyRecord`, verifying
     `previous.origin_id == record.origin_id`, and return `previous` so `_drain`
-    deletes the redelivered server copy.
+    deletes the redelivered server copy. Before returning, compare canonical
+    stable content and archive any difference using `publish_new`. An existing
+    archive must be readable and match its expected origin/content fingerprint
+    before acknowledgement. Failure leaves the server task unacknowledged.
 - **`_drain(..., origin_id: str | None = None, ...)`:**
   - Stops early when `origin_id is not None and saved.origin_id == origin_id`.
 - **`wait(client, origin_id, timeout_seconds, ...)`:**
@@ -426,16 +440,18 @@ class ReplyRecord:
   - On success, unlinks `requests/h(agent)/<origin_id>.json` and returns
     `"cancelled"`.
 - **`prune() -> int`:**
-  - Removes `replies/h(agent)/<origin_id>.json` where `received_at < cutoff`.
+  - Removes selected and archived replies where their own `received_at < cutoff`.
+    Each archive retains its first receipt time across redelivery and never
+    replaces or extends the selected answer's retention.
   - Removes `requests/h(agent)/<origin_id>.json` where `created_at < cutoff`
     **and** `replies/h(agent)/<origin_id>.json` does not exist. (Because reply
     pruning runs first in `prune()`, a request whose reply also aged past 7
-    days is removed in the same pass; keeping a request while its reply is
+    days is removed in the same pass; keeping a request while its selected reply is
     retained avoids routinely changing `matched` at day 7. Concurrent pruning,
     cancellation or publication can still change this derived flag; lookup by
     origin remains independent of the request record.)
   - Cleans up orphaned publication temporaries and expired `.prune-<day>.json`
-    markers as before.
+    markers as before, including temporaries in `duplicates/`.
 
 ### 5.3 `worker.py`
 
@@ -509,7 +525,7 @@ class ReplyRecord:
     finished or been removed (and in store mode notes that the request remains
     saved for `tl wait`).
 - `tl inbox [--all] [--prune]`: outputs `ReplyRecord.to_dict()` entries (with
-  `origin_id` and `matched`).
+  `origin_id`, `matched`, and `duplicate`).
 
 ### 5.5 `testing.py` (`FakeBoard`)
 
@@ -529,7 +545,7 @@ Update the in-memory `FakeBoard` to match `DomainObject` semantics:
     `"submission_unknown"` with `origin_id: string` and
     `state: "pending" | "answered"`.
   - `LocalReply`: replace `request_id: string | null` with `origin_id: string`
-    and `matched: boolean`.
+    and `matched: boolean`, plus `duplicate: boolean` for archived observations.
 - **`monitor/src/health.ts`:**
   - Remove `UNKNOWN_SUBMISSION_MS` and the `"submission_unknown"` branch in
     `requestHealth`.
@@ -551,7 +567,9 @@ Update the in-memory `FakeBoard` to match `DomainObject` semantics:
   - Pending-requests table displays `item.request.origin_id` instead of
     `request_id`.
   - Inbox entries display `reply.origin_id` (with an `"Unmatched"` label when
-    `!reply.matched`), and the `"Unmatched only"` filter checks `!reply.matched`.
+    `!reply.matched` and a `"Duplicate"` label for archived observations).
+    Entries are keyed by agent, origin and saved task ID so observations of
+    the same origin expand independently. The unmatched filter checks `!reply.matched`.
   - Update mock snapshot fixtures so rotated `id` values keep their original
     `origin_id` (removing the old mock workaround that copied the rotated `id`
     into `LocalRequest.task_id`), and include an error-topic fallback case.

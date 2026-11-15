@@ -151,6 +151,40 @@ def test_redelivery_rotates_id_but_keeps_one_reply_per_origin(
     assert store.inbox() == [saved]
 
 
+def test_fanout_conflicts_are_archived_without_replacing_the_answer(
+    target: ServiceTarget, requester_identity: tuple[str, str, str], tmp_path: Path
+) -> None:
+    name, domain, token = requester_identity
+    store = Store("conformance-agent", tmp_path)
+    reply_topic = "reply/conformance-agent"
+    with target.client(token) as api:
+        request = store.submit(api, domain, "work", reply_topic, {})
+        owned = api.own({"domain": domain, "topic": "work", "hold_seconds": 60})["task"]
+        api.consume(
+            {
+                "domain": domain,
+                "topic": "work",
+                "id": owned["id"],
+                "tasks": [
+                    {"topic": reply_topic, "data": {"answer": "a"}},
+                    {"topic": reply_topic, "data": {"answer": "b"}},
+                ],
+            }
+        )
+        assert store.drain(api, domain, reply_topic) == 2
+        selected = store.wait(api, request.origin_id, 0)
+        assert selected is not None and not selected.duplicate
+        records = Store("conformance-agent", tmp_path, initialize=False).inbox()
+        assert {record.data["answer"] for record in records} == {"a", "b"}
+        assert all(
+            record.origin_id == request.origin_id and record.creator == name
+            for record in records
+        )
+        assert sum(record.duplicate for record in records) == 1
+        with pytest.raises(Empty):
+            api.own({"domain": domain, "topic": reply_topic, "hold_seconds": 60})
+
+
 def test_shared_reply_topic_isolates_direct_and_confused_deputy_forgeries(
     target: ServiceTarget, tmp_path: Path
 ) -> None:

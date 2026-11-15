@@ -38,6 +38,7 @@ type RequestState = Literal["pending", "answered"]
 type CancelResult = Literal["cancelled", "not_found"]
 
 _HASH = re.compile(r"[0-9a-f]{32}\Z")
+_DUPLICATE = re.compile(r"t_[0-7][0-9A-HJKMNP-TV-Z]{25}-[0-9a-f]{64}\Z")
 _RETENTION_SECONDS = 7 * 86400
 _BATCH_SIZE = 100
 # Seconds a long poll leaves for its answer before the overall deadline.
@@ -155,13 +156,20 @@ def _is_file(path: Path) -> bool:
     return result is not None and stat.S_ISREG(result.st_mode)
 
 
-def _records(directory: Path) -> Iterator[tuple[Path, dict[str, object]]]:
+def _records(
+    directory: Path, *, duplicate: bool = False
+) -> Iterator[tuple[Path, dict[str, object]]]:
     for path in _files(directory):
         if path.name == "agent.json" or path.name.startswith("."):
             continue
         if path.suffix.casefold() != ".json" and path.name.casefold() != "unmatched":
             continue
-        if path.suffix != ".json" or not is_task_id(path.stem):
+        valid_name = (
+            bool(_DUPLICATE.fullmatch(path.stem))
+            if duplicate
+            else is_task_id(path.stem)
+        )
+        if path.suffix != ".json" or not valid_name:
             raise StoreError(
                 "Requester record has an invalid storage name; "
                 "archive/reset legacy Store directories before using tasklease 0.5.0"
@@ -219,7 +227,7 @@ class DrainResult:
 
 @dataclass(frozen=True)
 class ReplyRecord:
-    """The first durably published reply for a server-carried origin."""
+    """A selected reply or an archived conflicting observation for an origin."""
 
     agent_id: str
     task_id: str
@@ -230,20 +238,31 @@ class ReplyRecord:
     received_at: int
     data: dict[str, object]
     matched: bool = False
+    duplicate: bool = False
 
-    def _saved(self) -> dict[str, object]:
+    def _content(self) -> dict[str, object]:
         return {
-            "origin_id": self.origin_id,
-            "task_id": self.task_id,
             "topic": self.topic,
             "creator": self.creator,
             "created_at": self.created_at,
-            "received_at": self.received_at,
             "data": self.data,
         }
 
+    def _saved(self) -> dict[str, object]:
+        return {
+            **self._content(),
+            "origin_id": self.origin_id,
+            "task_id": self.task_id,
+            "received_at": self.received_at,
+        }
+
     def as_dict(self) -> dict[str, object]:
-        return dict(self._saved(), agent_id=self.agent_id, matched=self.matched)
+        return dict(
+            self._saved(),
+            agent_id=self.agent_id,
+            matched=self.matched,
+            duplicate=self.duplicate,
+        )
 
     def to_dict(self) -> dict[str, object]:
         return self.as_dict()
@@ -265,6 +284,7 @@ class Store:
         self.root = (default_root() if root is None else root).expanduser().absolute()
         self.request_directory = self.root / "requests" / hash_id(agent_id)
         self.reply_directory = self.root / "replies" / hash_id(agent_id)
+        self.duplicate_directory = self.reply_directory / "duplicates"
         found_metadata = False
         for directory in (self.request_directory, self.reply_directory):
             path = directory / "agent.json"
@@ -286,6 +306,10 @@ class Store:
     def _reply_path(self, origin_id: str) -> Path:
         return self.reply_directory / f"{_task_id(origin_id)}.json"
 
+    def _duplicate_path(self, origin_id: str, content: bytes) -> Path:
+        fingerprint = hashlib.sha256(content).hexdigest()
+        return self.duplicate_directory / f"{origin_id}-{fingerprint}.json"
+
     def _parse_intent(self, value: dict[str, object]) -> RequestRecord:
         origin_id = _task_id(value.get("origin_id"))
         reply_topic = _name(value.get("reply_topic"))
@@ -302,7 +326,9 @@ class Store:
             data,
         )
 
-    def _parse_reply(self, value: dict[str, object]) -> ReplyRecord:
+    def _parse_reply(
+        self, value: dict[str, object], *, duplicate: bool = False
+    ) -> ReplyRecord:
         data = _object(value.get("data"))
         origin_id = _task_id(value.get("origin_id"))
         creator = value.get("creator")
@@ -318,6 +344,7 @@ class Store:
             received_at=_integer(value.get("received_at")),
             data=data,
             matched=_is_file(self._request_path(origin_id)),
+            duplicate=duplicate,
         )
 
     def reply(self, origin_id: str) -> ReplyRecord | None:
@@ -436,6 +463,21 @@ class Store:
         previous = self.reply(record.origin_id)
         if previous is None:
             raise StoreError("Saved reply disappeared after publication")
+        content = _encode(record._content())
+        if _encode(previous._content()) != content:
+            archive = self._duplicate_path(record.origin_id, content)
+            if _publish(archive, record._saved()) == "exists":
+                value = _read(archive)
+                if value is None:
+                    raise StoreError("Archived reply disappeared after publication")
+                existing = self._parse_reply(value, duplicate=True)
+                if (
+                    existing.origin_id != record.origin_id
+                    or _encode(existing._content()) != content
+                ):
+                    raise StoreError(
+                        "Archived reply content does not match its storage name"
+                    )
         return previous
 
     def _drain(
@@ -621,11 +663,22 @@ class Store:
 
     def inbox(self) -> list[ReplyRecord]:
         result: list[ReplyRecord] = []
-        for path, value in _records(self.reply_directory):
-            record = self._parse_reply(value)
-            if path != self._reply_path(record.origin_id):
-                raise StoreError("Reply correlation does not match its storage name")
-            result.append(record)
+        for directory, duplicate in (
+            (self.reply_directory, False),
+            (self.duplicate_directory, True),
+        ):
+            for path, value in _records(directory, duplicate=duplicate):
+                record = self._parse_reply(value, duplicate=duplicate)
+                expected = (
+                    self._duplicate_path(record.origin_id, _encode(record._content()))
+                    if duplicate
+                    else self._reply_path(record.origin_id)
+                )
+                if path != expected:
+                    raise StoreError(
+                        "Reply correlation does not match its storage name"
+                    )
+                result.append(record)
         return sorted(result, key=lambda record: (record.received_at, record.task_id))
 
     def requests(self) -> list[RequestRecord]:
@@ -650,7 +703,12 @@ class Store:
         count = 0
         for reply in self.inbox():
             if reply.received_at < cutoff:
-                count += _remove(self._reply_path(reply.origin_id))
+                path = (
+                    self._duplicate_path(reply.origin_id, _encode(reply._content()))
+                    if reply.duplicate
+                    else self._reply_path(reply.origin_id)
+                )
+                count += _remove(path)
         for record in self._intents():
             if record.created_at < cutoff and not _exists(
                 self._reply_path(record.origin_id)
@@ -659,6 +717,7 @@ class Store:
         for directory in (
             self.request_directory,
             self.reply_directory,
+            self.duplicate_directory,
         ):
             try:
                 count += fsio.cleanup_temporary_files(directory, before=now - 86400)

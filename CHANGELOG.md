@@ -22,6 +22,9 @@ Release preparation and verification are documented in
   accepting `threading.Event` remain compatible.
 - `SubmissionError.origin_id` exposes a successfully created origin when its
   local request record cannot be saved.
+- Conflicting replies are archived before acknowledgement and exposed by
+  `inbox()` with `duplicate: true`; the monitor labels them Duplicate. Stable
+  content fingerprints prevent repeated delivery from multiplying archive files.
 
 ### Changed
 
@@ -41,8 +44,9 @@ Release preparation and verification are documented in
   `Store.resend`, `submission_unknown`, sidecars and unmatched directories.
   Use the returned `origin_id` and `tl wait --origin-id`. An uncertain Create
   leaves no local record, and a retry creates independent work.
-- Each Store retains one reply per origin; separate fan-out answers to a
-  single Store are not supported. Migration backfills old server tasks with
+- Each Store selects one answer per origin for `reply()`/`wait()`. Other
+  distinct reply content is retained as inbox observations, without promising
+  one record per successor lineage. Migration backfills old server tasks with
   their current ID as origin and leaves them ineligible for initial-task
   cancellation.
 

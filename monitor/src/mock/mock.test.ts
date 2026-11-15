@@ -46,7 +46,8 @@ describe("mock snapshots", () => {
           snapshot.local.replies.every(
             (r) =>
               /^t_[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(r.origin_id) &&
-              typeof r.matched === "boolean",
+              typeof r.matched === "boolean" &&
+              typeof r.duplicate === "boolean",
           ),
         ).toBe(true);
       }
@@ -70,6 +71,13 @@ describe("mock snapshots", () => {
     expect(topics.some((topic) => topic.truncated)).toBe(true);
     expect(topics.some((topic) => topic.topic.length === 128)).toBe(true);
     expect(large.local.replies.length).toBeGreaterThan(20);
+    const replies = mockSnapshot("busy", 24, NOW).local.replies;
+    const duplicate = replies.find((reply) => reply.duplicate)!;
+    const selected = replies.find(
+      (reply) => !reply.duplicate && reply.origin_id === duplicate.origin_id,
+    )!;
+    expect(duplicate.data).not.toEqual(selected.data);
+    expect(duplicate.task_id).not.toBe(selected.task_id);
   });
 });
 

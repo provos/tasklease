@@ -454,14 +454,21 @@ predates 0.4.0.
 **Identity and state.** `submit` calls Create first, then publishes the
 returned origin's request record. `SubmissionError` exposes the known origin
 if local saving fails. An uncertain Create has no local record; retries are
-independent submissions that may both execute. All files use
+independent submissions that may both execute. Selected replies and requests use
 `<origin_id>.json`; only agent directories are hashed. There are no sidecars,
 resend operation, unmatched directory, or locally chosen correlation IDs.
 
 A request is pending without a reply file and answered with one. Replies are
 keyed only by the server's origin, so both lookup and duplicate handling are
 targeted reads and cannot be influenced by payload correlation fields. Each
-Store keeps the first reply per origin. `matched` reports whether a local
+Store selects the first reply per origin. Different stable reply content is
+published under `replies/h(agent)/duplicates/<origin_id>-<sha256>.json` before
+acknowledgement. The hash covers canonical JSON of topic, creator, creation time
+and data, excluding fencing IDs and receipt time. Existing archive content is
+validated before acknowledgement; unchanged redeliveries add no copies.
+`inbox()` includes these observations with `duplicate: true`, which the monitor
+labels explicitly. Archives are never promoted into the selected answer slot.
+`matched` reports whether a local
 request currently exists; it can change with concurrent publication, pruning
 or cancellation and does not establish trust.
 
@@ -471,9 +478,11 @@ request file. `not_found` leaves it saved because a reply may be in flight.
 The CLI also supports cancellation directly by domain/topic/origin without a
 Store.
 
-**Pruning.** Replies older than seven days from receipt are removed first.
+**Pruning.** Selected and archived replies older than seven days from their own
+first local receipt are removed first; archive publication temporaries are
+cleaned up too.
 Request records older than seven days from submission are then removed if
-no retained reply exists. `tl inbox --prune` runs it on demand, and `drain`
+no retained selected reply exists. `tl inbox --prune` runs it on demand, and `drain`
 and `poll` do it at most once a day. Retained replies remain readable even
 when a request record is absent. Legacy 0.4.x files raise `StoreError`;
 the coordinated upgrade resets old Store roots instead of adding legacy

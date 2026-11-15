@@ -177,7 +177,7 @@
         );
         const replyKeys = new Set(
           result.local.replies.map((reply) =>
-            JSON.stringify([reply.agent_id, reply.origin_id]),
+            JSON.stringify([reply.agent_id, reply.origin_id, reply.task_id]),
           ),
         );
         for (const key of expandedQueues)
@@ -621,8 +621,12 @@
           >
         </div>
         {#if visibleReplies.length}<div class="reply-list">
-            {#each visibleReplies as reply (JSON.stringify( [reply.agent_id, reply.origin_id] ))}{@const replyKey =
-                JSON.stringify([reply.agent_id, reply.origin_id])}
+            {#each visibleReplies as reply (JSON.stringify( [reply.agent_id, reply.origin_id, reply.task_id] ))}{@const replyKey =
+                JSON.stringify([
+                  reply.agent_id,
+                  reply.origin_id,
+                  reply.task_id,
+                ])}
               <details
                 class="reply"
                 ontoggle={(event) => {
@@ -633,7 +637,10 @@
                 <summary
                   ><span
                     ><strong class="mono">{reply.origin_id}</strong
-                    >{#if !reply.matched}<span class="tag">Unmatched</span
+                    >{#if reply.duplicate}<span class="tag warning"
+                        >Duplicate</span
+                      >{/if}{#if !reply.matched}<span class="tag"
+                        >Unmatched</span
                       >{/if}<span class="secondary"
                       >Agent {reply.agent_id} · from {reply.creator}</span
                     ></span

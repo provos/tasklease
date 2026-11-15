@@ -291,7 +291,7 @@ def test_payload_correlation_cannot_take_another_origins_reply_slot(
             origin_id=TASK2,
         ),
         task({"result": "genuine"}, origin_id=TASK),
-        task({"result": "duplicate"}, TASK3, origin_id=TASK),
+        task({"result": "genuine"}, TASK3, origin_id=TASK),
     ]
     store.drain(client, DOMAIN, REPLY)
     reply = store.wait(client, TASK, 0)
@@ -542,7 +542,7 @@ def test_lost_delete_response_or_crash_after_save_recovers_first_reply(
         store.drain(client, DOMAIN, REPLY)
     assert store.wait(client, TASK, 0) is not None
     backend.on_delete = lambda: None
-    backend.replies = [task({"result": "duplicate"}, TASK2, origin_id=TASK)]
+    backend.replies = [task({"result": "first"}, TASK2, origin_id=TASK)]
     store.drain(client, DOMAIN, REPLY)
     reply = store.reply(TASK)
     assert reply is not None and reply.data["result"] == "first"
@@ -619,16 +619,21 @@ def test_nonfinite_saved_reply_never_deletes_valid_duplicate(
     assert path.read_text(encoding="utf-8") == corrupted
 
 
-def test_concurrent_duplicate_drain_keeps_one_whole_first_reply(tmp_path: Path) -> None:
+@pytest.mark.parametrize("existing_answer", [False, True])
+def test_concurrent_conflicting_drains_keep_both_replies(
+    tmp_path: Path, existing_answer: bool
+) -> None:
     barrier = Barrier(2)
     first, second = Store("agent-1", tmp_path), Store("agent-1", tmp_path)
+    if existing_answer:
+        first._save_reply(cast(p.Task, task({"winner": -1})), DOMAIN, REPLY)
     backends = [Backend(), Backend()]
     clients: list[Client] = []
     for index, backend in enumerate(backends):
         backend.replies = [
             task(
-                {"winner": index},
-                (TASK, TASK2)[index],
+                {"winner": 0 if existing_answer else index},
+                (TASK2, TASK3)[index] if existing_answer else (TASK, TASK2)[index],
                 origin_id=TASK,
             )
         ]
@@ -651,9 +656,143 @@ def test_concurrent_duplicate_drain_keeps_one_whole_first_reply(tmp_path: Path) 
             pool.submit(drain, second, clients[1]),
         ]
         assert [future.result() for future in futures] == [1, 1]
-    assert len(first.inbox()) == 1
-    assert first.inbox()[0].data["winner"] in {0, 1}
+    records = first.inbox()
+    assert {record.data["winner"] for record in records} == (
+        {-1, 0} if existing_answer else {0, 1}
+    )
+    assert sum(record.duplicate for record in records) == 1
+    selected = first.reply(TASK)
+    assert selected is not None and not selected.duplicate
+    assert first.wait(clients[0], TASK, 0) == selected
     assert all(len(backend.deletes) == 1 for backend in backends)
+
+
+@pytest.mark.parametrize("field", ["topic", "creator", "created_at", "data"])
+def test_conflicting_reply_is_archived_before_acknowledgement(
+    store: Store, client: Client, backend: Backend, field: str
+) -> None:
+    submit(store, client)
+    backend.replies = [task({"result": True})]
+    store.drain(client, DOMAIN, REPLY)
+    selected = store.reply(TASK)
+    incoming = task({"result": True}, TASK2)
+    incoming[field] = {
+        "topic": "replied/other",
+        "creator": "worker-2",
+        "created_at": 2000,
+        "data": {"result": 1},
+    }[field]
+
+    def inspect() -> None:
+        archived = [record for record in store.inbox() if record.duplicate]
+        assert len(archived) == 1
+        assert archived[0].to_dict()[field] == incoming[field]
+        assert archived[0].creator == incoming["creator"]
+        assert archived[0].matched
+        assert store.reply(TASK) == selected
+
+    backend.on_delete = inspect
+    backend.replies = [incoming]
+    store.drain(client, DOMAIN, cast(str, incoming["topic"]))
+    assert store.wait(client, TASK, 0) == selected
+    assert len(backend.deletes) == 2
+
+
+def test_archived_reply_redelivery_keeps_one_observation_after_lost_delete(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = 1_800_000_000.0
+    monkeypatch.setattr(time, "time", lambda: now)
+    backend.replies = [task({"result": "first"})]
+    store.drain(client, DOMAIN, REPLY)
+    backend.replies = [task({"b": 2, "a": 1}, TASK2)]
+    backend.on_delete = lost_response
+    with pytest.raises(TransportError):
+        store.drain(client, DOMAIN, REPLY)
+    archived = next(record for record in store.inbox() if record.duplicate)
+    now += 3600
+    backend.on_delete = lambda: None
+    incoming = task({"a": 1, "b": 2}, TASK3)
+    incoming.update(owned_count=5, owned_at=5000, lease_until=65000)
+    backend.replies = [incoming]
+    store.drain(client, DOMAIN, REPLY)
+    assert store.inbox() == [store.reply(TASK), archived]
+    assert len(list(store.duplicate_directory.glob("*.json"))) == 1
+
+
+@pytest.mark.parametrize(
+    "failure", ["publication", "unreadable", "corrupt", "mismatch"]
+)
+def test_archive_failure_leaves_server_copy_unacknowledged(
+    store: Store,
+    client: Client,
+    backend: Backend,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    backend.replies = [task({"result": "first"})]
+    store.drain(client, DOMAIN, REPLY)
+    if failure != "publication":
+        backend.replies = [task({"result": "conflict"}, TASK2)]
+        store.drain(client, DOMAIN, REPLY)
+        archive = next(store.duplicate_directory.glob("*.json"))
+        if failure == "unreadable":
+            original_read = fsio.read_json
+
+            def read(path: Path) -> object:
+                if path == archive:
+                    raise PermissionError("private archive diagnostic")
+                return original_read(path)
+
+            monkeypatch.setattr(fsio, "read_json", read)
+        elif failure == "corrupt":
+            archive.write_bytes(b"not-json")
+        else:
+            value = json.loads(archive.read_text())
+            value["data"] = {"result": "changed"}
+            archive.write_text(json.dumps(value))
+    else:
+        original_publish = fsio.publish_new
+
+        def publish(path: Path, data: bytes) -> Literal["created", "exists"]:
+            if path.parent == store.duplicate_directory:
+                raise OSError("private archive diagnostic")
+            return original_publish(path, data)
+
+        monkeypatch.setattr(fsio, "publish_new", publish)
+    backend.deletes.clear()
+    backend.replies = [task({"result": "conflict"}, TASK3)]
+    with pytest.raises(StoreError) as error:
+        store.drain(client, DOMAIN, REPLY)
+    assert "private" not in str(error.value)
+    assert backend.deletes == []
+    assert store.reply(TASK) is not None
+
+
+def test_archive_retention_is_independent_of_the_selected_reply(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = 1_800_000_000.0
+    monkeypatch.setattr(time, "time", lambda: now)
+    submit(store, client)
+    backend.replies = [task({"result": "first"})]
+    store.drain(client, DOMAIN, REPLY)
+    now += 6 * 86400
+    backend.replies = [task({"result": "later"}, TASK2)]
+    store.drain(client, DOMAIN, REPLY)
+    temporary = store.duplicate_directory / ".orphan.tmp"
+    temporary.write_bytes(b"partial")
+    os.utime(temporary, (now, now))
+    now += 2 * 86400
+    store.prune()
+    assert store.reply(TASK) is None and store.request(TASK) is None
+    records = store.inbox()
+    assert len(records) == 1 and records[0].duplicate and not records[0].matched
+    assert records[0].data == {"result": "later"}
+    assert not temporary.exists()
+    now += 6 * 86400
+    store.prune()
+    assert store.inbox() == []
 
 
 class Clock:

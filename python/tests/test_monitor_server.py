@@ -518,6 +518,20 @@ def test_all_agent_local_views_are_read_only_even_with_one_missing_folder(
         "data": {"request_id": "answered", "answer": "done"},
     }
     second.drain(running.api, "acme/b", "reply/agent-b")
+    running.service.reply = {
+        "id": TASK_ID,
+        "origin_id": running.service.origins[-1],
+        "domain": "acme/b",
+        "topic": "reply/agent-b",
+        "created_at": 2_000_000_001_000,
+        "lease_until": 2_000_000_061_000,
+        "owned_count": 1,
+        "creator": "second-worker",
+        "owner": {"identity": "agent-b", "worker": "cli"},
+        "owned_at": 2_000_000_001_000,
+        "data": {"answer": "other"},
+    }
+    second.drain(running.api, "acme/b", "reply/agent-b")
     (first.reply_directory / "agent.json").unlink()
     first.reply_directory.rmdir()
     before = tree(running.state_root)
@@ -536,7 +550,13 @@ def test_all_agent_local_views_are_read_only_even_with_one_missing_folder(
     assert {record["agent_id"] for record in local["requests"]} == {
         "agent-a",
     }
-    assert local["replies"][0]["data"]["answer"] == "done"
+    assert {record["duplicate"] for record in local["replies"]} == {False, True}
+    assert {record["creator"] for record in local["replies"]} == {
+        "worker",
+        "second-worker",
+    }
+    selected = next(record for record in local["replies"] if not record["duplicate"])
+    assert selected["data"]["answer"] == "done"
     assert tree(running.state_root) == before
     assert {
         str(path) for path in running.state_root.rglob("*") if path.is_dir()

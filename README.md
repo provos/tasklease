@@ -462,7 +462,10 @@ automatic resend is attempted. If Create returns an ID but local saving fails,
 `SubmissionError.origin_id` and the CLI diagnostic expose that ID for direct
 inspection or cancellation. Unrelated messages and replies to uncertain
 submissions remain in the inbox with `matched: false` and cannot take another
-origin's answer slot. Store retains only the first reply per origin.
+origin's answer slot. `reply()` and `wait()` return the first reply per origin.
+Later replies with different stable content are durably archived before
+acknowledgement and appear in the inbox with `duplicate: true`, including the
+creator. Redelivery of unchanged content does not add another copy.
 
 Worker leases default to 600 seconds, with renewal every 180 seconds. A lost
 lease sets the handler's `lost` event; handlers should cooperate with it.

@@ -26,6 +26,7 @@ describe("snapshot dashboard model", () => {
     const value = snapshot();
     const task: Record<string, unknown> = {
       ...value.domains[0].topics[0].tasks[0],
+      duplicate: false,
     };
     if (origin === undefined) delete task.origin_id;
     else task.origin_id = origin;

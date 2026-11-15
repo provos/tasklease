@@ -687,12 +687,24 @@ guidance; library applications can present their own recovery action.
    `replies/h(agent)/<origin_id>.json` with
    `{task_id, origin_id, topic, creator, created_at, received_at, data}`.
    A missing or invalid origin is an error and is never acknowledged.
-   On an existing filename, validate and keep the saved record before
-   treating the task as a duplicate, including redelivery with a rotated ID.
+   On an existing filename, validate and keep the saved record. Compare its
+   stable content (`topic`, `creator`, `created_at`, and `data`) with the incoming
+   reply, using canonical JSON bytes. Unchanged content is already durable.
+   Different content is durably published to
+   `replies/h(agent)/duplicates/<origin_id>-<fingerprint>.json` before Delete.
+   The fingerprint is SHA-256 of that canonical content, excluding the rotating
+   task ID and local receipt time. Existing archive files are validated before
+   acknowledgement. Any persistence or validation failure leaves the server copy
+   unacknowledged.
 3. Delete the owned task using its current fencing ID.
 
-Store retains only the first reply per origin. Multiple fan-out results
-arriving in the same Store are not supported as separate answers. A distinct
+`reply()` and `wait()` select the first reply per origin. `inbox()` also returns
+archived conflicting observations with `duplicate: true`; selected replies have
+`duplicate: false`. Each observation includes its creator and expires seven days
+after its first local receipt. Archives do not replace an expired selected reply.
+Two successor lineages with identical stable content remain indistinguishable;
+the archive preserves distinct content, not a count of independent executions.
+A distinct
 Create always has a distinct origin, so unsolicited messages cannot take a
 request's answer slot. Session conversations that answer with another Create
 use application fields such as `in_reply_to` and validate sender identity.
@@ -734,7 +746,7 @@ a saved reply, `answered` with one. Successful Cancel removes the request
 record; `not_found` leaves it in place because a reply may be in flight.
 
 Replies expire seven days after receipt. Pruning removes expired replies
-first, then requests older than seven days with no retained reply. It also
+first, then requests older than seven days with no retained selected reply. It also
 removes abandoned publication temporaries older than a day. Draining prunes
 at most once a day; `tl inbox --prune` runs it explicitly. The 0.5.0 store
 rejects legacy or mismatched record filenames: upgrade requires resetting old

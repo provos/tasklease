@@ -28,6 +28,7 @@ export interface LocalReply {
   data: Data;
   origin_id: string;
   matched: boolean;
+  duplicate: boolean;
 }
 
 export interface Snapshot {
@@ -86,7 +87,10 @@ export function decodeSnapshot(value: unknown): Snapshot {
     ) ||
     !Array.isArray(value.local.replies) ||
     !value.local.replies.every(
-      (reply: unknown) => record(reply) && origin(reply.origin_id),
+      (reply: unknown) =>
+        record(reply) &&
+        origin(reply.origin_id) &&
+        typeof reply.duplicate === "boolean",
     ) ||
     (value.errors !== undefined &&
       (!Array.isArray(value.errors) ||
