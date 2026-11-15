@@ -6,6 +6,8 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-14
+
 ### Added
 
 - Required server-carried `origin_id` on tasks and summaries. Create mints it,
