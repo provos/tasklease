@@ -64,6 +64,21 @@ def _crash_publisher(path: str, point: str) -> None:
     fsio.publish_new(Path(path), _payload(29))
 
 
+def test_publication_of_long_record_names(tmp_path: Path) -> None:
+    filename = "r" * 92 + ".json"
+    # The destination fits Windows MAX_PATH, while a temporary name containing
+    # the full destination filename would exceed it.
+    padding = 250 - len(str(tmp_path)) - len(filename) - 2
+    assert padding > 0
+    path = tmp_path / ("p" * padding) / filename
+    assert fsio.publish_new(path, b'{"value": 1}') == "created"
+    assert fsio.publish_new(path, b'{"value": 2}') == "exists"
+    assert fsio.read_json(path) == {"value": 1}
+    fsio.atomic_replace(path, b'{"value": 3}')
+    assert fsio.read_json(path) == {"value": 3}
+    assert list(path.parent.iterdir()) == [path]
+
+
 def test_spawned_publishers_have_one_winner_and_only_whole_bytes(
     tmp_path: Path,
 ) -> None:

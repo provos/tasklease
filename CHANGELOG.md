@@ -36,6 +36,11 @@ Release preparation and verification are documented in
 - The monitor joins pending requests by origin across Own rotations, checks
   the work topic's error queue, and labels unmatched inbox entries.
 
+### Fixed
+
+- Store publication uses short temporary filenames so duplicate replies can
+  be archived near the Windows path-length limit.
+
 ### Breaking changes and deployment
 
 - The 0.5.0 package requires the 0.5.0 service. Use the coordinated upgrade

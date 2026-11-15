@@ -57,8 +57,9 @@ def ensure_directory(path: Path) -> None:
 @contextmanager
 def _prepared_file(path: Path, data: bytes) -> Iterator[Path]:
     ensure_directory(path.parent)
+    # Keep staging names short even when the destination nearly fills MAX_PATH.
     descriptor, filename = tempfile.mkstemp(
-        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+        prefix=".tasklease.", suffix=".tmp", dir=path.parent
     )
     temporary = Path(filename)
     try:
