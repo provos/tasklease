@@ -1182,7 +1182,7 @@ Status: accepted after corrections, independent reviews and native qualification
   private values. Its SHA-256 is
   `d65c842456f26885a85152d77f840982b0e83ff8caf6923855393c3ba51e1ff4`.
 
-## 0.5.0 release acceptance (2026-11-15)
+## 0.5.0 initial candidate acceptance (2026-11-15; superseded)
 
 - PR #19 was squash-merged as `dffbd2cc19cb0dd99084a78051a395014b711f73`
   and its branch deleted. The accepted release commit is
@@ -1219,7 +1219,7 @@ Status: accepted after corrections, independent reviews and native qualification
   with API 404 verification, and the existing acceptance-only bucket and its
   seven-day lifecycle were unchanged. Remote temporary credentials were
   removed. No production service or client profiles were upgraded.
-- The [candidate report](acceptance/0.5.0.json) records hashes, commands,
+- The [candidate report](acceptance/archive/0.5.0-pre-idempotency.json) records hashes, commands,
   native skips and live results. The retained local archive is
   `python/dist/acceptance-0.5.0-cb03640/evidence.zip`, SHA-256
   `067b647eac0eb5a41f7610a401fb989646ecefcc8a454d05485bb2a5b6d762c7`.
@@ -1286,10 +1286,10 @@ Status: accepted after corrections, independent reviews and native qualification
   wheel/no-Node probe and Task Scheduler COM XML parsing passed; no task was
   registered. Dependencies came from the existing age-qualified offline
   wheelhouse. Source commit, ZIP and wheel hashes match the candidate above.
-  The [acceptance report](acceptance/0.5.0-idempotency.json) now records all native
+  The [acceptance report](acceptance/archive/0.5.0-idempotency-candidate.json) now records all native
   and isolated service checks as passed, and the PR is ready for review.
-  Publication remains on hold; the existing `v0.5.0` tag
-  still identifies `cb036405e49c51ed56a8aef1f3910d0ab4b06e2e` and has not moved.
+  At this checkpoint, publication remained on hold; `v0.5.0` still identified
+  `cb036405e49c51ed56a8aef1f3910d0ab4b06e2e`. The final tag transition is recorded below.
   No publishing workflow or GitHub Release was created for this revision.
 - Evidence is retained in
   `python/dist/acceptance-0.5.0-idempotency-8b7ed78/evidence.zip`, SHA-256
