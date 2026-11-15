@@ -71,11 +71,15 @@ def wait_seconds(value: object) -> int:
     )
 
 
-def requester_wait_seconds(args: argparse.Namespace) -> int:
+def requester_wait_seconds(
+    args: argparse.Namespace, *, config: Config | None = None
+) -> int:
     """`--wait-seconds`, else the config's top-level `wait_seconds`, else 30."""
     value: object = optional_text(args, "wait_seconds")
     if value is None:
-        value = configuration(args).values.get("wait_seconds", MAX_WAIT_SECONDS)
+        if config is None:
+            config = configuration(args)
+        value = config.values.get("wait_seconds", MAX_WAIT_SECONDS)
     return wait_seconds(value)
 
 

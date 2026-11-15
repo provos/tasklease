@@ -18,6 +18,37 @@ function snapshot(): Snapshot {
 }
 
 describe("snapshot dashboard model", () => {
+  it.each(
+    ["task", "request", "reply"].flatMap((location) =>
+      [undefined, null, "invalid", 42].map((origin) => ({ location, origin })),
+    ),
+  )("rejects invalid origin $origin in $location", ({ location, origin }) => {
+    const value = snapshot();
+    const task: Record<string, unknown> = {
+      ...value.domains[0].topics[0].tasks[0],
+      duplicate: false,
+    };
+    if (origin === undefined) delete task.origin_id;
+    else task.origin_id = origin;
+    const domain = value.domains[0];
+    const invalid =
+      location === "task"
+        ? {
+            ...value,
+            domains: [
+              { ...domain, topics: [{ ...domain.topics[0], tasks: [task] }] },
+            ],
+          }
+        : {
+            ...value,
+            local: {
+              requests: location === "request" ? [task] : [],
+              replies: location === "reply" ? [task] : [],
+            },
+          };
+    expect(() => decodeSnapshot(invalid)).toThrow("invalid snapshot");
+  });
+
   it("carries schema-fixture topic metadata into its domain", () => {
     const queues = topics(snapshot());
     expect(queues).toHaveLength(1);

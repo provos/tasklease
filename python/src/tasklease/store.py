@@ -1,7 +1,7 @@
-"""Durable, immutable requester intents and a concurrent local reply inbox.
+"""Immutable requester records and replies keyed by server-carried origins.
 
-Publication is always no-replace. A lost network response can therefore leave
-an unknown submission or an already saved reply, but never erase its evidence.
+Create chooses each request's origin before its local record is published.
+Replies remain independently readable when their request record is absent.
 """
 
 from __future__ import annotations
@@ -10,26 +10,35 @@ import hashlib
 import json
 import math
 import re
+import stat
 import time
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, replace
+from os import stat_result
 from pathlib import Path
 from random import uniform
 from typing import Literal, cast
-from uuid import uuid4
 
 from platformdirs import user_data_path
 
 from tasklease import fsio
 from tasklease.client import MAX_WAIT_SECONDS, Client
-from tasklease.errors import Empty, NotFound, StoreError, TransportError
+from tasklease.errors import (
+    Empty,
+    NotFound,
+    ReplyStateError,
+    StoreError,
+    SubmissionError,
+    TransportError,
+)
 from tasklease.generated import protocol as p
-from tasklease.names import is_domain, is_request_id, is_segment, is_task_id, is_topic
+from tasklease.names import is_domain, is_segment, is_task_id, is_topic
 
-type RequestState = Literal["submission_unknown", "pending", "answered"]
-type CancelResult = Literal["cancelled", "not_found", "submission_unknown"]
+type RequestState = Literal["pending", "answered"]
+type CancelResult = Literal["cancelled", "not_found"]
 
 _HASH = re.compile(r"[0-9a-f]{32}\Z")
+_DUPLICATE = re.compile(r"t_[0-7][0-9A-HJKMNP-TV-Z]{25}-[0-9a-f]{64}\Z")
 _RETENTION_SECONDS = 7 * 86400
 _BATCH_SIZE = 100
 # Seconds a long poll leaves for its answer before the overall deadline.
@@ -49,12 +58,6 @@ def hash_id(value: str) -> str:
         return hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
     except UnicodeError:
         raise StoreError("Identifiers must contain valid UTF-8 text") from None
-
-
-def _request_id(value: object) -> str:
-    if not is_request_id(value):
-        raise StoreError("request_id must contain 1 to 128 valid UTF-8 characters")
-    return value
 
 
 def _name(value: object, *, domain: bool = False) -> str:
@@ -135,23 +138,63 @@ def _remove(path: Path) -> int:
     return 1
 
 
+def _stat(path: Path) -> stat_result | None:
+    try:
+        return path.stat()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise StoreError("Cannot inspect local requester state") from None
+
+
+def _exists(path: Path) -> bool:
+    return _stat(path) is not None
+
+
+def _is_file(path: Path) -> bool:
+    result = _stat(path)
+    return result is not None and stat.S_ISREG(result.st_mode)
+
+
+def _records(
+    directory: Path, *, duplicate: bool = False
+) -> Iterator[tuple[Path, dict[str, object]]]:
+    for path in _files(directory):
+        if path.name == "agent.json" or path.name.startswith("."):
+            continue
+        if path.suffix.casefold() != ".json" and path.name.casefold() != "unmatched":
+            continue
+        valid_name = (
+            bool(_DUPLICATE.fullmatch(path.stem))
+            if duplicate
+            else is_task_id(path.stem)
+        )
+        if path.suffix != ".json" or not valid_name:
+            raise StoreError(
+                "Requester record has an invalid storage name; "
+                "archive/reset legacy Store directories before using tasklease 0.5.0"
+            )
+        value = _read(path)
+        if value is not None:
+            yield path, value
+
+
 @dataclass(frozen=True)
 class RequestRecord:
-    """An original intent, with state derived from its companion files."""
+    """A created request, with state derived from its saved reply."""
 
     agent_id: str
-    request_id: str
+    origin_id: str
     domain: str
     topic: str
     reply_topic: str
     created_at: int
     data: dict[str, object]
-    task_id: str | None = None
-    state: RequestState = "submission_unknown"
+    state: RequestState = "pending"
 
     def _intent(self) -> dict[str, object]:
         return {
-            "request_id": self.request_id,
+            "origin_id": self.origin_id,
             "domain": self.domain,
             "topic": self.topic,
             "reply_topic": self.reply_topic,
@@ -163,7 +206,6 @@ class RequestRecord:
         return dict(
             self._intent(),
             agent_id=self.agent_id,
-            task_id=self.task_id,
             state=self.state,
         )
 
@@ -185,29 +227,42 @@ class DrainResult:
 
 @dataclass(frozen=True)
 class ReplyRecord:
-    """The first durably published reply for a correlation ID."""
+    """A selected reply or an archived conflicting observation for an origin."""
 
     agent_id: str
     task_id: str
+    origin_id: str
     topic: str
     creator: str
     created_at: int
     received_at: int
     data: dict[str, object]
-    request_id: str | None
+    matched: bool = False
+    duplicate: bool = False
 
-    def _saved(self) -> dict[str, object]:
+    def _content(self) -> dict[str, object]:
         return {
-            "task_id": self.task_id,
             "topic": self.topic,
             "creator": self.creator,
             "created_at": self.created_at,
-            "received_at": self.received_at,
             "data": self.data,
         }
 
+    def _saved(self) -> dict[str, object]:
+        return {
+            **self._content(),
+            "origin_id": self.origin_id,
+            "task_id": self.task_id,
+            "received_at": self.received_at,
+        }
+
     def as_dict(self) -> dict[str, object]:
-        return dict(self._saved(), agent_id=self.agent_id, request_id=self.request_id)
+        return dict(
+            self._saved(),
+            agent_id=self.agent_id,
+            matched=self.matched,
+            duplicate=self.duplicate,
+        )
 
     def to_dict(self) -> dict[str, object]:
         return self.as_dict()
@@ -229,7 +284,7 @@ class Store:
         self.root = (default_root() if root is None else root).expanduser().absolute()
         self.request_directory = self.root / "requests" / hash_id(agent_id)
         self.reply_directory = self.root / "replies" / hash_id(agent_id)
-        self.unmatched_directory = self.reply_directory / "unmatched"
+        self.duplicate_directory = self.reply_directory / "duplicates"
         found_metadata = False
         for directory in (self.request_directory, self.reply_directory):
             path = directory / "agent.json"
@@ -237,7 +292,7 @@ class Store:
             if initialize and metadata is None:
                 _publish(path, {"agent_id": agent_id})
                 metadata = _read(path)
-            if not initialize and metadata is None and not directory.exists():
+            if not initialize and metadata is None and not _exists(directory):
                 continue
             if metadata != {"agent_id": agent_id}:
                 raise StoreError("Agent metadata does not match its storage directory")
@@ -245,27 +300,25 @@ class Store:
         if not found_metadata:
             raise StoreError("No existing metadata for this agent")
 
-    def _request_path(self, request_id: str) -> Path:
-        return self.request_directory / f"{hash_id(_request_id(request_id))}.json"
+    def _request_path(self, origin_id: str) -> Path:
+        return self.request_directory / f"{_task_id(origin_id)}.json"
 
-    def _task_path(self, request_id: str) -> Path:
-        return self.request_directory / f"{hash_id(_request_id(request_id))}.task.json"
+    def _reply_path(self, origin_id: str) -> Path:
+        return self.reply_directory / f"{_task_id(origin_id)}.json"
 
-    def _reply_path(self, request_id: str) -> Path:
-        return self.reply_directory / f"{hash_id(_request_id(request_id))}.json"
+    def _duplicate_path(self, origin_id: str, content: bytes) -> Path:
+        fingerprint = hashlib.sha256(content).hexdigest()
+        return self.duplicate_directory / f"{origin_id}-{fingerprint}.json"
 
     def _parse_intent(self, value: dict[str, object]) -> RequestRecord:
-        request_id = _request_id(value.get("request_id"))
+        origin_id = _task_id(value.get("origin_id"))
         reply_topic = _name(value.get("reply_topic"))
         data = _object(value.get("data"))
-        if (
-            data.get("request_id") != request_id
-            or data.get("reply_topic") != reply_topic
-        ):
+        if data.get("reply_topic") != reply_topic:
             raise StoreError("Request payload does not match its saved coordinates")
         return RequestRecord(
             self.agent_id,
-            request_id,
+            origin_id,
             _name(value.get("domain"), domain=True),
             _name(value.get("topic")),
             reply_topic,
@@ -273,71 +326,60 @@ class Store:
             data,
         )
 
-    def _parse_reply(self, value: dict[str, object]) -> ReplyRecord:
+    def _parse_reply(
+        self, value: dict[str, object], *, duplicate: bool = False
+    ) -> ReplyRecord:
         data = _object(value.get("data"))
-        correlation = data.get("request_id")
-        request_id = correlation if is_request_id(correlation) else None
+        origin_id = _task_id(value.get("origin_id"))
         creator = value.get("creator")
         if not isinstance(creator, str) or not creator:
             raise StoreError("Invalid reply creator in requester state")
         return ReplyRecord(
-            self.agent_id,
-            _task_id(value.get("task_id")),
-            _name(value.get("topic")),
-            creator,
-            _integer(value.get("created_at")),
-            _integer(value.get("received_at")),
-            data,
-            request_id,
+            agent_id=self.agent_id,
+            task_id=_task_id(value.get("task_id")),
+            origin_id=origin_id,
+            topic=_name(value.get("topic")),
+            creator=creator,
+            created_at=_integer(value.get("created_at")),
+            received_at=_integer(value.get("received_at")),
+            data=data,
+            matched=_is_file(self._request_path(origin_id)),
+            duplicate=duplicate,
         )
 
-    def reply(self, request_id: str) -> ReplyRecord | None:
-        value = _read(self._reply_path(request_id))
+    def reply(self, origin_id: str) -> ReplyRecord | None:
+        value = _read(self._reply_path(origin_id))
         if value is None:
             return None
         result = self._parse_reply(value)
-        if result.request_id != request_id:
+        if result.origin_id != origin_id:
             raise StoreError("Reply correlation does not match its storage name")
         return result
 
-    def request(self, request_id: str) -> RequestRecord | None:
-        value = _read(self._request_path(request_id))
+    def request(self, origin_id: str) -> RequestRecord | None:
+        record = self._request_intent(origin_id)
+        return None if record is None else self._request_state(record)
+
+    def _request_intent(self, origin_id: str) -> RequestRecord | None:
+        value = _read(self._request_path(origin_id))
         if value is None:
             return None
         record = self._parse_intent(value)
-        if record.request_id != request_id:
+        if record.origin_id != origin_id:
             raise StoreError("Request correlation does not match its storage name")
-        return self._request_state(record)
-
-    def _request_state(self, record: RequestRecord) -> RequestRecord:
-        sidecar = _read(self._task_path(record.request_id))
-        task_id = None if sidecar is None else _task_id(sidecar.get("task_id"))
-        state: RequestState = "submission_unknown" if task_id is None else "pending"
-        if self.reply(record.request_id) is not None:
-            state = "answered"
-        return replace(record, task_id=task_id, state=state)
-
-    def _required_request(self, request_id: str) -> RequestRecord:
-        record = self.request(request_id)
-        if record is None:
-            raise StoreError("No saved request for this request_id")
         return record
 
-    def _send_intent(self, client: Client, record: RequestRecord) -> RequestRecord:
-        response = client.create(
-            {
-                "domain": record.domain,
-                "topic": record.topic,
-                "data": cast(p.Data, record.data),
-            }
+    def _request_state(self, record: RequestRecord) -> RequestRecord:
+        state: RequestState = (
+            "answered" if self.reply(record.origin_id) is not None else "pending"
         )
-        task_id = _task_id(response["id"])
-        path = self._task_path(record.request_id)
-        _publish(path, {"task_id": task_id})
-        saved = self._required_request(record.request_id)
-        if saved.task_id is None:
-            raise StoreError("Saved task ID disappeared after publication")
-        return saved
+        return replace(record, state=state)
+
+    def _required_request(self, origin_id: str) -> RequestRecord:
+        record = self.request(origin_id)
+        if record is None:
+            raise StoreError("No saved request for this origin_id")
+        return record
 
     def submit(
         self,
@@ -346,69 +388,58 @@ class Store:
         topic: str,
         reply_topic: str,
         data: Mapping[str, object],
-        request_id: str | None = None,
     ) -> RequestRecord:
-        """Publish the exact intent before Create; duplicate IDs never repost."""
-        request_id = _request_id(uuid4().hex if request_id is None else request_id)
+        """Create a new origin, then durably publish its local request record.
+
+        An uncertain Create may have succeeded; retrying creates another origin.
+        Intent persistence failures raise SubmissionError with the known origin.
+        Later reply inspection failures raise ReplyStateError for that saved origin.
+        """
         domain, topic, reply_topic = (
             _name(domain, domain=True),
             _name(topic),
             _name(reply_topic),
         )
         payload = _object(dict(data))
-        for key, expected in (("request_id", request_id), ("reply_topic", reply_topic)):
-            if key in payload and payload[key] != expected:
-                raise StoreError("Request identifying fields conflict with the command")
-            payload[key] = expected
+        if "reply_topic" in payload and payload["reply_topic"] != reply_topic:
+            raise StoreError("Request reply_topic conflicts with the command")
+        payload["reply_topic"] = reply_topic
         # Round-trip once so caller mutation cannot change the saved/sent payload.
         payload = _object(json.loads(_encode(payload)))
-        record = RequestRecord(
-            self.agent_id,
-            request_id,
-            domain,
-            topic,
-            reply_topic,
-            int(time.time() * 1000),
-            payload,
+        created_at = int(time.time() * 1000)
+        response = client.create(
+            {"domain": domain, "topic": topic, "data": cast(p.Data, payload)}
         )
-        if self.request(request_id) is None and (
-            self.reply(request_id) is not None
-            or _read(self._task_path(request_id)) is not None
-        ):
-            raise StoreError("request_id already has saved reply or task metadata")
-        path = self._request_path(request_id)
-        if _publish(path, record._intent()) == "exists":
-            saved = self._required_request(request_id)
-            if (saved.domain, saved.topic, saved.reply_topic) != (
-                domain,
-                topic,
-                reply_topic,
-            ) or _encode(saved.data) != _encode(payload):
-                raise StoreError("request_id already belongs to a different request")
-            return saved
-        return self._send_intent(client, record)
-
-    def resend(self, client: Client, request_id: str) -> RequestRecord:
-        """Explicitly retry an unknown submission using only its saved payload."""
-        record = self._required_request(request_id)
-        if record.state == "answered":
-            return record
-        if record.state != "submission_unknown":
-            raise StoreError("Request already has a known pending task; wait for it")
-        return self._send_intent(client, record)
-
-    def cancel(self, client: Client, request_id: str) -> CancelResult:
-        record = self._required_request(request_id)
-        if record.task_id is None:
-            return "submission_unknown"
+        origin_id = _task_id(response["id"])
+        record = RequestRecord(
+            self.agent_id, origin_id, domain, topic, reply_topic, created_at, payload
+        )
         try:
-            client.delete(
-                {"domain": record.domain, "topic": record.topic, "id": record.task_id}
+            result = _publish(self._request_path(origin_id), record._intent())
+            saved = self._request_intent(origin_id)
+            if saved is None:
+                raise StoreError("Saved request disappeared after publication")
+            if result == "exists" and _encode(saved._intent()) != _encode(
+                record._intent()
+            ):
+                raise StoreError("Origin already belongs to another saved request")
+        except StoreError as error:
+            raise SubmissionError(origin_id) from error
+        try:
+            return self._request_state(saved)
+        except StoreError:
+            raise ReplyStateError(origin_id) from None
+
+    def cancel(self, client: Client, origin_id: str) -> CancelResult:
+        """Cancel the initial task, even after Own has rotated its fencing ID."""
+        record = self._required_request(origin_id)
+        try:
+            client.cancel(
+                {"domain": record.domain, "topic": record.topic, "origin_id": origin_id}
             )
         except NotFound:
             return "not_found"
-        _remove(self._request_path(request_id))
-        _remove(self._task_path(request_id))
+        _remove(self._request_path(origin_id))
         return "cancelled"
 
     def _save_reply(self, task: p.Task, domain: str, reply_topic: str) -> ReplyRecord:
@@ -417,6 +448,7 @@ class Store:
         record = self._parse_reply(
             {
                 "task_id": task.get("id"),
+                "origin_id": task.get("origin_id"),
                 "topic": task.get("topic"),
                 "creator": task.get("creator"),
                 "created_at": task.get("created_at"),
@@ -424,23 +456,28 @@ class Store:
                 "data": task.get("data"),
             }
         )
-        path = (
-            self._reply_path(record.request_id)
-            if record.request_id is not None
-            else self.unmatched_directory / f"{record.task_id}.json"
-        )
+        path = self._reply_path(record.origin_id)
         if _publish(path, record._saved()) == "created":
             return record
-        # An existing file is safe to acknowledge only when it is readable and
-        # really represents this correlation (including the unlikely hash collision).
-        existing = _read(path)
-        if existing is None:
+        # A duplicate is safe to acknowledge only after validating the saved reply.
+        previous = self.reply(record.origin_id)
+        if previous is None:
             raise StoreError("Saved reply disappeared after publication")
-        previous = self._parse_reply(existing)
-        if previous.request_id != record.request_id or (
-            record.request_id is None and previous.task_id != record.task_id
-        ):
-            raise StoreError("Reply correlation does not match its storage name")
+        content = _encode(record._content())
+        if _encode(previous._content()) != content:
+            archive = self._duplicate_path(record.origin_id, content)
+            if _publish(archive, record._saved()) == "exists":
+                value = _read(archive)
+                if value is None:
+                    raise StoreError("Archived reply disappeared after publication")
+                existing = self._parse_reply(value, duplicate=True)
+                if (
+                    existing.origin_id != record.origin_id
+                    or _encode(existing._content()) != content
+                ):
+                    raise StoreError(
+                        "Archived reply content does not match its storage name"
+                    )
         return previous
 
     def _drain(
@@ -450,7 +487,7 @@ class Store:
         reply_topic: str,
         *,
         deadline: float | None = None,
-        request_id: str | None = None,
+        origin_id: str | None = None,
         wait_seconds: int = 0,
     ) -> tuple[int, bool]:
         """Return the saved count and whether to poll again without a pause.
@@ -506,7 +543,7 @@ class Store:
                 )
             except NotFound:
                 pass  # The durable local reply already survives ID rotation.
-            if request_id is not None and saved.request_id == request_id:
+            if origin_id is not None and saved.origin_id == origin_id:
                 break
         return count, count > 0
 
@@ -543,7 +580,7 @@ class Store:
     def wait(
         self,
         client: Client,
-        request_id: str,
+        origin_id: str,
         timeout_seconds: float,
         poll_interval: float = 1.0,
         max_poll_interval: float = 30.0,
@@ -571,10 +608,10 @@ class Store:
         delay = poll_interval
         failing_since: float | None = None
         deadline = time.monotonic() + timeout_seconds
-        reply = self.reply(request_id)
+        reply = self.reply(origin_id)
         if reply is not None:
             return reply
-        record = self._required_request(request_id)
+        record = self._required_request(origin_id)
         self._automatic_prune()
         while time.monotonic() < deadline:
             attempted = time.monotonic()
@@ -584,7 +621,7 @@ class Store:
                     record.domain,
                     record.reply_topic,
                     deadline=deadline,
-                    request_id=request_id,
+                    origin_id=origin_id,
                     wait_seconds=wait_seconds,
                 )
             except TransportError:
@@ -596,7 +633,7 @@ class Store:
                 # last attempt short.
                 if failing_since is None:
                     failing_since = attempted
-                reply = self.reply(request_id)
+                reply = self.reply(origin_id)
                 if reply is not None:
                     return reply
                 now = time.monotonic()
@@ -607,7 +644,7 @@ class Store:
                 again = False
             else:
                 failing_since = None
-            reply = self.reply(request_id)
+            reply = self.reply(origin_id)
             if reply is not None:
                 return reply
             remaining = deadline - time.monotonic()
@@ -626,26 +663,18 @@ class Store:
 
     def inbox(self) -> list[ReplyRecord]:
         result: list[ReplyRecord] = []
-        for directory in (self.reply_directory, self.unmatched_directory):
-            for path in _files(directory):
-                if (
-                    path.name == "agent.json"
-                    or not path.name.endswith(".json")
-                    or path.name.startswith(".")
-                ):
-                    continue
-                value = _read(path)
-                if value is None:
-                    continue
-                record = self._parse_reply(value)
+        for directory, duplicate in (
+            (self.reply_directory, False),
+            (self.duplicate_directory, True),
+        ):
+            for path, value in _records(directory, duplicate=duplicate):
+                record = self._parse_reply(value, duplicate=duplicate)
                 expected = (
-                    f"{record.task_id}.json"
-                    if record.request_id is None
-                    else f"{hash_id(record.request_id)}.json"
+                    self._duplicate_path(record.origin_id, _encode(record._content()))
+                    if duplicate
+                    else self._reply_path(record.origin_id)
                 )
-                if path.name != expected or (directory == self.unmatched_directory) != (
-                    record.request_id is None
-                ):
+                if path != expected:
                     raise StoreError(
                         "Reply correlation does not match its storage name"
                     )
@@ -655,19 +684,14 @@ class Store:
     def requests(self) -> list[RequestRecord]:
         return sorted(
             (self._request_state(record) for record in self._intents()),
-            key=lambda record: (record.created_at, record.request_id),
+            key=lambda record: (record.created_at, record.origin_id),
         )
 
     def _intents(self) -> list[RequestRecord]:
         result: list[RequestRecord] = []
-        for path in _files(self.request_directory):
-            if _HASH.fullmatch(path.stem) is None or path.suffix != ".json":
-                continue
-            value = _read(path)
-            if value is None:
-                continue
+        for path, value in _records(self.request_directory):
             record = self._parse_intent(value)
-            if path != self._request_path(record.request_id):
+            if path != self._request_path(record.origin_id):
                 raise StoreError("Request correlation does not match its storage name")
             result.append(record)
         return result
@@ -677,43 +701,23 @@ class Store:
         now = time.time()
         cutoff = int((now - _RETENTION_SECONDS) * 1000)
         count = 0
-        for record in self._intents():
-            if record.created_at < cutoff:
-                count += _remove(self._request_path(record.request_id))
-                count += _remove(self._task_path(record.request_id))
-        for path in _files(self.request_directory):
-            if not path.name.endswith(".task.json"):
-                continue
-            stem = path.name.removesuffix(".task.json")
-            if _HASH.fullmatch(stem) is None:
-                continue
-            if _read(self.request_directory / f"{stem}.json") is not None:
-                continue
-            try:
-                expired = path.stat().st_mtime < now - _RETENTION_SECONDS
-            except FileNotFoundError:
-                continue
-            except OSError:
-                raise StoreError(
-                    "Cannot inspect orphaned local task metadata"
-                ) from None
-            if expired:
-                value = _read(path)
-                if value is not None:
-                    _task_id(value.get("task_id"))
-                    count += _remove(path)
         for reply in self.inbox():
             if reply.received_at < cutoff:
                 path = (
-                    self._reply_path(reply.request_id)
-                    if reply.request_id is not None
-                    else self.unmatched_directory / f"{reply.task_id}.json"
+                    self._duplicate_path(reply.origin_id, _encode(reply._content()))
+                    if reply.duplicate
+                    else self._reply_path(reply.origin_id)
                 )
                 count += _remove(path)
+        for record in self._intents():
+            if record.created_at < cutoff and not _exists(
+                self._reply_path(record.origin_id)
+            ):
+                count += _remove(self._request_path(record.origin_id))
         for directory in (
             self.request_directory,
             self.reply_directory,
-            self.unmatched_directory,
+            self.duplicate_directory,
         ):
             try:
                 count += fsio.cleanup_temporary_files(directory, before=now - 86400)
@@ -733,7 +737,7 @@ class Store:
         path = self.reply_directory / f".prune-{day}.json"
         # Checking first skips a full publication on every call after the first.
         if (
-            not path.exists()
+            not _exists(path)
             and _publish(path, {"created_at": int(now * 1000)}) == "created"
         ):
             self.prune()

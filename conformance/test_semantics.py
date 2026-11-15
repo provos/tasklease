@@ -14,6 +14,86 @@ from tasklease.generated import protocol as p
 from tasklease.names import topic_matches
 
 
+@pytest.mark.parametrize("held", [False, True])
+def test_creator_cancels_initial_origin_without_own_scope(
+    target: ServiceTarget, held: bool
+) -> None:
+    domain = target.domain
+    _, creator_token = target.identity(create=("work",), own=(), read=())
+    _, worker_token = target.identity(create=(), own=("work",), read=())
+    with target.client(creator_token) as creator, target.client(worker_token) as worker:
+        origin = creator.create({"domain": domain, "topic": "work", "data": {}})["id"]
+        live_id = origin
+        if held:
+            task = worker.own({"domain": domain, "topic": "work", "hold_seconds": 60})[
+                "task"
+            ]
+            assert task["origin_id"] == origin and task["id"] != origin
+            live_id = task["id"]
+        request: p.CancelRequest = {
+            "domain": domain,
+            "topic": "work",
+            "origin_id": origin,
+        }
+        with pytest.raises(Forbidden):
+            worker.cancel(request)
+        with pytest.raises(Forbidden):
+            creator.cancel({**request, "domain": domain + "/outside"})
+        with pytest.raises(NotFound):
+            creator.cancel({**request, "topic": "other"})
+        creator.cancel(request)
+        with pytest.raises(NotFound):
+            worker.renew(
+                {"domain": domain, "topic": "work", "id": live_id, "hold_seconds": 60}
+            )
+        with pytest.raises(NotFound):
+            worker.consume(
+                {"domain": domain, "topic": "work", "id": live_id, "tasks": []}
+            )
+        with pytest.raises(NotFound):
+            creator.cancel(request)
+
+
+def test_origin_survives_fanout_and_same_creator_successors_are_not_cancellable(
+    target: ServiceTarget,
+) -> None:
+    domain = target.domain
+    name, token = target.identity()
+    with target.client(token) as client:
+        origin = client.create({"domain": domain, "topic": "work", "data": {}})["id"]
+        assert (
+            client.read({"domain": domain, "topic": "work", "id": origin})["task"][
+                "origin_id"
+            ]
+            == origin
+        )
+        task = client.own({"domain": domain, "topic": "work", "hold_seconds": 60})[
+            "task"
+        ]
+        assert task["origin_id"] == origin and task["id"] != origin
+        renewed = client.renew(
+            {"domain": domain, "topic": "work", "id": task["id"], "hold_seconds": 60}
+        )["task"]
+        assert renewed["origin_id"] == origin and renewed["id"] == task["id"]
+        ids = client.consume(
+            {
+                "domain": domain,
+                "topic": "work",
+                "id": task["id"],
+                "tasks": [{"topic": "work", "data": {}}, {"topic": "work", "data": {}}],
+            }
+        )["ids"]
+        with pytest.raises(NotFound):
+            client.cancel({"domain": domain, "topic": "work", "origin_id": origin})
+        summaries = client.tasks_list({"domain": domain, "topic": "work"})["tasks"]
+        assert {row["id"] for row in summaries} == set(ids)
+        assert all(
+            row["origin_id"] == origin and row["creator"] == name for row in summaries
+        )
+        for task_id in ids:
+            client.delete({"domain": domain, "topic": "work", "id": task_id})
+
+
 @pytest.mark.parametrize(
     ("glob", "topic", "expected"),
     [

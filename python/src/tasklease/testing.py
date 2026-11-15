@@ -74,6 +74,7 @@ _OPERATIONS = {
     "renew",
     "read",
     "delete",
+    "cancel",
     "consume",
     "tasks.list",
     "topics.list",
@@ -238,6 +239,8 @@ def _valid_request(operation: str, body: dict[str, object]) -> bool:
         return False
     if "id" in body and not is_task_id(body["id"]):
         return False
+    if "origin_id" in body and not is_task_id(body["origin_id"]):
+        return False
     if "hold_seconds" in body:
         hold = body["hold_seconds"]
         if not _integer(hold) or not 1 <= cast(int, hold) <= 86400:
@@ -341,6 +344,7 @@ class FakeBoard:
         self._changed = threading.Condition(self._lock)
         self._identities: dict[str, p.Identity] = {}
         self._tasks: dict[str, p.Task] = {}
+        self._roots: set[str] = set()
         self._pollers: dict[tuple[str, str, str], p.Poller] = {}
         self._blobs: dict[str, bytes] = {}
         self._grants: dict[str, _BlobGrant] = {}
@@ -554,7 +558,7 @@ class FakeBoard:
     def _authorized(
         self, operation: str, body: dict[str, object], scopes: p.Scopes
     ) -> bool:
-        if operation in {"delete", "topics.list"}:
+        if operation in {"delete", "cancel", "topics.list"}:
             return True
         if operation == "blob.put_url":
             return bool(scopes["create"])
@@ -573,10 +577,21 @@ class FakeBoard:
             )
         return self._allows(scopes, "read", topic) or self._allows(scopes, "own", topic)
 
-    def _insert(self, topic: str, data: p.Data, identity: str, now: int) -> str:
+    def _insert(
+        self,
+        topic: str,
+        data: p.Data,
+        identity: str,
+        now: int,
+        origin_id: str | None = None,
+    ) -> str:
         task_id = "t_" + _new_ulid(now)
+        if origin_id is None:
+            origin_id = task_id
+            self._roots.add(origin_id)
         self._tasks[task_id] = {
             "id": task_id,
+            "origin_id": origin_id,
             "domain": self.domain,
             "topic": topic,
             "created_at": now,
@@ -704,6 +719,27 @@ class FakeBoard:
             return self._topics_list(body, caller["scopes"], now)
         if operation == "tasks.list":
             return self._tasks_list(body, now)
+        if operation == "cancel":
+            origin_id = cast(str, body["origin_id"])
+            task = (
+                next(
+                    (
+                        task
+                        for task in self._tasks.values()
+                        if task["origin_id"] == origin_id and task["topic"] == topic
+                    ),
+                    None,
+                )
+                if origin_id in self._roots
+                else None
+            )
+            if task is None:
+                return _failure("not_found")
+            if task["creator"] != identity:
+                return _failure("forbidden")
+            del self._tasks[task["id"]]
+            self._roots.remove(origin_id)
+            return _success({"ok": True})
         task = self._tasks.get(cast(str, body["id"]))
         if task is None or task["topic"] != topic:
             return _failure("not_found")
@@ -729,14 +765,18 @@ class FakeBoard:
                     "forbidden", "Task lease is newer than the deletion cutoff"
                 )
             del self._tasks[task["id"]]
+            self._roots.discard(task["origin_id"])
             return _success({"ok": True})
         # Every successor is validated and authorized before changing any state.
         targets = cast(list[p.NewTask], body["tasks"])
         ids = [
-            self._insert(target["topic"], target["data"], identity, now)
+            self._insert(
+                target["topic"], target["data"], identity, now, task["origin_id"]
+            )
             for target in targets
         ]
         del self._tasks[task["id"]]
+        self._roots.discard(task["origin_id"])
         self._wake()
         return _success({"ok": True, "ids": ids})
 
@@ -803,6 +843,7 @@ class FakeBoard:
         summaries: list[p.TaskSummary] = [
             {
                 "id": task["id"],
+                "origin_id": task["origin_id"],
                 "created_at": task["created_at"],
                 "lease_until": task["lease_until"],
                 "owned_count": task["owned_count"],

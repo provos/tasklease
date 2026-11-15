@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tasklease.dev/schema/ops/cancel.json",
+  "title": "Cancel",
+  "description": "POST /v1/cancel. Cancels the initial task across Own rotations; failures use common ErrorResponse.",
+  "$defs": {
+    "Request": {
+      "title": "CancelRequest",
+      "type": "object",
+      "properties": {
+        "domain": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
+        },
+        "topic": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TopicName"
+        },
+        "origin_id": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
+        }
+      },
+      "required": ["domain", "topic", "origin_id"],
+      "additionalProperties": false
+    },
+    "Response": {
+      "title": "CancelResponse",
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        }
+      },
+      "required": ["ok"],
+      "additionalProperties": false
+    }
+  }
+}

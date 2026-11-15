@@ -453,6 +453,42 @@ describe("HTTP authorization", () => {
     ).toBe(200);
   });
 
+  it("lets a creator cancel after Own without topic scopes, but still requires domain membership", async () => {
+    const { token, domain } = await provision({
+      scopes: { create: ["work"], own: [], read: [] },
+    });
+    const created = await (
+      await post("create", { domain, topic: "work", data: {} }, token)
+    ).json<CreateResponse>();
+    const holder = await provision({
+      domains: [domain],
+      scopes: { create: [], own: ["work"], read: [] },
+    });
+    expect(
+      (
+        await post(
+          "own",
+          { domain, topic: "work", hold_seconds: 60 },
+          holder.token,
+        )
+      ).status,
+    ).toBe(200);
+    const request = { domain, topic: "work", origin_id: created.id };
+    await expectError(
+      await post("cancel", request, holder.token),
+      403,
+      "forbidden",
+    );
+    const outsider = await provision({ operator: true });
+    await expectError(
+      await post("cancel", request, outsider.token),
+      403,
+      "forbidden",
+    );
+    expect((await post("cancel", request, token)).status).toBe(200);
+    await expectError(await post("cancel", request, token), 404, "not_found");
+  });
+
   it("requires domain-level blob capability before signing", async () => {
     const { token, domain } = await provision({
       scopes: { create: [], own: [], read: [] },

@@ -208,9 +208,20 @@ class Service:
                 200, json={"ok": True, "name": body["name"], "token": "identity-token"}
             )
         if operation == "create":
-            return httpx.Response(200, json={"ok": True, "id": "created-id"})
+            return httpx.Response(
+                200, json={"ok": True, "id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAV"}
+            )
         if operation == "own":
-            return httpx.Response(200, json={"ok": True, "task": {"id": "owned-id"}})
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "task": {
+                        "id": "owned-id",
+                        "origin_id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+                    },
+                },
+            )
         if operation == "consume":
             assert body["id"] == "owned-id" and body["tasks"] == []
             return httpx.Response(200, json={"ok": True, "ids": []})

@@ -7,7 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import NoReturn, cast
+from typing import Literal, NoReturn, cast
 
 import httpx
 import pytest
@@ -54,6 +54,7 @@ def reply(
     *,
     task_id: str = REPLY_ID,
     topic: str = REPLY_TOPIC,
+    origin_id: str = TASK_ID,
 ) -> httpx.Response:
     return httpx.Response(
         200,
@@ -61,6 +62,7 @@ def reply(
             "ok": True,
             "task": {
                 "id": task_id,
+                "origin_id": origin_id,
                 "domain": DOMAIN,
                 "topic": topic,
                 "created_at": 2_000_000_000_000,
@@ -75,10 +77,8 @@ def reply(
     )
 
 
-def request_args(
-    request_id: str | None = "request-1", *, data: str = '{"input":"hello"}'
-) -> list[str]:
-    args = [
+def request_args(*, data: str = '{"input":"hello"}') -> list[str]:
+    return [
         "request",
         "--domain",
         DOMAIN,
@@ -89,9 +89,6 @@ def request_args(
         "--data",
         data,
     ]
-    if request_id is not None:
-        args.extend(["--request-id", request_id])
-    return args
 
 
 @dataclass
@@ -104,8 +101,8 @@ class CLI:
     def run(self, args: Sequence[str]) -> int:
         return main(["--config", str(self.config), *args])
 
-    def record_path(self, request_id: str = "request-1") -> Path:
-        return self.root / "requests" / hashed(AGENT) / f"{hashed(request_id)}.json"
+    def record_path(self, origin_id: str = TASK_ID) -> Path:
+        return self.root / "requests" / hashed(AGENT) / f"{origin_id}.json"
 
 
 @pytest.fixture
@@ -141,7 +138,7 @@ def cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CLI:
     return command
 
 
-def test_request_publishes_complete_record_before_create_and_preserves_global_flags(
+def test_request_creates_before_saving_and_preserves_global_flags(
     cli: CLI, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     data_file = tmp_path / "request.json"
@@ -151,14 +148,7 @@ def test_request_publishes_complete_record_before_create_and_preserves_global_fl
 
     def respond(request: httpx.Request) -> httpx.Response:
         assert operation(request) == "create"
-        saved = cast(
-            dict[str, object], json.loads(cli.record_path().read_text(encoding="utf-8"))
-        )
-        assert saved["data"] == body(request)["data"]
-        assert saved["domain"] == DOMAIN
-        assert saved["topic"] == TOPIC
-        assert saved["reply_topic"] == REPLY_TOPIC
-        assert not cli.record_path().with_suffix(".task.json").exists()
+        assert not cli.record_path().exists()
         return httpx.Response(200, json={"ok": True, "id": TASK_ID})
 
     cli.respond = respond
@@ -176,11 +166,7 @@ def test_request_publishes_complete_record_before_create_and_preserves_global_fl
     )
     captured = capsys.readouterr()
     assert captured.err == ""
-    assert json.loads(captured.out) == {
-        "request_id": "request-1",
-        "task_id": TASK_ID,
-        "state": "pending",
-    }
+    assert json.loads(captured.out) == {"origin_id": TASK_ID, "state": "pending"}
     assert cli.requests[0].url.host == "global.example"
     assert cli.requests[0].headers["x-worker"] == "requester-7"
     assert body(cli.requests[0]) == {
@@ -189,10 +175,361 @@ def test_request_publishes_complete_record_before_create_and_preserves_global_fl
         "data": {
             "input": {"items": [1, None, True]},
             "text": "héllo",
-            "request_id": "request-1",
             "reply_topic": REPLY_TOPIC,
         },
     }
+    assert (
+        json.loads(cli.record_path().read_text())["data"]
+        == body(cli.requests[0])["data"]
+    )
+
+
+def test_wait_drains_other_origins_and_reads_its_answer_after_restart(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replies = [
+        reply(
+            {"request_id": TASK_ID, "result": "unsolicited"},
+            task_id=OTHER_ID,
+            origin_id=OTHER_ID,
+        ),
+        reply({"answer": "done"}),
+        empty(),
+    ]
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if operation(request) == "create":
+            return httpx.Response(200, json={"ok": True, "id": TASK_ID})
+        if operation(request) == "own":
+            return replies.pop(0)
+        assert operation(request) == "delete"
+        assert any(
+            record.task_id == body(request)["id"] for record in Store(AGENT).inbox()
+        )
+        return httpx.Response(200, json={"ok": True})
+
+    cli.respond = respond
+    assert cli.run([*request_args(), "--wait", "--timeout", "1s"]) == 0
+    delivered = json.loads(capsys.readouterr().out)
+    assert delivered == {
+        "origin_id": TASK_ID,
+        "data": {"answer": "done"},
+        "creator": "linux-1",
+    }
+    assert {
+        body(request)["id"]
+        for request in cli.requests
+        if operation(request) == "delete"
+    } == {REPLY_ID, OTHER_ID}
+    cli.requests.clear()
+    cli.respond = unexpected
+    assert cli.run(["wait", "--origin-id", TASK_ID]) == 0
+    assert json.loads(capsys.readouterr().out) == delivered
+    assert cli.requests == []
+    assert cli.run(["inbox"]) == 0
+    records = json.loads(capsys.readouterr().out)["replies"]
+    assert len(records) == 2
+    assert {record["origin_id"]: record["matched"] for record in records} == {
+        TASK_ID: True,
+        OTHER_ID: False,
+    }
+
+
+@pytest.mark.parametrize("failure", ["old_service", "protocol", "interrupt"])
+def test_wait_failure_reports_the_saved_origin_and_recovery(
+    cli: CLI, capsys: pytest.CaptureFixture[str], failure: str
+) -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        if operation(request) == "create":
+            return httpx.Response(200, json={"ok": True, "id": TASK_ID})
+        if operation(request) == "version":
+            return httpx.Response(
+                200, json={"service_version": "0.3.0", "protocol": "v1"}
+            )
+        assert operation(request) == "own"
+        if failure == "old_service":
+            return httpx.Response(
+                400,
+                json={
+                    "ok": False,
+                    "error": {"code": "invalid", "message": "Invalid request body"},
+                },
+            )
+        if failure == "interrupt":
+            raise KeyboardInterrupt
+        return httpx.Response(200, content=b"invalid JSON")
+
+    cli.respond = respond
+    assert cli.run([*request_args(), "--wait"]) == (
+        130 if failure == "interrupt" else 1
+    )
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == {"origin_id": TASK_ID, "state": "pending"}
+    assert f"tl wait --origin-id {TASK_ID}" in captured.err
+    assert Store(AGENT).request(TASK_ID) is not None
+
+
+@pytest.mark.parametrize("interrupt", [False, True])
+def test_uncertain_create_has_no_invented_origin_or_local_record(
+    cli: CLI, capsys: pytest.CaptureFixture[str], interrupt: bool
+) -> None:
+    def lose(request: httpx.Request) -> NoReturn:
+        if interrupt:
+            raise KeyboardInterrupt
+        raise httpx.ReadTimeout("reply lost", request=request)
+
+    cli.respond = lose
+    assert cli.run(request_args()) == (130 if interrupt else 1)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "--resend" not in captured.err
+    assert Store(AGENT).requests() == []
+    assert len(cli.requests) == 1
+
+
+def test_local_save_failure_reports_known_origin_and_stateless_cancel_hint(
+    cli: CLI, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tasklease import fsio
+
+    original = fsio.publish_new
+
+    def publish(path: Path, data: bytes) -> Literal["created", "exists"]:
+        if path == cli.record_path():
+            raise OSError("private disk diagnostic")
+        return original(path, data)
+
+    monkeypatch.setattr(fsio, "publish_new", publish)
+    cli.respond = lambda request: httpx.Response(200, json={"ok": True, "id": TASK_ID})
+    assert cli.run(request_args()) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert TASK_ID in captured.err
+    assert (
+        f"tl cancel --domain {DOMAIN} --topic {TOPIC} --origin-id {TASK_ID}"
+        in captured.err
+    )
+    assert "private disk diagnostic" not in captured.err
+
+
+def test_reply_read_failure_reports_wait_recovery_instead_of_failed_save(
+    cli: CLI, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tasklease import fsio
+
+    original = fsio.read_json
+    reply_path = cli.root / "replies" / hashed(AGENT) / f"{TASK_ID}.json"
+
+    def read(path: Path) -> object:
+        if path == reply_path:
+            raise PermissionError("private filesystem diagnostic")
+        return original(path)
+
+    monkeypatch.setattr(fsio, "read_json", read)
+    cli.respond = lambda request: httpx.Response(200, json={"ok": True, "id": TASK_ID})
+    assert cli.run(request_args()) == 1
+    captured = capsys.readouterr()
+    assert "was saved" in captured.err
+    assert f"tl wait --origin-id {TASK_ID}" in captured.err
+    assert "tl cancel" not in captured.err and "private" not in captured.err
+    assert cli.record_path().exists()
+    assert len(cli.requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("origin_id", "topic"), [("invalid", TOPIC), (TASK_ID, "invalid//topic")]
+)
+def test_direct_cancel_validates_coordinates_before_configuration_or_network(
+    cli: CLI, capsys: pytest.CaptureFixture[str], origin_id: str, topic: str
+) -> None:
+    cli.config.write_text("invalid TOML =")
+    assert cli.run(["cancel", "--origin-id", origin_id, "--topic", topic]) == 1
+    assert "must be a valid" in capsys.readouterr().err
+    assert cli.requests == [] and not cli.root.exists()
+
+
+@pytest.mark.parametrize("not_found", [False, True])
+def test_cancel_uses_saved_origin_and_retains_record_on_not_found(
+    cli: CLI, capsys: pytest.CaptureFixture[str], not_found: bool
+) -> None:
+    cli.respond = lambda request: httpx.Response(200, json={"ok": True, "id": TASK_ID})
+    assert cli.run(request_args()) == 0
+    capsys.readouterr()
+    cli.config.write_text(
+        f'url="https://changed.example"\ndomain="other"\nagent_id="{AGENT}"'
+    )
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert operation(request) == "cancel"
+        assert body(request) == {"domain": DOMAIN, "topic": TOPIC, "origin_id": TASK_ID}
+        if not_found:
+            return httpx.Response(
+                404,
+                json={
+                    "ok": False,
+                    "error": {"code": "not_found", "message": "Task absent"},
+                },
+            )
+        return httpx.Response(200, json={"ok": True})
+
+    cli.respond = respond
+    assert cli.run(["cancel", "--origin-id", TASK_ID]) == int(not_found)
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["cancelled"] is not not_found
+    assert cli.record_path().exists() is not_found
+    assert not cli.record_path().with_suffix(".task.json").exists()
+
+
+@pytest.mark.parametrize("not_found", [False, True])
+def test_direct_cancel_needs_no_agent_or_local_store(
+    cli: CLI, capsys: pytest.CaptureFixture[str], not_found: bool
+) -> None:
+    cli.config.write_text(f'url="https://file.example"\ndomain="{DOMAIN}"')
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert operation(request) == "cancel"
+        assert body(request) == {"domain": DOMAIN, "topic": TOPIC, "origin_id": TASK_ID}
+        if not_found:
+            return httpx.Response(
+                404,
+                json={
+                    "ok": False,
+                    "error": {"code": "not_found", "message": "Task absent"},
+                },
+            )
+        return httpx.Response(200, json={"ok": True})
+
+    cli.respond = respond
+    assert cli.run(["cancel", "--origin-id", TASK_ID, "--topic", TOPIC]) == int(
+        not_found
+    )
+    assert json.loads(capsys.readouterr().out)["origin_id"] == TASK_ID
+    assert not cli.root.exists()
+
+
+def test_cancel_domain_override_requires_topic(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.run(["cancel", "--origin-id", TASK_ID, "--domain", DOMAIN]) == 1
+    assert "--domain requires --topic" in capsys.readouterr().err
+    assert cli.requests == []
+
+
+@pytest.mark.parametrize("flag", ["--request-id", "--resend"])
+def test_removed_submission_flags_are_rejected(cli: CLI, flag: str) -> None:
+    with pytest.raises(SystemExit) as error:
+        cli.run([*request_args(), flag, "legacy"])
+    assert error.value.code == 2
+    assert cli.requests == []
+
+
+def test_timeout_preserves_request_for_a_later_wait(
+    cli: CLI, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    now = 0.0
+
+    def sleep(seconds: float) -> None:
+        nonlocal now
+        now += seconds
+
+    monkeypatch.setattr("tasklease.store.time.monotonic", lambda: now)
+    monkeypatch.setattr("tasklease.store.time.sleep", sleep)
+    cli.respond = lambda request: (
+        httpx.Response(200, json={"ok": True, "id": TASK_ID})
+        if operation(request) == "create"
+        else empty()
+    )
+    assert cli.run([*request_args(), "--wait", "--timeout", "1s"]) == 3
+    assert json.loads(capsys.readouterr().out) == {
+        "origin_id": TASK_ID,
+        "timed_out": True,
+    }
+    replies = [reply({"answer": "later"}), empty()]
+    cli.respond = lambda request: (
+        replies.pop(0)
+        if operation(request) == "own"
+        else httpx.Response(200, json={"ok": True})
+    )
+    cli.requests.clear()
+    assert cli.run(["wait", "--origin-id", TASK_ID, "--timeout", "1s"]) == 0
+    assert json.loads(capsys.readouterr().out)["data"]["answer"] == "later"
+    assert all(operation(request) != "create" for request in cli.requests)
+    assert cli.record_path().exists()
+
+
+def test_all_agent_inbox_and_prune_need_no_configuration_or_credentials(
+    cli: CLI, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    now = 2_000_000_000.0 - 8 * 86400
+    monkeypatch.setattr("tasklease.store.time.time", lambda: now)
+
+    def populate(agent: str, origin: str, *, unsolicited: bool = False) -> None:
+        topic = f"reply/{agent}"
+        replies = [reply({"answer": "ok"}, topic=topic, origin_id=origin)]
+        if unsolicited:
+            replies.append(
+                reply(
+                    {"message": "peer"},
+                    task_id=OTHER_ID,
+                    topic=topic,
+                    origin_id=OTHER_ID,
+                )
+            )
+        replies.append(empty())
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            if operation(request) == "create":
+                return httpx.Response(200, json={"ok": True, "id": origin})
+            if operation(request) == "own":
+                return replies.pop(0)
+            return httpx.Response(200, json={"ok": True})
+
+        with Client(
+            "https://service.example",
+            "tl_token",
+            transport=httpx.MockTransport(respond),
+        ) as api:
+            store = Store(agent)
+            store.submit(api, DOMAIN, TOPIC, topic, {})
+            store.drain(api, DOMAIN, topic)
+
+    populate(AGENT, TASK_ID, unsolicited=True)
+    now += 8 * 86400
+    populate("agent-b", REPLY_ID)
+    cli.config.write_text("This is not valid TOML =")
+    monkeypatch.delenv("TL_TOKEN")
+    assert cli.run(["inbox", "--all"]) == 0
+    records = json.loads(capsys.readouterr().out)["replies"]
+    assert len(records) == 3 and any(not record["matched"] for record in records)
+    assert cli.run(["inbox", "--all", "--prune"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["pruned"] >= 3
+    assert len(result["replies"]) == 1
+    assert result["replies"][0]["agent_id"] == "agent-b"
+    assert Store(AGENT).requests() == [] and Store(AGENT).inbox() == []
+    assert cli.requests == []
+
+
+def test_corrupt_existing_reply_is_never_acknowledged(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli.respond = lambda request: httpx.Response(200, json={"ok": True, "id": TASK_ID})
+    assert cli.run(request_args()) == 0
+    capsys.readouterr()
+    with Client(
+        "https://service.example",
+        "tl_token",
+        transport=httpx.MockTransport(lambda request: empty()),
+    ) as api:
+        Store(AGENT).drain(api, DOMAIN, REPLY_TOPIC)
+    corrupt = cli.root / "replies" / hashed(AGENT) / f"{OTHER_ID}.json"
+    corrupt.write_text("{")
+    cli.requests.clear()
+    cli.respond = lambda request: reply({"answer": "new"}, origin_id=OTHER_ID)
+    assert cli.run(["wait", "--origin-id", TASK_ID, "--timeout", "1s"]) == 1
+    assert "local requester state" in capsys.readouterr().err
+    assert [operation(request) for request in cli.requests] == ["own"]
+    assert corrupt.read_text() == "{"
 
 
 def test_non_utf8_data_file_is_rejected_before_publication(
@@ -208,199 +545,6 @@ def test_non_utf8_data_file_is_rejected_before_publication(
     assert not cli.record_path().exists()
 
 
-def test_request_wait_drains_unmatched_replies_and_wait_survives_restart(
-    cli: CLI, capsys: pytest.CaptureFixture[str]
-) -> None:
-    replies = [
-        reply({"request_id": 12, "problem": "no correlation"}, task_id=OTHER_ID),
-        reply({"request_id": "request-1", "answer": "done"}),
-        empty(),
-    ]
-
-    def respond(request: httpx.Request) -> httpx.Response:
-        if operation(request) == "create":
-            return httpx.Response(200, json={"ok": True, "id": TASK_ID})
-        if operation(request) == "own":
-            assert body(request) == {
-                "domain": DOMAIN,
-                "topic": REPLY_TOPIC,
-                "hold_seconds": 60,
-            }
-            return replies.pop(0)
-        assert operation(request) == "delete"
-        saved = Store(AGENT).inbox()
-        assert any(record.task_id == body(request)["id"] for record in saved)
-        return httpx.Response(200, json={"ok": True})
-
-    cli.respond = respond
-    assert cli.run([*request_args(), "--wait", "--timeout", "1s"]) == 0
-    delivered = json.loads(capsys.readouterr().out)
-    assert delivered == {
-        "request_id": "request-1",
-        "data": {"request_id": "request-1", "answer": "done"},
-        "creator": "linux-1",
-    }
-    assert all(response.status_code == 404 for response in replies)
-    assert {
-        body(request)["id"]
-        for request in cli.requests
-        if operation(request) == "delete"
-    } == {REPLY_ID, OTHER_ID}
-    cli.requests.clear()
-    cli.respond = unexpected
-    assert cli.run(["wait", "--request-id", "request-1"]) == 0
-    assert json.loads(capsys.readouterr().out) == delivered
-    assert cli.requests == []
-    assert cli.record_path().exists()
-    assert cli.run(["inbox"]) == 0
-    inbox = cast(dict[str, object], json.loads(capsys.readouterr().out))
-    records = inbox["replies"]
-    assert isinstance(records, list)
-    assert len(records) == 2
-    assert any(record["data"]["request_id"] == 12 for record in records)
-
-
-@pytest.mark.parametrize("failure", ["old_service", "protocol", "interrupt"])
-@pytest.mark.parametrize("resend", [False, True])
-def test_wait_failure_prints_saved_generated_id_and_recovery(
-    cli: CLI, capsys: pytest.CaptureFixture[str], failure: str, resend: bool
-) -> None:
-    request_id: str | None = None
-    if resend:
-
-        def lose_create(request: httpx.Request) -> NoReturn:
-            raise httpx.ReadError("Create response lost", request=request)
-
-        cli.respond = lose_create
-        assert cli.run(request_args(None)) == 1
-        request_id = json.loads(capsys.readouterr().out)["request_id"]
-
-    def respond(request: httpx.Request) -> httpx.Response:
-        if operation(request) == "create":
-            return httpx.Response(200, json={"ok": True, "id": TASK_ID})
-        if operation(request) == "version":
-            return httpx.Response(
-                200, json={"service_version": "0.3.0", "protocol": "v1"}
-            )
-        assert operation(request) == "own"
-        if failure == "old_service":
-            # A service from before long-poll rejects the new field.
-            return httpx.Response(
-                400,
-                json={
-                    "ok": False,
-                    "error": {"code": "invalid", "message": "Invalid request body"},
-                },
-            )
-        if failure == "interrupt":
-            raise KeyboardInterrupt
-        return httpx.Response(200, content=b"invalid JSON")
-
-    cli.respond = respond
-    args = ["request", "--resend", request_id] if request_id else request_args(None)
-    assert cli.run([*args, "--wait"]) == (130 if failure == "interrupt" else 1)
-    captured = capsys.readouterr()
-    status = json.loads(captured.out)
-    saved = Store(AGENT).requests()
-    assert len(saved) == 1 and saved[0].state == "pending"
-    assert status == {
-        "request_id": saved[0].request_id,
-        "task_id": TASK_ID,
-        "state": "pending",
-    }
-    assert f"tl wait --request-id {saved[0].request_id}" in captured.err
-    if failure == "old_service":
-        assert "version 0.3.0" in captured.err
-        assert "wait_seconds = 0" in captured.err
-    assert "Submission outcome is unknown" not in captured.err
-    assert "--resend" not in captured.err
-
-
-@pytest.mark.parametrize("interrupt", [False, True])
-def test_uncertain_create_prints_generated_id_and_resend_uses_exact_saved_payload(
-    cli: CLI, capsys: pytest.CaptureFixture[str], interrupt: bool
-) -> None:
-    def lose_response(request: httpx.Request) -> NoReturn:
-        assert operation(request) == "create"
-        if interrupt:
-            raise KeyboardInterrupt
-        raise httpx.ReadTimeout("reply lost", request=request)
-
-    cli.respond = lose_response
-    assert cli.run(request_args(None)) == (130 if interrupt else 1)
-    captured = capsys.readouterr()
-    unknown = cast(dict[str, object], json.loads(captured.out))
-    request_id = unknown["request_id"]
-    assert isinstance(request_id, str)
-    assert len(request_id) == 32
-    assert unknown == {
-        "request_id": request_id,
-        "task_id": None,
-        "state": "submission_unknown",
-    }
-    assert "tl wait" in captured.err
-    assert "--resend" in captured.err
-    assert "Cancellation is unavailable" in captured.err
-    saved = cli.record_path(request_id).read_bytes()
-    original_wire = cli.requests[0].content
-
-    cli.requests.clear()
-    cli.respond = unexpected
-    assert cli.run(["cancel", "--request-id", request_id]) == 1
-    assert "no saved task ID" in capsys.readouterr().err
-    assert cli.requests == []
-
-    cli.config.write_text(
-        f'url="https://new.example"\ndomain="other"\nagent_id="{AGENT}"'
-    )
-    cli.respond = lambda request: httpx.Response(200, json={"ok": True, "id": TASK_ID})
-    assert cli.run(["request", "--resend", request_id]) == 0
-    assert cli.requests[0].content == original_wire
-    assert cli.record_path(request_id).read_bytes() == saved
-    assert json.loads(capsys.readouterr().out)["state"] == "pending"
-    cli.requests.clear()
-    assert cli.run(["request", "--resend", request_id]) == 1
-    assert "pending" in capsys.readouterr().err.lower()
-    assert cli.requests == []
-
-
-@pytest.mark.parametrize("not_found", [False, True])
-def test_cancel_uses_saved_task_and_retains_record_when_task_was_taken_or_removed(
-    cli: CLI, capsys: pytest.CaptureFixture[str], not_found: bool
-) -> None:
-    cli.respond = lambda request: httpx.Response(200, json={"ok": True, "id": TASK_ID})
-    assert cli.run(request_args()) == 0
-    capsys.readouterr()
-    cli.requests.clear()
-    cli.config.write_text(
-        f'url="https://changed.example"\ndomain="other"\nagent_id="{AGENT}"'
-    )
-
-    def respond(request: httpx.Request) -> httpx.Response:
-        assert operation(request) == "delete"
-        assert body(request) == {"domain": DOMAIN, "topic": TOPIC, "id": TASK_ID}
-        if not_found:
-            return httpx.Response(
-                404,
-                json={
-                    "ok": False,
-                    "error": {"code": "not_found", "message": "Task absent"},
-                },
-            )
-        return httpx.Response(200, json={"ok": True})
-
-    cli.respond = respond
-    assert cli.run(["cancel", "--request-id", "request-1"]) == int(not_found)
-    captured = capsys.readouterr()
-    assert json.loads(captured.out)["cancelled"] is not not_found
-    assert cli.record_path().exists() is not_found
-    assert cli.record_path().with_suffix(".task.json").exists() is not_found
-    if not_found:
-        assert "taken or removed" in captured.err
-    else:
-        assert captured.err == ""
-
-
 @pytest.mark.parametrize(
     "data",
     [
@@ -408,7 +552,6 @@ def test_cancel_uses_saved_task_and_retains_record_when_task_was_taken_or_remove
         "null",
         "{",
         '{"x":NaN}',
-        '{"request_id":"other"}',
         '{"reply_topic":"other"}',
     ],
 )
@@ -450,186 +593,11 @@ def test_request_agent_environment_and_domain_configuration(
     assert json.loads(capsys.readouterr().out)["state"] == "pending"
 
 
-def test_empty_supplied_request_id_is_rejected_without_replacement(
-    cli: CLI, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert cli.run(request_args("")) == 1
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "request_id" in captured.err
-    assert cli.requests == []
-    assert Store(AGENT).requests() == []
-
-
-def test_resend_rejects_payload_options_without_network(
-    cli: CLI, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert cli.run(["request", "--resend", "saved", "--data", "{} "]) == 1
-    assert "uses the saved request" in capsys.readouterr().err
-    assert cli.requests == []
-
-
-@pytest.mark.parametrize("unknown", [False, True])
-def test_timeout_preserves_request_for_later_wait_without_real_sleeps(
-    cli: CLI,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    unknown: bool,
-) -> None:
-    now = 0.0
-    sleeps: list[float] = []
-
-    def monotonic() -> float:
-        return now
-
-    def sleep(seconds: float) -> None:
-        nonlocal now
-        assert 0 < seconds <= 1
-        sleeps.append(seconds)
-        now += seconds
-
-    monkeypatch.setattr("tasklease.store.time.monotonic", monotonic)
-    monkeypatch.setattr("tasklease.store.time.sleep", sleep)
-
-    def respond(request: httpx.Request) -> httpx.Response:
-        if operation(request) == "create":
-            if unknown:
-                raise httpx.ReadTimeout("lost Create response", request=request)
-            return httpx.Response(200, json={"ok": True, "id": TASK_ID})
-        assert operation(request) == "own"
-        assert body(request)["domain"] == DOMAIN
-        assert body(request)["topic"] == REPLY_TOPIC
-        return empty()
-
-    cli.respond = respond
-    if unknown:
-        assert cli.run(request_args()) == 1
-        capsys.readouterr()
-        cli.config.write_text(
-            f'url="https://file.example"\ndomain="changed"\nagent_id="{AGENT}"'
-        )
-        args = ["wait", "--request-id", "request-1", "--timeout", "1s"]
-    else:
-        args = [*request_args(), "--wait", "--timeout", "1s"]
-    assert cli.run(args) == 3
-    captured = capsys.readouterr()
-    assert json.loads(captured.out) == {"request_id": "request-1", "timed_out": True}
-    assert "request-1" in captured.err
-    assert sleeps
-    record = Store(AGENT).request("request-1")
-    assert record is not None
-    assert record.state == ("submission_unknown" if unknown else "pending")
-    assert all(operation(request) in {"create", "own"} for request in cli.requests)
-
-    replies = [reply({"request_id": "request-1", "answer": "later"}), empty()]
-
-    def later(request: httpx.Request) -> httpx.Response:
-        if operation(request) == "own":
-            return replies.pop(0)
-        assert operation(request) == "delete"
-        return httpx.Response(200, json={"ok": True})
-
-    cli.requests.clear()
-    cli.respond = later
-    assert cli.run(["wait", "--request-id", "request-1", "--timeout", "1s"]) == 0
-    assert json.loads(capsys.readouterr().out)["data"]["answer"] == "later"
-    assert all(operation(request) != "create" for request in cli.requests)
-    assert cli.record_path().exists()
-
-
-def test_all_agent_inbox_and_prune_need_no_configuration_or_credentials(
-    cli: CLI, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    now = 2_000_000_000.0 - 8 * 86400
-    monkeypatch.setattr("tasklease.store.time.time", lambda: now)
-
-    def populate(agent_id: str, request_id: str, *, unmatched: bool = False) -> None:
-        topic = f"reply/{agent_id}"
-        replies = [reply({"request_id": request_id, "answer": "ok"}, topic=topic)]
-        if unmatched:
-            replies.append(
-                reply({"problem": "missing ID"}, task_id=OTHER_ID, topic=topic)
-            )
-        replies.append(empty())
-
-        def respond(request: httpx.Request) -> httpx.Response:
-            if operation(request) == "create":
-                return httpx.Response(200, json={"ok": True, "id": TASK_ID})
-            if operation(request) == "own":
-                return replies.pop(0)
-            assert operation(request) == "delete"
-            return httpx.Response(200, json={"ok": True})
-
-        with Client(
-            "https://service.example",
-            "tl_token",
-            transport=httpx.MockTransport(respond),
-        ) as api:
-            store = Store(agent_id)
-            store.submit(api, DOMAIN, TOPIC, topic, {"input": "hello"}, request_id)
-            store.drain(api, DOMAIN, topic)
-        assert not replies
-
-    populate(AGENT, "old", unmatched=True)
-    now += 8 * 86400
-    populate("agent-b", "fresh")
-    cli.config.write_text("This is not valid TOML =")
-    monkeypatch.delenv("TL_TOKEN")
-    monkeypatch.setenv("TL_AGENT_ID", "invalid/agent")
-    monkeypatch.setenv("TL_URL", "invalid URL")
-    assert cli.run(["inbox", "--all"]) == 0
-    captured = capsys.readouterr()
-    assert captured.err == ""
-    records = json.loads(captured.out)["replies"]
-    assert len(records) == 3
-    assert {record["agent_id"] for record in records} == {AGENT, "agent-b"}
-    assert any(record["request_id"] is None for record in records)
-    assert cli.requests == []
-
-    assert cli.run(["inbox", "--all", "--prune"]) == 0
-    pruned = json.loads(capsys.readouterr().out)
-    assert pruned["pruned"] >= 4
-    assert len(pruned["replies"]) == 1
-    assert pruned["replies"][0]["agent_id"] == "agent-b"
-    assert Store(AGENT).requests() == []
-    assert Store(AGENT).inbox() == []
-    assert Store("agent-b").request("fresh") is not None
-    assert cli.requests == []
-
-
-def test_corrupt_existing_reply_is_never_acknowledged(
-    cli: CLI, capsys: pytest.CaptureFixture[str]
-) -> None:
-    cli.respond = lambda request: httpx.Response(200, json={"ok": True, "id": TASK_ID})
-    assert cli.run(request_args()) == 0
-    capsys.readouterr()
-    with Client(
-        "https://service.example",
-        "tl_token",
-        transport=httpx.MockTransport(lambda request: empty()),
-    ) as api:
-        Store(AGENT).drain(api, DOMAIN, REPLY_TOPIC)
-    corrupt = cli.root / "replies" / hashed(AGENT) / f"{hashed('other')}.json"
-    corrupt.write_text("{")
-    cli.requests.clear()
-    cli.respond = lambda request: reply({"request_id": "other", "answer": "new"})
-    assert cli.run(["wait", "--request-id", "request-1", "--timeout", "1s"]) == 1
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "local requester state" in captured.err
-    assert [operation(request) for request in cli.requests] == ["own"]
-    assert corrupt.read_text() == "{"
-    cli.requests.clear()
-    assert cli.run(["inbox"]) == 1
-    assert capsys.readouterr().out == ""
-    assert cli.requests == []
-
-
 def test_wait_seconds_flag_controls_the_own_request(
     cli: CLI, capsys: pytest.CaptureFixture[str]
 ) -> None:
     owns: list[dict[str, object]] = []
-    replies = [reply({"request_id": "request-1", "answer": "done"}), empty()]
+    replies = [reply({"answer": "done"}), empty()]
 
     def respond(request: httpx.Request) -> httpx.Response:
         if operation(request) == "create":
@@ -646,7 +614,7 @@ def test_wait_seconds_flag_controls_the_own_request(
         == 0
     )
     assert owns[0]["wait_seconds"] == 12
-    assert json.loads(capsys.readouterr().out)["request_id"] == "request-1"
+    assert json.loads(capsys.readouterr().out)["origin_id"] == TASK_ID
 
 
 def test_config_wait_seconds_disables_the_requester_long_poll(
@@ -656,7 +624,7 @@ def test_config_wait_seconds_disables_the_requester_long_poll(
     with cli.config.open("a") as config:
         config.write('wait_seconds = "off"\n')
     owns: list[dict[str, object]] = []
-    replies = [reply({"request_id": "request-1", "answer": "done"}), empty()]
+    replies = [reply({"answer": "done"}), empty()]
 
     def respond(request: httpx.Request) -> httpx.Response:
         if operation(request) == "create":
@@ -670,7 +638,7 @@ def test_config_wait_seconds_disables_the_requester_long_poll(
     cli.respond = respond
     assert cli.run([*request_args(), "--wait", "--timeout", "1m"]) == 0
     assert "wait_seconds" not in owns[0]
-    assert json.loads(capsys.readouterr().out)["request_id"] == "request-1"
+    assert json.loads(capsys.readouterr().out)["origin_id"] == TASK_ID
 
 
 def test_request_without_wait_ignores_the_wait_setting(

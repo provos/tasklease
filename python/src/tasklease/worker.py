@@ -44,6 +44,18 @@ class UnlimitedCapacity:
         return nullcontext()
 
 
+type LeaseLossReason = Literal["not_found", "forbidden", "expired"]
+
+
+class LeaseEvent(Event):
+    """Signals lease loss, distinguishing server revocation from local expiry."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reason: LeaseLossReason | None = None
+        self.revoked = Event()
+
+
 @dataclass(frozen=True)
 class Rejection:
     """A task the handler recognizes but cannot execute."""
@@ -54,7 +66,7 @@ class Rejection:
 class Handler[Request, Outcome](Protocol):
     def validate(self, task: p.Task) -> Request | Rejection: ...
 
-    def run(self, request: Request, lost: Event) -> Outcome: ...
+    def run(self, request: Request, lost: LeaseEvent) -> Outcome: ...
 
     def reply(self, task: p.Task, outcome: Outcome) -> list[p.NewTask]: ...
 
@@ -81,13 +93,8 @@ def _reply_topic(task: p.Task) -> str | None:
         return None
 
 
-def _correlation(task: p.Task) -> p.Data:
-    value = task["data"].get("request_id")
-    return {"request_id": value} if isinstance(value, str) else {}
-
-
 class EchoHandler:
-    """An example handler that echoes a small message and request identifier."""
+    """An example handler that echoes a small message."""
 
     def validate(self, task: p.Task) -> str | Rejection:
         message = task["data"].get("message", "")
@@ -107,7 +114,7 @@ class EchoHandler:
         topic = _reply_topic(task)
         if topic is None:
             raise Invalid("Missing or invalid reply_topic")
-        return [{"topic": topic, "data": {**_correlation(task), **outcome}}]
+        return [{"topic": topic, "data": outcome}]
 
 
 def _error(error: BaseException) -> str:
@@ -176,7 +183,7 @@ class _Lease:
         self.seconds = seconds
         self.renew_every = renew_every
         self.deadline = sent + seconds
-        self.lost = Event()
+        self.lost = LeaseEvent()
         self._condition = Condition()
         self._stop_renew = Event()
         self._stop_watchdog = False
@@ -191,11 +198,21 @@ class _Lease:
         self._watcher.start()
         self._renewer.start()
 
+    def _mark_lost(self, reason: LeaseLossReason) -> None:
+        with self._condition:
+            if self.lost.is_set():
+                return
+            self.lost.reason = reason
+            if reason != "expired":
+                self.lost.revoked.set()
+            self.lost.set()
+            self._condition.notify_all()
+
     def remaining(self) -> float:
         with self._condition:
             remaining = self.deadline - time.monotonic()
             if remaining <= 0:
-                self.lost.set()
+                self._mark_lost("expired")
             return 0 if self.lost.is_set() else remaining
 
     def _watch(self) -> None:
@@ -203,7 +220,7 @@ class _Lease:
             while not self._stop_watchdog:
                 remaining = self.deadline - time.monotonic()
                 if remaining <= 0:
-                    self.lost.set()
+                    self._mark_lost("expired")
                     return
                 self._condition.wait(remaining)
 
@@ -229,15 +246,21 @@ class _Lease:
             except TransportError:
                 delay = min(1.0, self.renew_every, max(0.01, self.remaining() / 2))
                 continue
-            except TaskleaseError:
-                self.lost.set()
+            except NotFound:
+                self._mark_lost("not_found")
                 return
-            if result["task"].get("id") != self.task["id"]:
-                self.lost.set()
+            except TaskleaseError:
+                self._mark_lost("forbidden")
+                return
+            if (
+                result["task"].get("id") != self.task["id"]
+                or result["task"].get("origin_id") != self.task["origin_id"]
+            ):
+                self._mark_lost("forbidden")
                 return
             with self._condition:
                 if self.lost.is_set() or time.monotonic() >= self.deadline:
-                    self.lost.set()
+                    self._mark_lost("expired")
                     return
                 self.deadline = sent + self.seconds
                 self._condition.notify_all()
@@ -348,7 +371,7 @@ class WorkerLoop[Request, Outcome]:
                 self._consume(task, [{"topic": target, "data": data}], lease)
                 return
             except Forbidden:
-                lease.lost.set()
+                lease._mark_lost("forbidden")
                 return
             except (TooLarge, Invalid):
                 if bounded:
@@ -374,7 +397,7 @@ class WorkerLoop[Request, Outcome]:
                 replies = [
                     {
                         "topic": reply_topic,
-                        "data": {**_correlation(task), **cast(p.Data, outcome)},
+                        "data": cast(p.Data, outcome),
                     }
                 ]
             if not isinstance(replies, list) or len(replies) > 16:

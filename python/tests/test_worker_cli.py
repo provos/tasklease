@@ -41,6 +41,7 @@ def _owned(data: dict[str, object] | None = None) -> httpx.Response:
             "ok": True,
             "task": {
                 "id": TASK_ID,
+                "origin_id": TASK_ID,
                 "domain": DOMAIN,
                 "topic": TOPIC,
                 "created_at": 2_000_000_000_000,
@@ -147,7 +148,6 @@ def test_echo_once_uses_capacity_and_small_correlated_reply(
                 {
                     "topic": REPLY,
                     "data": {
-                        "request_id": "request-1",
                         "status": "ok",
                         "message": "hello",
                     },

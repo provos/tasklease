@@ -30,22 +30,22 @@ def test_echo_reply_survives_lost_consume_response_without_error_duplicate(
     store = Store("echo-requester", tmp_path)
     transport = LostResponse(target.transport(), "consume")
     with target.client(token) as requester:
-        store.submit(
+        record = store.submit(
             requester,
             domain,
             "work",
             "reply/echo-requester",
-            {"message": "hello from requester", "large_unused": "x" * 200_000},
-            "lost-completion",
+            {"message": "hello from requester", "large_unused": "x" * 200000},
         )
         with target.client(token, "echo-worker", transport=transport) as api:
             loop = WorkerLoop(api, domain, "work", UnlimitedCapacity(), EchoHandler())
             assert loop.step() == "worked"
             assert transport.calls == 2
             assert loop.step() == "empty"
-        reply = store.wait(requester, "lost-completion", 2, poll_interval=0.01)
+        reply = store.wait(requester, record.origin_id, 2, poll_interval=0.01)
         assert reply is not None
-        assert reply.data["request_id"] == "lost-completion"
+        assert reply.origin_id == record.origin_id
+        assert "request_id" not in reply.data
         assert reply.data["message"] == "hello from requester"
         assert "large_unused" not in reply.data
         for topic in ("reply/echo-requester", "work/error"):
@@ -65,13 +65,12 @@ def test_lost_renew_response_retries_before_short_local_deadline(
     store = Store("echo-requester", tmp_path)
     transport = LostResponse(target.transport(), "renew")
     with target.client(token) as requester:
-        store.submit(
+        record = store.submit(
             requester,
             domain,
             "work",
             "reply/echo-requester",
             {"message": "short lease"},
-            "lost-renewal",
         )
         with target.client(token, "slow-echo", transport=transport) as api:
             loop = WorkerLoop(
@@ -85,7 +84,7 @@ def test_lost_renew_response_retries_before_short_local_deadline(
             )
             assert loop.step() == "worked"
             assert transport.calls >= 2
-        reply = store.wait(requester, "lost-renewal", 2, poll_interval=0.01)
+        reply = store.wait(requester, record.origin_id, 2, poll_interval=0.01)
         assert reply is not None and reply.data["status"] == "ok"
         assert reply.data["message"] == "short lease"
 
@@ -113,6 +112,10 @@ def test_forbidden_reply_routes_original_to_automatic_error_grant(
 def test_unencodable_wire_data_drains_through_ascii_bounded_fallback(
     target: ServiceTarget, worker_identity: tuple[str, str]
 ) -> None:
+    class UnencodableEcho(EchoHandler):
+        def run(self, request: str, lost: Event) -> p.Data:
+            return {"unencodable": "\ud800"}
+
     domain, token = worker_identity
     # Escaped isolated surrogates are legal wire JSON, even though Python's
     # ordinary UTF-8 request serializer cannot send the decoded string.
@@ -137,7 +140,7 @@ def test_unencodable_wire_data_drains_through_ascii_bounded_fallback(
         )
     assert response.status_code == 200
     with target.client(token, "echo-worker") as api:
-        loop = WorkerLoop(api, domain, "work", UnlimitedCapacity(), EchoHandler())
+        loop = WorkerLoop(api, domain, "work", UnlimitedCapacity(), UnencodableEcho())
         assert loop.step() == "worked"
         assert loop.step() == "empty"
         error = api.own({"domain": domain, "topic": "work/error", "hold_seconds": 60})[

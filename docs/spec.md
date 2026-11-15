@@ -1,6 +1,6 @@
 # tasklease specification
 
-Draft 3, 2026-11-07.
+Draft 4, 2026-11-14. Origin correlation and first-stage cancellation require 0.5.0.
 
 ## 1. Purpose
 
@@ -21,12 +21,12 @@ Goals:
   hand-off.
 - Workers pull work. The service never calls a worker, and nothing has to
   reach a worker machine from outside.
-- Correlation is the caller's business. Callers put their own stable IDs in
-  the task data. Task IDs are short-lived handles that make the atomic
-  operations safe.
+- The service carries each Create's stable `origin_id` through Own and Consume.
+  Rotating task IDs fence workers; origins correlate requests and their results.
+  Application conversation and business identifiers remain opaque task data.
 
-Non-goals: push notifications to workers, cancelling a task that is already
-being worked on, workflow definitions, scheduling.
+Non-goals: push notifications to workers, cancelling an entire downstream
+workflow, workflow definitions, scheduling, or undoing external side effects.
 
 ## 2. Concepts
 
@@ -51,7 +51,7 @@ exists while it holds tasks or has recent pollers. Well-known topics declared
 by an operator (§4.12) are always listed, even when empty.
 
 **Task.** A record whose contents never change. `domain`, `topic`, `data`,
-`creator`, `created_at`, `owner`, `owned_at` and `owned_count` are fixed for as long as
+`creator`, `origin_id`, `created_at`, `owner`, `owned_at` and `owned_count` are fixed for as long as
 an ID lives. A change of owner retires the ID and posts a copy (Own). The
 only field that changes in place is `lease_until`, and only the current owner
 can change it (Renew).
@@ -59,6 +59,7 @@ can change it (Renew).
 | Field | Type | Set by |
 |---|---|---|
 | `id` | string, unique forever (`t_` + ULID) | server |
+| `origin_id` | TaskId of the original Create | server at Create; preserved by Own and Consume |
 | `domain` | domain name | Create / Consume |
 | `topic` | topic name | Create / Consume |
 | `created_at` | timestamp | server at Create / Consume; copied by Own |
@@ -85,7 +86,8 @@ otherwise. "Now" is always the server's clock. Create posts a task with
 `lease_until = now − 5 s`, so a new task is available immediately.
 
 **ID rotation.** Own retires the task's ID and posts a copy under a new ID.
-Consume and Delete retire it with no successor. Renew keeps the ID. IDs are
+Consume retires the ID and may post successors with fresh IDs. Delete and
+Cancel retire it without successors. Renew keeps the ID. IDs are
 never reused. So the ID a worker holds works as a fencing token: once a lease
 expires and another caller owns the task, the old ID is gone, and every
 Renew, Consume or Delete with it fails with `not_found`. Only Own changes who
@@ -94,6 +96,18 @@ holds a task, so only Own needs a new ID.
 **Lineage.** A task's lineage is the chain from its Create (or the Consume
 that posted it), through any Owns, to the Consume or Delete that ends it. A
 lineage ends at most once.
+
+**Origin.** Create sets `origin_id = id`; callers cannot supply it. Own and
+Renew preserve it. Consume copies the consumed task's origin onto every
+successor, including error tasks and operator moves. Only a holder (or an
+operator) can produce descendants of an existing origin. Creating a separate
+task, even with another request's ID in its data, always produces a different
+origin. Fan-out descendants share an origin and have distinct fencing IDs.
+
+**Initial task.** An internal `root` flag is set by Create, preserved by Own,
+and cleared on every Consume successor. At most one live initial task exists
+for an origin. Cancel targets only that task, including while held or lapsed;
+it never follows the origin into successor tasks.
 
 ## 3. Identity and authorization
 
@@ -154,6 +168,7 @@ so the limit leaves room for any useful glob.
 | Read, Tasks List, Topic Pollers | `read` or `own` on the topic |
 | Topics List | `read` (filtered to the topics that `read` matches) |
 | Delete | see the holder rule |
+| Cancel | original task creator or operator; domain membership required, no topic scope required |
 | Blob put URL | a non-empty `create` list on the domain |
 | Blob get URL | a non-empty `read` or `own` list on the domain |
 | Topic Declare | operator on the domain |
@@ -177,10 +192,10 @@ task. Anyone who needs tighter trust grants narrower scopes.
   been owned (`owner` is null).
 - An operator identity may do anything in its domains.
 
-So a requester can cancel its own request until a worker owns it. After that
-only the owner, or an operator, can end the lineage. "Never owned" is the
-cancellation window, not "not yet consumed": after Own, the ID the requester
-holds no longer exists.
+Delete keeps its exact-ID fence and holder rule. Separately, Cancel lets the
+creator end its initial task by origin before the first Consume, even after
+Own rotates the task ID. Workers observe removal through Renew or Consume;
+handlers can cooperate with lease revocation to stop local work.
 
 ## 4. Operations
 
@@ -212,7 +227,8 @@ writes anything.
 `create {domain, topic, data}` → `{id}`
 
 Posts a task with `lease_until = now − 5 s`, `owned_count = 0`,
-`owner = null` and `creator` = the caller.
+`owner = null`, `creator` = the caller, and `origin_id = id`. It is marked as
+the initial task internally.
 
 ### 4.2 Own
 
@@ -297,7 +313,8 @@ between listing and deletion and still have it deleted.
 Atomically, it retires `id` and posts each new task as Create would, in the
 same domain. Up to 16 new tasks. An empty array ends the lineage with no
 follow-up, which is a Delete that respects the fence. The returned `ids` are
-in the order of `tasks`.
+in the order of `tasks`. Each successor inherits the source's `origin_id`
+and is no longer an initial task, including when posted to the same topic.
 
 Errors: `not_found`, `forbidden` (not the owner, or no `create` scope on a
 target topic), `too_large`.
@@ -314,7 +331,7 @@ To cover several domains, a client calls it once per domain from
 
 ### 4.8 Tasks List
 
-`tasks.list {domain, topic, cursor?}` → `{tasks: [{id, state, created_at, lease_until, owned_count, owner, owned_at, creator}], cursor?}`
+`tasks.list {domain, topic, cursor?}` → `{tasks: [{id, origin_id, state, created_at, lease_until, owned_count, owner, owned_at, creator}], cursor?}`
 
 Never returns `data`. `state` is `available` or `held`. Pages hold up to 500
 tasks, ordered by `(created_at, id)`.
@@ -454,11 +471,30 @@ they are exact, and kept for 30 days.
 | `created` | tasks posted to the topic, by Create or by a Consume |
 | `owned` | successful Owns |
 | `reowned` | Owns of a task that had been owned before (`owned_count` ≥ 1): a lease ran out |
-| `consumed`, `deleted` | lineages ended in the topic, by Consume or by Delete |
+| `consumed`, `deleted` | lineages ended in the topic, by Consume or by Delete/Cancel |
 | `wait_ms_sum`, `wait_ms_max`, `wait_count` | for each first Own: `now − created_at`, how long a task waited for a worker |
 | `run_ms_sum`, `run_ms_max`, `run_count` | for each Consume of an owned task: `now − owned_at`, how long the work took |
 
 Averages are `sum / count`. The service keeps no percentiles.
+
+### 4.16 Cancel
+
+`cancel {domain, topic, origin_id}` → `{}`
+
+Retires the initial task matching `(topic, origin_id)`, whether available,
+held, or lease-lapsed. Domain membership is required; no topic scope is
+required. The caller must be the task's creator or an operator. The lookup,
+authorization, deletion and `deleted` statistic share one transaction.
+
+If Cancel wins before Consume, subsequent Renew and Consume of the removed
+task return `not_found` and post no successors. If Consume wins first, Cancel
+returns `not_found` and leaves successors intact, even on the original topic.
+Cancellation does not undo handler side effects or force an immediate local
+process stop.
+
+Errors: `not_found` (wrong topic, unknown origin, removed initial task, or
+first Consume already completed), `forbidden` (another creator, or outside
+the caller's domains).
 
 ## 5. Delivery semantics
 
@@ -474,9 +510,10 @@ first worker's Renew or Consume fails with `not_found`.
 |---|---|---|
 | Own | timeout; never learns the new ID | the copy stays held until its lease expires, then becomes available with `owned_count` raised |
 | Renew | timeout | retry with the same ID; Renew is idempotent |
-| Consume | timeout; a retry returns `not_found` | if the retry came before the worker's lease deadline, its Consume succeeded. Otherwise another worker owned the task and will deliver. Either way, delivered once |
+| Consume | timeout; a retry returns `not_found` | the task was consumed, cancelled, deleted, or re-owned; the stale ID cannot post successors. `not_found` alone does not prove a reply was delivered |
 | Delete | timeout; a retry returns `not_found` | the task is gone either way |
-| Create | timeout; a retry may post a second task | requesters put their own request ID in `data`, and every consumer must tolerate duplicate requests and replies |
+| Cancel | timeout; a retry returns `not_found` | the initial task is gone, but it may have been consumed before Cancel; successors are left alone |
+| Create | timeout; a retry may post a second task | each accepted submission has an independent origin; both may execute. Applications needing deduplication supply a business key and handle it explicitly |
 
 **Lease deadline on the client.** A client works out its deadline as the
 local monotonic time when it *sent* the Own or Renew, plus `hold_seconds`.
@@ -583,18 +620,16 @@ for a slot holds the task back from other machines.
 
 ### 6.2 Requester
 
-1. Pick a reply topic that no one else uses, for example
-   `verified/<agent-id>`. Only this agent's CLI ever owns tasks there.
-2. `create` the request. Its data includes the requester's own `request_id`
-   and `reply_topic`.
-3. The CLI drains the reply topic into a local store, and serves the agent's
-   requests from that store (§6.3). The service never needs to know which
-   reply belongs to which request.
-4. To cancel before a worker has taken it: `delete` the request's task ID
-   (allowed while it has never been owned). `tl cancel` looks that ID up in
-   the local request record (§6.3). Once it has been owned, cancelling is the
-   worker's decision. A profile may give workers a way to
-   see that a request is stale (FluxShot: a PR head that has moved on).
+1. Pick a reply topic that no other requester drains, such as
+   `verified/<agent-id>`.
+2. Create the request, with `reply_topic` in its data. The returned `id` is
+   the new `origin_id`; save the local request record under that origin.
+3. A worker consumes the request and posts the reply. The server carries
+   the origin through the handoff, independently of the reply data or worker
+   identity. The requester durably saves replies before deleting them.
+4. Cancel the initial request by origin while it is queued, held, or lapsed.
+   Once Consume posts successors, first-stage cancellation is no longer
+   available. Broader workflow cancellation belongs to the application.
 
 ### 6.3 Agent CLI
 
@@ -607,65 +642,72 @@ tl request --domain github.com/provos/fluxshoteditor --topic verify/linux \
   --reply-topic verified/mac-a1b2 --data @request.json --wait --timeout 6h
 ```
 
-It prints the reply's `data` as JSON on stdout, together with the reply's
-`creator` (for example "answered by linux-1"). Exit codes: 0 reply delivered,
-3 timed out (the request was left in place, and its `request_id` is printed),
-1 service error.
+It prints `origin_id`, the reply's `data`, and `creator` as JSON. Exit codes:
+0 reply delivered, 3 timed out (the pending request remains saved), 1 service
+or local-state error.
 
-`tl request` generates the `request_id` unless one is given, so request IDs
-are always well-formed and unique for the agent.
+- `tl request` requires `--topic`, `--reply-topic`, and `--data`. It always
+  creates a new origin; caller-supplied request IDs and resend are removed.
+- `tl wait --origin-id …` resumes a saved request, checking local replies first.
+- `tl cancel --origin-id …` uses the saved request's domain and initial topic.
+- `tl cancel --origin-id … --topic … [--domain …]` cancels directly without
+  requiring an agent ID or local Store. `--domain` alone is invalid in store mode.
+- `tl inbox` lists every saved reply, including messages with no local request.
 
-- `tl wait --request-id …` picks up an earlier request.
-- `tl cancel --request-id …` deletes a request no worker has taken yet.
-- `tl inbox` lists every reply in the local store, including unmatched ones.
+**File names.** Agent directories use `h(agent_id)`, the first 32 lowercase
+hex characters of SHA-256 over the UTF-8 ID, avoiding case collisions and
+Windows-reserved names. Request and reply filenames use the canonical,
+server-made `<origin_id>.json` directly. The fixed `t_` prefix and uppercase
+ULID suffix are portable. Each agent directory holds `agent.json` metadata.
 
-**File names.** The local stores live in the platform's user data folder.
-Request IDs and agent IDs never become file or folder names directly: on
-the default macOS and Windows file systems `Foo` and `foo` are the same
-name, and Windows reserves names such as `CON`. Instead, a file or folder
-is named by `h(x)`: the first 32 characters of the lowercase hex SHA-256 of
-the ID's UTF-8 bytes. The original IDs are kept inside the records.
+**Local request record.** `Store.submit` validates and detaches the payload,
+sets `data.reply_topic`, calls Create, validates its returned ID, then publishes
+`requests/h(agent)/<origin_id>.json` with
+`{origin_id, domain, topic, reply_topic, created_at, data}`. Task data is opaque:
+`data.request_id` is neither injected nor used for correlation.
 
-**Local request record.** `tl request` saves the record **before** it sends
-Create, so a lost reply to Create, or a crash, never leaves a request in the
-service that the CLI knows nothing about:
+If Create fails or its response is lost, there is no local request record.
+A retry creates another origin and both submissions may execute. An eventual
+reply from an uncertain first submission is retained as an unmatched inbox
+entry and cannot collide with the retry. If Create returns a known origin
+but local publication fails, `SubmissionError.origin_id` and the CLI error
+expose that origin so the caller can inspect it or cancel directly. A crash
+before publication can still leave an unmatched submission. No sidecars or
+`submission_unknown` state are used.
 
-1. Publish `requests/h(agent)/h(request_id).json` with
-   `{request_id, domain, topic, reply_topic, created_at, data}`, where
-   `data` is the exact task payload sent as Create's `data`, including the
-   chosen `request_id` and `reply_topic`.
-2. Send Create.
-3. Publish `requests/h(agent)/h(request_id).task.json` with `{task_id}`.
+If the request intent was saved and verified but reading its reply state
+fails, `ReplyStateError(StoreError)` instead exposes the saved `origin_id`
+and a diagnostic that the request was saved. The CLI adds `tl wait` recovery
+guidance; library applications can present their own recovery action.
 
-`tl wait` reads the reply topic from the record. `tl cancel` reads the
-domain and topic from it and the task ID from the `.task.json` file it needs
-for Delete. If Delete returns `not_found`, the task was taken or removed;
-`tl cancel` cannot distinguish these cases and keeps the record for waiting.
+**Local reply store.** Each drain or poll:
 
-A stop that arrives while Own is held (a long poll, §4.2) never starts new
-work. If that Own still returns a task, the worker hands it back without
-running it: it renews the task for one second, so the task is available again
-almost at once under the same ID, and exits. The claim still counts toward
-`owned_count`. If that Renew fails, the task becomes available when its
-lease expires. Releasing it is preferred to leaving the full lease, because
-a stop is often a restart that would otherwise idle the task for ten minutes.
+1. Own the reply topic with a short hold (60 s); stop on empty.
+2. Read `origin_id` from the server task fields and durably publish
+   `replies/h(agent)/<origin_id>.json` with
+   `{task_id, origin_id, topic, creator, created_at, received_at, data}`.
+   A missing or invalid origin is an error and is never acknowledged.
+   On an existing filename, validate and keep the saved record. Compare its
+   stable content (`topic`, `creator`, `created_at`, and `data`) with the incoming
+   reply, using canonical JSON bytes. Unchanged content is already durable.
+   Different content is durably published to
+   `replies/h(agent)/duplicates/<origin_id>-<fingerprint>.json` before Delete.
+   The fingerprint is SHA-256 of that canonical content, excluding the rotating
+   task ID and local receipt time. Existing archive files are validated before
+   acknowledgement. Any persistence or validation failure leaves the server copy
+   unacknowledged.
+3. Delete the owned task using its current fencing ID.
 
-**Local reply store.** The CLI drains the agent's reply topic and keeps the
-replies on the agent's machine, in `replies/h(agent)/`. Each pass:
-
-1. `own` the reply topic with a short hold (60 s). On `empty`, stop.
-2. Save the record `{task_id, topic, creator, created_at, received_at, data}`.
-   `creator` and `topic` come from the server's task fields.
-   - If `data.request_id` is a string of 1 to 128 characters, the record is
-     saved as `h(request_id).json`.
-   - Otherwise the reply cannot be matched to any request, which only a buggy
-     worker produces. It is saved as `unmatched/<task_id>.json` (task IDs are
-     server-made and always safe as names), and `tl inbox` shows it for a
-     person to look at.
-   - Write it with `publish_new` (below). If the name is already taken, the
-     reply is a duplicate (from a retried Create, §5): it is dropped, and the
-     existing file stays.
-3. `delete` the task, using the ID that `own` returned.
+`reply()` and `wait()` select the first reply per origin. `inbox()` also returns
+archived conflicting observations with `duplicate: true`; selected replies have
+`duplicate: false`. Each observation includes its creator and expires seven days
+after its first local receipt. Archives do not replace an expired selected reply.
+Two successor lineages with identical stable content remain indistinguishable;
+the archive preserves distinct content, not a count of independent executions.
+A distinct
+Create always has a distinct origin, so unsolicited messages cannot take a
+request's answer slot. Session conversations that answer with another Create
+use application fields such as `in_reply_to` and validate sender identity.
 
 **`publish_new(path, bytes) → created | exists`.** Every immutable data file
 the CLI and worker library publish for other processes to find (replies,
@@ -688,44 +730,27 @@ empty-file creation without a later path-based flush, which could race that
 removal. Stop markers do not promise power-loss persistence. Mutable
 configuration uses the explicitly replacing atomic operation in design §5.2.
 
-The agent ID is also part of the agent's reply topic (`verified/<agent-id>`),
-so it must be a valid topic segment (§2). `tl` refuses to start with any
-other agent ID.
+The agent ID is also part of the agent's reply topic, so it must be a
+valid topic segment (§2). `tl` refuses any other agent ID.
 
-The reply is safe on disk before the server copy goes away. If the CLI dies
-between steps 2 and 3, the task's lease runs out, the next pass owns it
-again, and step 2 finds the name taken. One file per reply, published
-atomically, lets several CLI processes for the same agent drain and read at
-once with no lock. `wait` checks the store for `h(request_id).json` first,
-then drains, then sleeps and repeats.
+The reply is durable before Delete. If the process dies between save and
+Delete, the next Own rotates the ID but preserves the origin, so the existing
+file remains the answer. Independent processes need no drain lock. `wait`
+checks the origin's reply path first, then drains, sleeps and repeats; it can
+read a retained reply even without the original request record.
 
-The CLI does not second-guess who sent a reply. Any identity with `create` on
-the reply topic is trusted to answer (§3). Workers' answers, and especially
-an adviser's model output, are information for the agent to weigh, not
-instructions to follow.
+`ReplyRecord.matched` means a corresponding local request file currently
+exists. It is derived at read time, not a trust decision; concurrent pruning,
+cancellation or publication may change it. Request state is `pending` without
+a saved reply, `answered` with one. Successful Cancel removes the request
+record; `not_found` leaves it in place because a reply may be in flight.
 
-Replies to abandoned requests now pile up in the local store, not in the
-service, and the operator CLI cannot see them. So the CLI prunes the local
-store itself: request records, replies and unmatched replies older than 7
-days are removed (the same retention as blobs, §8), at most once a day while
-draining, or on demand with `tl inbox --prune`.
-
-A request's state is read from the files:
-
-- *submission unknown*: the record exists without its `.task.json` and
-  without a reply. Create was sent, but whether it arrived is not known (or
-  the CLI stopped before sending it). `tl wait` can still wait: if the
-  request arrived, its reply comes to the reply topic like any other.
-  `tl cancel` cannot cancel it, since it has no task ID, and says so.
-  `tl request --resend <request_id>` posts the saved `data` again with the
-  same `request_id`; if both arrive, the second reply is dropped as a
-  duplicate. Resend is limited to this state; a pending request already has a
-  known task ID, and an answered request needs no new submission.
-- *pending*: the record and its `.task.json` exist, with no reply.
-- *answered*: the reply exists.
-
-`tl cancel` deletes the record and its `.task.json` after a successful
-Delete.
+Replies expire seven days after receipt. Pruning removes expired replies
+first, then requests older than seven days with no retained selected reply. It also
+removes abandoned publication temporaries older than a day. Draining prunes
+at most once a day; `tl inbox --prune` runs it explicitly. The 0.5.0 store
+rejects legacy or mismatched record filenames: upgrade requires resetting old
+local stores in a coordinated deployment (see releasing.md).
 
 ## 7. Cloudflare implementation
 
@@ -761,13 +786,15 @@ Delete.
 
 ```sql
 CREATE TABLE tasks (
-  id TEXT PRIMARY KEY, topic TEXT NOT NULL,
+  id TEXT PRIMARY KEY, origin_id TEXT NOT NULL DEFAULT '',
+  root INTEGER NOT NULL DEFAULT 0, topic TEXT NOT NULL,
   created_at INTEGER NOT NULL, lease_until INTEGER NOT NULL,
   owned_count INTEGER NOT NULL, creator TEXT NOT NULL,
   owner_identity TEXT, owner_worker TEXT, owned_at INTEGER,
   data TEXT NOT NULL
 );
 CREATE INDEX tasks_pick ON tasks (topic, created_at, id, lease_until);
+CREATE UNIQUE INDEX tasks_root_origin ON tasks (origin_id) WHERE root = 1;
 CREATE TABLE pollers (
   topic TEXT, identity TEXT, worker TEXT,
   last_polled_at INTEGER, last_owned_at INTEGER,

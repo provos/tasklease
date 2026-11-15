@@ -10,7 +10,7 @@ import json
 import math
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from types import TracebackType
 from typing import NoReturn, Self, cast
 
@@ -27,7 +27,17 @@ from tasklease.errors import (
     WaitUnsupported,
 )
 from tasklease.generated import protocol as p
-from tasklease.names import is_bearer_token, is_worker_label
+from tasklease.names import is_bearer_token, is_task_id, is_worker_label
+
+
+def _check_origins(tasks: Iterable[object]) -> None:
+    for task in tasks:
+        if not isinstance(task, dict) or not is_task_id(task.get("origin_id")):
+            raise ProtocolError(
+                "The service must provide a valid origin_id; "
+                "upgrade to tasklease 0.5.0 or later"
+            )
+
 
 # The service caps Own's wait at 30 seconds. Clients allow a little more for
 # the response to arrive before the read phase times out.
@@ -50,6 +60,7 @@ _SUCCESS_FIELDS: dict[str, dict[str, type[object]]] = {
     "renew": {"task": dict},
     "read": {"task": dict},
     "delete": {},
+    "cancel": {},
     "consume": {"ids": list},
     "topics.list": {"topics": list},
     "tasks.list": {"tasks": list},
@@ -295,6 +306,21 @@ class Client:
                 raise ProtocolError(
                     "The service returned an incomplete success envelope"
                 )
+        if operation == "create" and not is_task_id(body["id"]):
+            raise ProtocolError("The service returned an invalid task ID")
+        if operation in {"own", "renew", "read"}:
+            _check_origins((body["task"],))
+        elif operation == "tasks.list":
+            _check_origins(cast(list[object], body["tasks"]))
+        elif operation == "monitor.snapshot":
+            for topic in cast(list[object], body["topics"]):
+                if not isinstance(topic, dict) or not isinstance(
+                    topic.get("tasks"), list
+                ):
+                    raise ProtocolError(
+                        "The service returned an invalid snapshot topic"
+                    )
+                _check_origins(topic["tasks"])
         return body
 
     def create(self, request: p.CreateRequest) -> p.CreateResponse:
@@ -382,6 +408,12 @@ class Client:
     ) -> p.ConsumeResponse:
         """Consume a task, optionally capping each configured HTTP timeout."""
         return cast(p.ConsumeResponse, self._post("consume", request, timeout=timeout))
+
+    def cancel(
+        self, request: p.CancelRequest, *, timeout: float | None = None
+    ) -> p.CancelResponse:
+        """Cancel an initial task by origin, including after Own rotates its ID."""
+        return cast(p.CancelResponse, self._post("cancel", request, timeout=timeout))
 
     def topics_list(self, request: p.TopicsListRequest) -> p.TopicsListResponse:
         return cast(p.TopicsListResponse, self._post("topics.list", request))

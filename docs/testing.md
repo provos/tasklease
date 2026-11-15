@@ -145,13 +145,8 @@ deletion. Real signed transfers remain a deployed-service acceptance check.
 
 ## Shared predicates
 
-`tasklease.names.is_request_id(value)` accepts exactly the identifiers the
-requester store can correlate: a string of 1 to 128 Unicode characters that
-encodes as valid UTF-8. The identifier is opaque and need not be a topic name
-or a portable filename.
-
-`tasklease.names.is_task_id(value)` validates a fencing ID (`t_` followed by a
-canonical ULID). `tasklease.names.is_topic_glob(value)` validates a scope
+`tasklease.names.is_task_id(value)` validates fencing IDs and stable origins (`t_`
+followed by a canonical ULID). `tasklease.names.is_topic_glob(value)` validates a scope
 glob's syntax and 256-character limit. These predicates are shared by the
 requester store and fake's corresponding validation paths.
 

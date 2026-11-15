@@ -9,7 +9,10 @@ Licensed under [Apache-2.0](LICENSE).
 
 Own rotates a task's ID, fencing previous owners. Consume atomically retires
 that ID and posts up to 16 successors, including replies. Renew preserves the
-ID. The requester saves replies locally before acknowledging the server copy.
+ID. A stable, server-carried `origin_id` follows the original Create through
+Own and Consume, so replies prove which request they descend from. The
+requester saves replies locally before acknowledging the server copy. Cancel
+can retire the initial task even while a worker holds it.
 
 ## Example use cases
 
@@ -62,7 +65,7 @@ and you want no servers to operate:
   included, so the scale figures assume a paid Workers plan.
 
 Request/reply is built in: reply topics, a requester that saves replies
-locally before acknowledging them, request IDs with explicit resend, a
+locally before acknowledging them, server-carried origins and cancellation, a
 dashboard, and a Python worker runtime with lease renewal. Pipelines need no
 extra machinery: a handler's Consume posts up to 16 successors to any topics
 its identity may create in the domain. Workers can reserve local capacity,
@@ -104,8 +107,9 @@ and up to 16 successors together within one domain, so a pipeline lives in
 one domain. Fan-out is atomic; fan-in is not built in: a step that must wait
 for several results keeps track of what has arrived itself, for example in
 the row it writes. A pipeline exists only as the tasks its handlers post, so
-carry an ID in the task data to follow or cancel one run. Workflow state,
-scheduling and cooperative cancellation belong in application code. Fencing
+use `origin_id` to follow its descendants. Cancel applies only before the
+initial task's first Consume; broader workflow state, scheduling and
+cancellation belong in application code. Fencing
 covers what tasklease posts; external effects, such as writing a finding or
 publishing an artifact, still need idempotence, because a crash can cause a
 step to run again.
@@ -264,6 +268,16 @@ Save the requester's token string in `requester.token` and the worker's in
 operator's machine. Once identity administration is finished, the requester
 and worker do not need `TL_ADMIN_TOKEN`.
 
+## Upgrade from 0.4.x to 0.5.0
+
+This release requires a coordinated service, worker, requester and application
+profile upgrade. Drain old work and replies, stop the old processes, deploy
+the new service, archive/reset old local Store directories, then upgrade all
+clients and profiles before restarting workers and requesters. The package
+requires a service that supplies `origin_id`; mixed old/new correlation
+conventions on the same topics are unsupported. See the
+[upgrade procedure](docs/releasing.md#upgrade-from-04x-to-050).
+
 ## Request work and run an echo worker
 
 Give the requester this `requester.toml`:
@@ -314,7 +328,7 @@ tl --config requester.toml inbox
 ```
 
 The echo handler accepts a message of at most 4096 UTF-8 bytes and returns
-the message and request ID. Custom handlers are an importable
+the message; the service carries the origin onto its reply. Custom handlers are an importable
 `module:factory`; see [Writing a handler](#writing-a-handler). The library's
 `WorkerLoop.step()` also supports an externally held capacity lock;
 `WorkerLoop.run()` acquires capacity before Own.
@@ -336,6 +350,7 @@ Python `tasklease.client.Client` has a method for each. The
 | Renew | Extends the lease and keeps the ID. | `own`, and holding the task |
 | Consume | Retires the held task and posts up to 16 successors, atomically. | `own` on the task's topic, `create` on each successor's topic |
 | Delete | Removes a task: its holder's, or its creator's before anyone owned it. | the holder rule |
+| Cancel | Removes the initial task by origin, including while held; stops working after its first Consume. | its creator or an operator in the domain |
 | Read, Tasks List | One task, or a topic's tasks in pages. | `read` or `own` |
 | Topics List, Topic Pollers | Per-topic counts, and who polled a topic recently. | `read` or `own` |
 | Topic Declare | Keeps a topic listed while it is empty. | an operator identity |
@@ -434,14 +449,29 @@ leases itself; `tl worker` and `tasklease.worker.WorkerLoop` do it for you.
 
 ## Recovery and monitoring
 
-Request commands print a request ID, including after uncertain submission or
-an interrupted wait. Resume with `tl wait --request-id ID`; it checks durable
-local replies first. `tl request --resend ID` explicitly retries only an
-unknown submission and can create another execution. `tl cancel --request-id
-ID` uses the saved task ID and reports when cancellation cannot be confirmed.
+Successful submissions print the server's `origin_id`. Resume with
+`tl wait --origin-id ID`; it checks durable local replies first.
+`tl cancel --origin-id ID` cancels a saved initial request across Own ID
+rotations. Operators or callers without a local record can use
+`tl cancel --domain DOMAIN --topic TOPIC --origin-id ID`. Once Consume posts
+successors, cancellation reports `not_found` and leaves those successors alone.
+
+Submission calls Create before saving the local record. If the response is
+lost, retrying creates a separate origin and both requests may execute; no
+automatic resend is attempted. If Create returns an ID but local saving fails,
+`SubmissionError.origin_id` and the CLI diagnostic expose that ID for direct
+inspection or cancellation. Unrelated messages and replies to uncertain
+submissions remain in the inbox with `matched: false` and cannot take another
+origin's answer slot. `reply()` and `wait()` return the first reply per origin.
+Later replies with different stable content are durably archived before
+acknowledgement and appear in the inbox with `duplicate: true`, including the
+creator. Redelivery of unchanged content does not add another copy.
 
 Worker leases default to 600 seconds, with renewal every 180 seconds. A lost
 lease sets the handler's `lost` event; handlers should cooperate with it.
+This `LeaseEvent` also exposes `reason` and `revoked`: server rejection sets
+`revoked`, while local expiry does not. Cancellation is observed through Renew
+or Consume, so it cannot force immediate shutdown or undo external effects.
 Fenced Consume prevents stale completion, while external side effects still
 need application-level idempotence. Automated workers refuse `/error` topics;
 operators inspect those manually.

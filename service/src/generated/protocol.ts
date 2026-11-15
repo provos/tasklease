@@ -52,6 +52,8 @@ export interface ProtocolTypes {
   BlobGetUrlResponse?: BlobGetUrlResponse;
   BlobPutUrlRequest?: BlobPutUrlRequest;
   BlobPutUrlResponse?: BlobPutUrlResponse;
+  CancelRequest?: CancelRequest;
+  CancelResponse?: CancelResponse;
   ConsumeRequest?: ConsumeRequest;
   ConsumeResponse?: ConsumeResponse;
   CreateRequest?: CreateRequest;
@@ -161,6 +163,7 @@ export interface TopicSummary {
 }
 export interface Task {
   id: TaskId;
+  origin_id: TaskId;
   domain: DomainName;
   topic: TopicName;
   created_at: Timestamp;
@@ -173,6 +176,7 @@ export interface Task {
 }
 export interface TaskSummary {
   id: TaskId;
+  origin_id: TaskId;
   created_at: Timestamp;
   lease_until: Timestamp;
   owned_count: number;
@@ -229,6 +233,14 @@ export interface BlobPutUrlResponse {
   key: string;
   url: string;
   expires_at: Timestamp;
+}
+export interface CancelRequest {
+  domain: DomainName;
+  topic: TopicName;
+  origin_id: TaskId;
+}
+export interface CancelResponse {
+  ok: true;
 }
 export interface ConsumeRequest {
   domain: DomainName;
@@ -635,6 +647,7 @@ export interface VersionResponse {
 export interface OperationRequests {
   "blob.get_url": BlobGetUrlRequest;
   "blob.put_url": BlobPutUrlRequest;
+  cancel: CancelRequest;
   consume: ConsumeRequest;
   create: CreateRequest;
   delete: DeleteRequest;
@@ -655,6 +668,7 @@ export interface OperationRequests {
 export interface OperationResponses {
   "blob.get_url": BlobGetUrlResponse;
   "blob.put_url": BlobPutUrlResponse;
+  cancel: CancelResponse;
   consume: ConsumeResponse;
   create: CreateResponse;
   delete: DeleteResponse;

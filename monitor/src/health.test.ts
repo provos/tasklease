@@ -15,14 +15,13 @@ describe("operator health", () => {
       ["critical", "windows-1 down"],
       ["critical", "verify/linux/error"],
       ["critical", "verify/windows"],
-      ["warning", "verify/macos"],
-      ["warning", "agent-codex-b7 request to advise"],
+      ["critical", "verify/macos"],
     ]);
     const windows = result.alerts.find((a) => a.subject === "verify/windows")!;
     expect(windows.detail).toBe("no live worker · 2 tasks waiting");
     expect(
       result.alerts.find((a) => a.subject === "verify/macos")!.detail,
-    ).toBe("lease lapsed on 1 task");
+    ).toBe("no live worker; lease lapsed on 1 task · 1 task waiting");
   });
 
   it("classifies machines and workers from polls and held leases", () => {
@@ -58,7 +57,7 @@ describe("operator health", () => {
     expect(result.topics.map((t) => [t.topic, t.level])).toEqual([
       ["verify/linux/error", "critical"],
       ["verify/windows", "critical"],
-      ["verify/macos", "warning"],
+      ["verify/macos", "critical"],
       ["verify/linux", "ok"],
       ["advise", "ok"],
       ["build/windows", "idle"],
@@ -66,8 +65,8 @@ describe("operator health", () => {
     expect(result.otherTopics.map((t) => [t.topic, t.role])).toEqual([
       ["verified/agent-claude-a1", "reply"],
     ]);
-    expect(result.waiting).toBe(4);
-    expect(result.held).toBe(4);
+    expect(result.waiting).toBe(5);
+    expect(result.held).toBe(3);
   });
 
   it("joins each pending request to its task", () => {
@@ -78,17 +77,12 @@ describe("operator health", () => {
       r.summary,
     ]);
     expect(requests).toEqual([
+      ["verify/linux", "critical", "Moved to verify/linux/error", "pr 1030"],
       [
         "verify/windows",
         "critical",
         "Queued 1 of 2, no live worker",
         "pr 1031 · sha 3497557d · tier pr",
-      ],
-      [
-        "advise",
-        "warning",
-        "Submission unconfirmed for 7 min",
-        "question “Is a 30-minute solve-lane hold OK for the G-9 batch?”",
       ],
       [
         "verify/linux",
@@ -102,6 +96,63 @@ describe("operator health", () => {
       "Queued 1 of 1",
       "Running on verify-a on linux-1, lease 8 min left",
     ]);
+  });
+
+  it("keeps a running request matched after another fencing-ID rotation", () => {
+    const value = mockSnapshot("building", 24, NOW);
+    const request = value.local.requests.find(
+      (r) => r.topic === "build/windows",
+    )!;
+    const task = value.domains[0].topics.find((t) => t.topic === request.topic)!
+      .tasks[0];
+    expect(task.origin_id).toBe(request.origin_id);
+    expect(task.id).not.toBe(request.origin_id);
+    task.id = "t_01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    expect(
+      health(value).requests.find((r) => r.request === request)!.status,
+    ).toBe("Running on build-a on windows-1, lease 7 min left");
+  });
+
+  it("finds an error successor even when the original topic is absent", () => {
+    const value = mockSnapshot("busy", 24, NOW);
+    value.domains[0].topics = value.domains[0].topics.filter(
+      (topic) => topic.topic !== "verify/linux",
+    );
+    expect(
+      health(value).requests.find((r) => r.summary === "pr 1030"),
+    ).toMatchObject({
+      level: "critical",
+      status: "Moved to verify/linux/error",
+    });
+  });
+
+  it("reports a lapsed request when the service makes its task available", () => {
+    const value = mockSnapshot("building", 24, NOW);
+    const request = value.local.requests.find(
+      (r) => r.topic === "build/windows",
+    )!;
+    const topic = value.domains[0].topics.find(
+      (t) => t.topic === request.topic,
+    )!;
+    topic.tasks[0].lease_until = NOW - 60_000;
+    topic.tasks[0].state = "available";
+    topic.available = 1;
+    topic.held = 0;
+    topic.oldest_available_at = topic.tasks[0].created_at;
+    const result = health(value);
+    expect(result.requests.find((r) => r.request === request)).toMatchObject({
+      level: "warning",
+      status: "Lease lapsed 1 min ago (build-a on windows-1)",
+    });
+    expect(
+      result.topics.find((t) => t.topic === "build/windows")!.reasons,
+    ).toContain("lease lapsed on 1 task");
+    expect(
+      result.machines
+        .flatMap((machine) => machine.workers)
+        .find((w) => w.identity === "windows-1" && w.worker === "build-a")!
+        .state,
+    ).toBe("lapsed");
   });
 
   it("is quiet on an empty board and flags undeclared domains", () => {

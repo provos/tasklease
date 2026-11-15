@@ -36,6 +36,7 @@ CALLS: dict[str, Callable[[Client, dict[str, object]], object]] = {
     "renew": lambda c, r: c.renew(cast(p.RenewRequest, r)),
     "read": lambda c, r: c.read(cast(p.ReadRequest, r)),
     "delete": lambda c, r: c.delete(cast(p.DeleteRequest, r)),
+    "cancel": lambda c, r: c.cancel(cast(p.CancelRequest, r)),
     "consume": lambda c, r: c.consume(cast(p.ConsumeRequest, r)),
     "topics.list": lambda c, r: c.topics_list(cast(p.TopicsListRequest, r)),
     "tasks.list": lambda c, r: c.tasks_list(cast(p.TasksListRequest, r)),
@@ -66,6 +67,49 @@ def example(operation: str, kind: str) -> dict[str, object]:
     ]
     assert isinstance(body, dict)
     return cast(dict[str, object], body)
+
+
+@pytest.mark.parametrize(
+    "operation", ["own", "renew", "read", "tasks.list", "monitor.snapshot"]
+)
+@pytest.mark.parametrize("origin", [None, "", "not-a-task-id", 123])
+def test_task_responses_require_a_valid_server_origin(
+    operation: str, origin: object
+) -> None:
+    response = example(operation, "response")
+    if operation == "tasks.list":
+        tasks = cast(list[dict[str, object]], response["tasks"])
+        task = tasks[0]
+    elif operation == "monitor.snapshot":
+        topics = cast(list[dict[str, object]], response["topics"])
+        task = cast(list[dict[str, object]], topics[0]["tasks"])[0]
+    else:
+        task = cast(dict[str, object], response["task"])
+    if origin is None:
+        task.pop("origin_id")
+    else:
+        task["origin_id"] = origin
+    with Client(
+        "https://tasks.example",
+        TOKEN,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=response)
+        ),
+    ) as client:
+        with pytest.raises(ProtocolError, match="origin_id.*0.5.0"):
+            CALLS[operation](client, example(operation, "request"))
+
+
+def test_create_rejects_a_noncanonical_task_id() -> None:
+    with Client(
+        "https://tasks.example",
+        TOKEN,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"ok": True, "id": "invalid-id"})
+        ),
+    ) as client:
+        with pytest.raises(ProtocolError, match="invalid task ID"):
+            client.create({"domain": "acme/project", "topic": "work", "data": {}})
 
 
 @pytest.fixture(scope="module")
@@ -283,7 +327,9 @@ def test_json_uses_compact_utf8_bytes_and_accurate_content_length() -> None:
             == '{"domain":"acme","topic":"work","data":{"text":"é😃"}}'.encode()
         )
         assert int(request.headers["content-length"]) == len(request.content)
-        return httpx.Response(200, json={"ok": True, "id": "t_test"})
+        return httpx.Response(
+            200, json={"ok": True, "id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAV"}
+        )
 
     with Client(
         "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)

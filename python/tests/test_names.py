@@ -8,7 +8,6 @@ from tasklease.names import (
     error_topic,
     is_bearer_token,
     is_domain,
-    is_request_id,
     is_segment,
     is_task_id,
     is_topic,
@@ -74,27 +73,6 @@ def test_bearer_token() -> None:
 def test_error_topic_never_nests() -> None:
     assert error_topic("verify/linux") == "verify/linux/error"
     assert error_topic("verify/linux/error") == "verify/linux/error"
-
-
-@pytest.mark.parametrize(
-    ("value", "valid"),
-    [
-        ("request-1", True),
-        ("a" * 128, True),
-        ("é" * 128, True),
-        ("🦊" * 128, True),
-        ("../opaque/id", True),
-        ("\x00", True),
-        ("", False),
-        ("a" * 129, False),
-        ("\ud800", False),
-        ("\udfff", False),
-        (None, False),
-        (128, False),
-    ],
-)
-def test_request_id(value: object, valid: bool) -> None:
-    assert is_request_id(value) is valid
 
 
 @pytest.mark.parametrize(

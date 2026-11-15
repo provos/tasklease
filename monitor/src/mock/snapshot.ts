@@ -76,12 +76,6 @@ class Builder {
     return id;
   }
 
-  requestId(): string {
-    let id = "";
-    for (let i = 0; i < 32; i++) id += this.integer(0, 15).toString(16);
-    return id;
-  }
-
   held(
     identity: string,
     worker: string,
@@ -90,25 +84,33 @@ class Builder {
     leaseLeftMinutes: number | null = null,
   ): TaskSummary {
     const ownedAt = this.now - minutesAgo * MINUTE;
+    // Without renewal the 10-minute lease runs out; a renewed lease has time left.
+    const leaseUntil =
+      leaseLeftMinutes === null
+        ? ownedAt + 10 * MINUTE
+        : this.now + leaseLeftMinutes * MINUTE;
     return {
       id: this.taskId(),
+      origin_id: this.taskId(),
       created_at: ownedAt - 40_000,
-      // Without renewal the 10-minute lease runs out; a renewed lease has time left.
-      lease_until:
-        leaseLeftMinutes === null
-          ? ownedAt + 10 * MINUTE
-          : this.now + leaseLeftMinutes * MINUTE,
+      lease_until: leaseUntil,
       owned_count: ownedCount,
       creator: "agent-claude-a1",
       owner: { identity, worker },
       owned_at: ownedAt,
-      state: "held",
+      state: leaseUntil > this.now ? "held" : "available",
     };
   }
 
-  available(minutesAgo: number, creator = "agent-claude-a1"): TaskSummary {
+  available(
+    minutesAgo: number,
+    creator = "agent-claude-a1",
+    originId?: string,
+  ): TaskSummary {
+    const id = this.taskId();
     return {
-      id: this.taskId(),
+      id,
+      origin_id: originId ?? id,
       created_at: this.now - minutesAgo * MINUTE,
       lease_until: 0,
       owned_count: 0,
@@ -213,14 +215,12 @@ function request(
 ): LocalRequest {
   return {
     agent_id: agent,
-    request_id: b.requestId(),
+    origin_id: task?.origin_id ?? b.taskId(),
     domain: DOMAIN,
     topic: topicName,
     reply_topic: `${topicName.startsWith("advise") ? "advised" : "verified"}/${agent}`,
     created_at: task ? task.created_at - 2_000 : b.now - minutesAgo * MINUTE,
     data,
-    task_id:
-      state === "submission_unknown" ? null : task ? task.id : b.taskId(),
     state,
   };
 }
@@ -231,7 +231,7 @@ function reply(
   creator: string,
   minutesAgo: number,
   data: LocalReply["data"],
-  requestId: string | null,
+  originId: string | null,
 ): LocalReply {
   const createdAt = b.now - minutesAgo * MINUTE;
   return {
@@ -242,7 +242,9 @@ function reply(
     created_at: createdAt,
     received_at: createdAt + 4_000,
     data,
-    request_id: requestId,
+    origin_id: originId ?? b.taskId(),
+    matched: originId !== null,
+    duplicate: false,
   };
 }
 
@@ -257,6 +259,7 @@ function busy(hours: number, now: number): Snapshot {
   const b = new Builder(now, 7);
   const linuxRun = b.held("linux-1", "verify-a", 6);
   const windowsQueued = b.available(18);
+  const failed = b.available(95, "linux-1", b.taskId());
   const topics = [
     topic(
       "verify/linux",
@@ -297,7 +300,7 @@ function busy(hours: number, now: number): Snapshot {
       [b.poller("adviser", "opus", 20, 4)],
     ),
     topic("verified/agent-claude-a1", false, [b.available(1, "linux-1")], []),
-    topic("verify/linux/error", false, [b.available(95, "linux-1")], []),
+    topic("verify/linux/error", false, [failed], []),
   ];
   const stats = [
     ...b.stats("verify/linux", hours, 6, 4, 9),
@@ -306,7 +309,7 @@ function busy(hours: number, now: number): Snapshot {
     ...b.stats("build/windows", hours, 1, 3, 35),
     ...b.stats("advise", hours, 2, 1, 6),
   ];
-  const answered = b.requestId();
+  const answered = b.taskId();
   return {
     generated_at: now,
     domains: [domainSnapshot(DOMAIN, now, topics, stats)],
@@ -333,10 +336,11 @@ function busy(hours: number, now: number): Snapshot {
         request(
           b,
           "agent-codex-b7",
-          "advise",
-          7,
-          { question: "Is a 30-minute solve-lane hold OK for the G-9 batch?" },
-          "submission_unknown",
+          "verify/linux",
+          95,
+          { pr: 1030 },
+          "pending",
+          failed,
         ),
       ],
       replies: [
@@ -346,13 +350,23 @@ function busy(hours: number, now: number): Snapshot {
           "mac-1",
           31,
           {
-            request_id: answered,
             result: "pass",
             tiers: { T0: "pass", T1: "pass", T3: "pass", T4: "pass" },
             report: "r2://reports/e93474db-macos.json",
           },
           answered,
         ),
+        {
+          ...reply(
+            b,
+            "agent-claude-a1",
+            "linux-1",
+            29,
+            { result: "fail", report: "r2://reports/second-result-linux.json" },
+            answered,
+          ),
+          duplicate: true,
+        },
         reply(
           b,
           "agent-codex-b7",
@@ -540,7 +554,7 @@ function large(hours: number, now: number): Snapshot {
           i === 0 ? longTopic : `work/shard-${String(i % 14).padStart(2, "0")}`,
           i * 7,
           { index: i },
-          i % 9 === 0 ? "submission_unknown" : "pending",
+          "pending",
         ),
       ),
       replies: Array.from({ length: 33 }, (_, i) =>
@@ -550,7 +564,7 @@ function large(hours: number, now: number): Snapshot {
           `host-${i % 14}`,
           i * 11,
           { index: i, result: i % 5 === 0 ? "fail" : "pass" },
-          i % 6 === 0 ? null : b.requestId(),
+          i % 6 === 0 ? null : b.taskId(),
         ),
       ),
     },

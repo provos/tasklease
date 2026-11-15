@@ -5,6 +5,8 @@ import type {
   BlobGetUrlResponse,
   BlobPutUrlRequest,
   BlobPutUrlResponse,
+  CancelRequest,
+  CancelResponse,
   ConsumeRequest,
   ConsumeResponse,
   CreateRequest,
@@ -45,6 +47,8 @@ export const validateBlobGetUrlRequest: ValidateFunction<BlobGetUrlRequest>;
 export const validateBlobGetUrlResponse: ValidateFunction<BlobGetUrlResponse>;
 export const validateBlobPutUrlRequest: ValidateFunction<BlobPutUrlRequest>;
 export const validateBlobPutUrlResponse: ValidateFunction<BlobPutUrlResponse>;
+export const validateCancelRequest: ValidateFunction<CancelRequest>;
+export const validateCancelResponse: ValidateFunction<CancelResponse>;
 export const validateConsumeRequest: ValidateFunction<ConsumeRequest>;
 export const validateConsumeResponse: ValidateFunction<ConsumeResponse>;
 export const validateCreateRequest: ValidateFunction<CreateRequest>;

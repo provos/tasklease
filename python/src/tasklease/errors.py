@@ -95,6 +95,32 @@ class StoreError(TaskleaseError):
     """Local requester state is missing, unreadable or inconsistent."""
 
 
+class SubmissionError(StoreError):
+    """Create succeeded, but its local request record could not be saved.
+
+    ``origin_id`` can be used to inspect or cancel the created task directly.
+    """
+
+    def __init__(self, origin_id: str) -> None:
+        self.origin_id = origin_id
+        super().__init__(
+            f"Request {origin_id} was created, but its local record could not be saved"
+        )
+
+
+class ReplyStateError(StoreError):
+    """Submit saved its request, but could not determine its reply state.
+
+    ``origin_id`` identifies the saved request for application recovery.
+    """
+
+    def __init__(self, origin_id: str) -> None:
+        self.origin_id = origin_id
+        super().__init__(
+            f"Request {origin_id} was saved, but its reply state could not be read"
+        )
+
+
 API_ERRORS: dict[str, type[APIError]] = {
     error.code: error
     for error in (
