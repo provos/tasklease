@@ -27,7 +27,7 @@ from tasklease.errors import (
     WaitUnsupported,
 )
 from tasklease.generated import protocol as p
-from tasklease.names import is_bearer_token, is_worker_label
+from tasklease.names import is_bearer_token, is_task_id, is_worker_label
 
 # The service caps Own's wait at 30 seconds. Clients allow a little more for
 # the response to arrive before the read phase times out.
@@ -50,6 +50,7 @@ _SUCCESS_FIELDS: dict[str, dict[str, type[object]]] = {
     "renew": {"task": dict},
     "read": {"task": dict},
     "delete": {},
+    "cancel": {},
     "consume": {"ids": list},
     "topics.list": {"topics": list},
     "tasks.list": {"tasks": list},
@@ -295,6 +296,13 @@ class Client:
                 raise ProtocolError(
                     "The service returned an incomplete success envelope"
                 )
+        if operation in {"own", "renew", "read"}:
+            task = cast(dict[str, object], body["task"])
+            if not is_task_id(task.get("origin_id")):
+                raise ProtocolError(
+                    "The service must provide a valid origin_id; "
+                    "upgrade to tasklease 0.5.0 or later"
+                )
         return body
 
     def create(self, request: p.CreateRequest) -> p.CreateResponse:
@@ -382,6 +390,12 @@ class Client:
     ) -> p.ConsumeResponse:
         """Consume a task, optionally capping each configured HTTP timeout."""
         return cast(p.ConsumeResponse, self._post("consume", request, timeout=timeout))
+
+    def cancel(
+        self, request: p.CancelRequest, *, timeout: float | None = None
+    ) -> p.CancelResponse:
+        """Cancel an initial task by origin, including after Own rotates its ID."""
+        return cast(p.CancelResponse, self._post("cancel", request, timeout=timeout))
 
     def topics_list(self, request: p.TopicsListRequest) -> p.TopicsListResponse:
         return cast(p.TopicsListResponse, self._post("topics.list", request))

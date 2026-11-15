@@ -24,8 +24,6 @@ export const DOWN_MS = 10 * MINUTE;
 export const INACTIVE_MS = 24 * 60 * MINUTE;
 /** A queue is aging when its oldest task waits this long and 3× the usual wait. */
 export const AGING_MS = 10 * MINUTE;
-/** An unconfirmed submission this old needs `tl request --resend` or a check. */
-export const UNKNOWN_SUBMISSION_MS = 5 * MINUTE;
 
 export type Level = "critical" | "warning" | "ok" | "idle";
 export type Role = "work" | "error" | "reply" | "other";
@@ -129,7 +127,7 @@ function heldBy(
   const result = new Map<string, TaskSummary & { topic: string }>();
   for (const topic of domain.topics) {
     for (const task of topic.tasks) {
-      if (task.state !== "held" || !task.owner) continue;
+      if (!task.owner) continue;
       const owner = key(task.owner.identity, task.owner.worker);
       const current = result.get(owner);
       // Prefer a live lease, so a stale task cannot hide a busy worker.
@@ -340,19 +338,9 @@ function requestHealth(
   request: LocalRequest,
   topics: ReadonlyMap<string, TopicHealth>,
   domains: ReadonlySet<string>,
-  now: number,
 ): RequestHealth {
   const summary = summarize(request.data);
   const topic = topics.get(key(request.domain, request.topic));
-  if (request.state === "submission_unknown" || request.task_id === null) {
-    const old = now - request.created_at > UNKNOWN_SUBMISSION_MS;
-    return {
-      request,
-      summary,
-      level: old ? "warning" : "ok",
-      status: `Submission unconfirmed for ${duration(now - request.created_at)}`,
-    };
-  }
   if (!domains.has(request.domain))
     return {
       request,
@@ -360,7 +348,20 @@ function requestHealth(
       level: "idle",
       status: "Domain not on this board",
     };
-  const task = topic?.tasks.find((t) => t.id === request.task_id);
+  const task = topic?.tasks.find((t) => t.origin_id === request.origin_id);
+  if (!task && !request.topic.endsWith("/error")) {
+    const errorName = `${request.topic}/error`;
+    const failed = topics
+      .get(key(request.domain, errorName))
+      ?.tasks.find((t) => t.origin_id === request.origin_id);
+    if (failed)
+      return {
+        request,
+        summary,
+        level: "critical",
+        status: `Moved to ${errorName}`,
+      };
+  }
   if (!topic || !task) {
     return {
       request,
@@ -372,7 +373,7 @@ function requestHealth(
     };
   }
   const generated = topic.generatedAt;
-  if (task.state === "held" && task.owner) {
+  if (task.owner) {
     const by = `${task.owner.worker} on ${task.owner.identity}`;
     return task.lease_until > generated
       ? {
@@ -458,7 +459,7 @@ export function health(snapshot: Snapshot): Health {
         generatedAt: domain.generated_at,
       };
       const lapsed = topic.tasks.filter(
-        (t) => t.state === "held" && t.lease_until <= domain.generated_at,
+        (t) => t.owner !== null && t.lease_until <= domain.generated_at,
       ).length;
       allTopics.push({ ...base, ...topicLevel(base, lapsed) });
     }
@@ -475,16 +476,10 @@ export function health(snapshot: Snapshot): Health {
   const primary = sorted.filter((t) => t.role === "work" || t.role === "error");
   const machineList = machines(allWorkers);
   const byKey = new Map(allTopics.map((t) => [t.key, t]));
+  const domains = new Set(snapshot.domains.map((d) => d.domain));
   const requests = snapshot.local.requests
     .filter((r) => r.state !== "answered")
-    .map((r) =>
-      requestHealth(
-        r,
-        byKey,
-        new Set(snapshot.domains.map((d) => d.domain)),
-        snapshot.generated_at,
-      ),
-    )
+    .map((r) => requestHealth(r, byKey, domains))
     .sort(
       (a, b) =>
         bySeverity(a.level, b.level) ||
@@ -516,19 +511,6 @@ export function health(snapshot: Snapshot): Health {
         topic.role === "work" && topic.available
           ? `${topic.reasons.join("; ")} · ${plural(topic.available, "task")} waiting`
           : topic.reasons.join("; "),
-    });
-  }
-  for (const request of requests) {
-    if (
-      request.request.state !== "submission_unknown" ||
-      request.level !== "warning"
-    )
-      continue;
-    alerts.push({
-      key: key("request", request.request.agent_id, request.request.request_id),
-      level: "warning",
-      subject: `${request.request.agent_id} request to ${request.request.topic}`,
-      detail: `${request.status}; check it with tl wait or retry with tl request --resend`,
     });
   }
   alerts.sort((a, b) => bySeverity(a.level, b.level));

@@ -305,6 +305,12 @@ const routes: Record<Operation, Route> = {
     (body, caller, env) =>
       env.DOMAINS.getByName(body.domain).delete(body, caller),
   ),
+  cancel: domainRoute(
+    validators.validateCancelRequest,
+    () => true,
+    (body, caller, env) =>
+      env.DOMAINS.getByName(body.domain).cancel(body, caller),
+  ),
   consume: domainRoute(
     validators.validateConsumeRequest,
     (body, caller) =>

@@ -95,6 +95,7 @@ class TopicSummary(TypedDict):
 
 class TaskSummary(TypedDict):
     id: TaskId
+    origin_id: TaskId
     created_at: Timestamp
     lease_until: Timestamp
     owned_count: int
@@ -154,6 +155,16 @@ class BlobPutUrlResponse(TypedDict):
     key: str
     url: str
     expires_at: Timestamp
+
+
+class CancelRequest(TypedDict):
+    domain: DomainName
+    topic: TopicName
+    origin_id: TaskId
+
+
+class CancelResponse(TypedDict):
+    ok: Literal[True]
 
 
 class ConsumeResponse(TypedDict):
@@ -340,6 +351,8 @@ class ProtocolTypes(TypedDict):
     BlobGetUrlResponse: NotRequired[BlobGetUrlResponse]
     BlobPutUrlRequest: NotRequired[BlobPutUrlRequest]
     BlobPutUrlResponse: NotRequired[BlobPutUrlResponse]
+    CancelRequest: NotRequired[CancelRequest]
+    CancelResponse: NotRequired[CancelResponse]
     ConsumeRequest: NotRequired[ConsumeRequest]
     ConsumeResponse: NotRequired[ConsumeResponse]
     CreateRequest: NotRequired[CreateRequest]
@@ -388,6 +401,7 @@ class NewTask(TypedDict):
 
 class Task(TypedDict):
     id: TaskId
+    origin_id: TaskId
     domain: DomainName
     topic: TopicName
     created_at: Timestamp
@@ -435,6 +449,7 @@ OperationRequests = TypedDict(
     {
         "blob.get_url": BlobGetUrlRequest,
         "blob.put_url": BlobPutUrlRequest,
+        "cancel": CancelRequest,
         "consume": ConsumeRequest,
         "create": CreateRequest,
         "delete": DeleteRequest,
@@ -460,6 +475,7 @@ OperationResponses = TypedDict(
     {
         "blob.get_url": BlobGetUrlResponse,
         "blob.put_url": BlobPutUrlResponse,
+        "cancel": CancelResponse,
         "consume": ConsumeResponse,
         "create": CreateResponse,
         "delete": DeleteResponse,

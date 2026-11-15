@@ -9,14 +9,13 @@ export type { HourlyStats };
 
 export interface LocalRequest {
   agent_id: string;
-  request_id: string;
+  origin_id: string;
   domain: string;
   topic: string;
   reply_topic: string;
   created_at: number;
   data: Data;
-  task_id: string | null;
-  state: "submission_unknown" | "pending" | "answered";
+  state: "pending" | "answered";
 }
 
 export interface LocalReply {
@@ -27,7 +26,8 @@ export interface LocalReply {
   created_at: number;
   received_at: number;
   data: Data;
-  request_id: string | null;
+  origin_id: string;
+  matched: boolean;
 }
 
 export interface Snapshot {

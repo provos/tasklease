@@ -72,21 +72,6 @@ def is_bearer_token(value: object) -> TypeGuard[str]:
     )
 
 
-def is_request_id(value: object) -> TypeGuard[str]:
-    """Whether the requester store can correlate this UTF-8 identifier.
-
-    IDs contain 1 to 128 Unicode characters. They are opaque identifiers,
-    rather than domain/topic names or filenames.
-    """
-    if not isinstance(value, str) or not 1 <= len(value) <= 128:
-        return False
-    try:
-        value.encode("utf-8")
-    except UnicodeError:
-        return False
-    return True
-
-
 def _segment_matches(pattern: str, value: str) -> bool:
     position = index = 0
     star = -1

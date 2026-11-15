@@ -64,12 +64,11 @@
   );
   const replies = $derived(
     (snapshot?.local.replies ?? [])
-      .filter((reply) => !showUnmatched || reply.request_id === null)
+      .filter((reply) => !showUnmatched || !reply.matched)
       .sort((a, b) => b.received_at - a.received_at),
   );
   const unmatchedCount = $derived(
-    snapshot?.local.replies.filter((reply) => reply.request_id === null)
-      .length ?? 0,
+    snapshot?.local.replies.filter((reply) => !reply.matched).length ?? 0,
   );
   const pages = $derived(Math.max(1, Math.ceil(replies.length / pageSize)));
   const currentPage = $derived(Math.min(replyPage, pages));
@@ -178,7 +177,7 @@
         );
         const replyKeys = new Set(
           result.local.replies.map((reply) =>
-            JSON.stringify([reply.agent_id, reply.task_id]),
+            JSON.stringify([reply.agent_id, reply.origin_id]),
           ),
         );
         for (const key of expandedQueues)
@@ -437,7 +436,7 @@
                             ></thead
                           ><tbody
                             >{#each topic.tasks as task}{@const lapsed =
-                                task.state === "held" &&
+                                task.owner !== null &&
                                 task.lease_until <= topic.generatedAt}<tr
                                 ><td class="wide"
                                   ><code>{task.id}</code><span class="secondary"
@@ -465,7 +464,7 @@
                                 ><td
                                   data-label="Lease"
                                   title={dateTime(task.lease_until)}
-                                  >{task.state === "held"
+                                  >{task.owner
                                     ? lapsed
                                       ? `Lapsed ${duration(topic.generatedAt - task.lease_until)} ago`
                                       : `${duration(task.lease_until - topic.generatedAt)} left`
@@ -572,14 +571,13 @@
                   ></tr
                 ></thead
               ><tbody
-                >{#each board.requests as item (item.request.agent_id + item.request.request_id)}<tr
+                >{#each board.requests as item (item.request.agent_id + item.request.origin_id)}<tr
                     ><td class="wide"
                       ><span class="summary">{item.summary}</span><span
                         class="secondary mono"
-                        title={item.request.request_id}
-                        >{item.request.agent_id} · {item.request.request_id.slice(
-                          0,
-                          8,
+                        title={item.request.origin_id}
+                        >{item.request.agent_id} · …{item.request.origin_id.slice(
+                          -8,
                         )}</span
                       ></td
                     ><td data-label="Topic"
@@ -619,8 +617,8 @@
           >
         </div>
         {#if visibleReplies.length}<div class="reply-list">
-            {#each visibleReplies as reply (JSON.stringify( [reply.agent_id, reply.task_id] ))}{@const replyKey =
-                JSON.stringify([reply.agent_id, reply.task_id])}
+            {#each visibleReplies as reply (JSON.stringify( [reply.agent_id, reply.origin_id] ))}{@const replyKey =
+                JSON.stringify([reply.agent_id, reply.origin_id])}
               <details
                 class="reply"
                 ontoggle={(event) => {
@@ -630,9 +628,9 @@
               >
                 <summary
                   ><span
-                    ><strong class="mono"
-                      >{reply.request_id ?? "Unmatched reply"}</strong
-                    ><span class="secondary"
+                    ><strong class="mono">{reply.origin_id}</strong
+                    >{#if !reply.matched}<span class="tag">Unmatched</span
+                      >{/if}<span class="secondary"
                       >Agent {reply.agent_id} · from {reply.creator}</span
                     ></span
                   ><span

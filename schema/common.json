@@ -8,7 +8,9 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 256,
-      "not": { "enum": [".", ".."] },
+      "not": {
+        "enum": [".", ".."]
+      },
       "pattern": "^[a-z0-9._-]+(?:/[a-z0-9._-]+)*(?![\\s\\S])"
     },
     "TopicName": {
@@ -307,6 +309,9 @@
         "id": {
           "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
         },
+        "origin_id": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
+        },
         "domain": {
           "$ref": "https://tasklease.dev/schema/common.json#/$defs/DomainName"
         },
@@ -352,6 +357,7 @@
       },
       "required": [
         "id",
+        "origin_id",
         "domain",
         "topic",
         "created_at",
@@ -369,6 +375,9 @@
       "type": "object",
       "properties": {
         "id": {
+          "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
+        },
+        "origin_id": {
           "$ref": "https://tasklease.dev/schema/common.json#/$defs/TaskId"
         },
         "created_at": {
@@ -410,6 +419,7 @@
       },
       "required": [
         "id",
+        "origin_id",
         "created_at",
         "lease_until",
         "owned_count",

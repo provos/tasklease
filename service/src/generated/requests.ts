@@ -8,6 +8,7 @@ export const requestValidators: {
 } = {
   "blob.get_url": validators.validateBlobGetUrlRequest,
   "blob.put_url": validators.validateBlobPutUrlRequest,
+  cancel: validators.validateCancelRequest,
   consume: validators.validateConsumeRequest,
   create: validators.validateCreateRequest,
   delete: validators.validateDeleteRequest,

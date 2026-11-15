@@ -64,9 +64,10 @@ describe("DomainObject task transactions", () => {
       state.storage.transactionSync(() => {
         for (const row of rows) {
           state.storage.sql.exec(
-            `INSERT INTO tasks (id, topic, created_at, lease_until, owned_count, creator,
+            `INSERT INTO tasks (id, origin_id, topic, created_at, lease_until, owned_count, creator,
              owner_identity, owner_worker, owned_at, data)
-             VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+            row.id,
             row.id,
             topic,
             row.created,
@@ -532,7 +533,8 @@ describe("DomainObject task transactions", () => {
       state.storage.transactionSync(() => {
         for (let index = 0; index < 502; index++) {
           state.storage.sql.exec(
-            `INSERT INTO tasks (id, topic, created_at, lease_until, owned_count, creator, owner_identity, owner_worker, owned_at, data) VALUES (?, ?, ?, ?, 0, ?, NULL, NULL, NULL, ?)`,
+            `INSERT INTO tasks (id, origin_id, topic, created_at, lease_until, owned_count, creator, owner_identity, owner_worker, owned_at, data) VALUES (?, ?, ?, ?, ?, 0, ?, NULL, NULL, NULL, ?)`,
+            newTaskId(1000 + index),
             newTaskId(1000 + index),
             topic,
             1000 + index,
@@ -1015,7 +1017,7 @@ describe("DomainObject task transactions", () => {
     await runInDurableObject(stub, (_instance, state) => {
       expect(
         state.storage.sql.exec("SELECT version FROM schema_version").one(),
-      ).toEqual({ version: 3 });
+      ).toEqual({ version: 4 });
       expect(
         state.storage.sql.exec("SELECT value FROM phase_one_marker").one(),
       ).toEqual({ value: "retained" });
@@ -1040,6 +1042,158 @@ describe("DomainObject task transactions", () => {
         ),
       ).tasks,
     ).toEqual([]);
+  });
+});
+
+describe("origin identity and first-stage cancellation", () => {
+  it.each(["queued", "held", "lapsed", "reowned"])(
+    "lets the creator cancel a %s initial task across fencing ID changes",
+    async (stage) => {
+      const { domain, stub } = fixture(`cancel-${stage}`);
+      const topic = "work/linux";
+      const origin = success(
+        await stub.create({ domain, topic, data: {} }, creator),
+      ).id;
+      let liveId = origin;
+      if (stage !== "queued") {
+        liveId = success(
+          await stub.own({ domain, topic, hold_seconds: 60 }, worker),
+        ).task.id;
+      }
+      if (stage === "lapsed" || stage === "reowned") {
+        await runInDurableObject(stub, (_instance, state) => {
+          state.storage.sql.exec(
+            "UPDATE tasks SET lease_until = 0 WHERE id = ?",
+            liveId,
+          );
+        });
+      }
+      if (stage === "reowned") {
+        liveId = success(
+          await stub.own({ domain, topic, hold_seconds: 60 }, worker),
+        ).task.id;
+      }
+      const request = { domain, topic, origin_id: origin };
+      expect(
+        success(await stub.read({ domain, topic, id: liveId }, creator)).task
+          .origin_id,
+      ).toBe(origin);
+      error(
+        await stub.cancel({ ...request, topic: "work/other" }, creator),
+        "not_found",
+      );
+      error(await stub.cancel(request, worker), "forbidden");
+      success(await stub.cancel(request, creator));
+      error(await stub.cancel(request, creator), "not_found");
+      error(
+        await stub.renew(
+          { domain, topic, id: liveId, hold_seconds: 60 },
+          worker,
+        ),
+        "not_found",
+      );
+      error(
+        await stub.consume({ domain, topic, id: liveId, tasks: [] }, worker),
+        "not_found",
+      );
+      await runInDurableObject(stub, (_instance, state) => {
+        expect(
+          state.storage.sql
+            .exec("SELECT SUM(deleted) AS count FROM stats_hourly")
+            .one(),
+        ).toEqual({ count: 1 });
+      });
+    },
+  );
+
+  it("allows an operator to cancel another identity's held initial task", async () => {
+    const { domain, stub } = fixture("cancel-operator");
+    const topic = "work/linux";
+    const origin = success(
+      await stub.create({ domain, topic, data: {} }, creator),
+    ).id;
+    await stub.own({ domain, topic, hold_seconds: 60 }, worker);
+    success(await stub.cancel({ domain, topic, origin_id: origin }, operator));
+    expect(
+      success(await stub.tasksList({ domain, topic }, operator)).tasks,
+    ).toEqual([]);
+  });
+
+  it("preserves origin on fan-out but never cancels same-topic successors, even with the same creator", async () => {
+    const { domain, stub } = fixture("cancel-successors");
+    const topic = "work/linux";
+    const origin = success(
+      await stub.create({ domain, topic, data: {} }, operator),
+    ).id;
+    const held = success(
+      await stub.own({ domain, topic, hold_seconds: 60 }, operator),
+    ).task;
+    const next = success(
+      await stub.consume(
+        {
+          domain,
+          topic,
+          id: held.id,
+          tasks: [
+            { topic, data: { branch: 1 } },
+            { topic, data: { branch: 2 } },
+          ],
+        },
+        operator,
+      ),
+    );
+    error(
+      await stub.cancel({ domain, topic, origin_id: origin }, operator),
+      "not_found",
+    );
+    for (const id of next.ids) {
+      expect(
+        success(await stub.read({ domain, topic, id }, operator)).task,
+      ).toMatchObject({ origin_id: origin, creator: operator.identity });
+    }
+    expect(
+      success(await stub.tasksList({ domain, topic }, operator)).tasks.map(
+        (task) => task.origin_id,
+      ),
+    ).toEqual([origin, origin]);
+    await runInDurableObject(stub, (_instance, state) => {
+      expect(
+        state.storage.sql.exec("SELECT root FROM tasks").toArray(),
+      ).toEqual([{ root: 0 }, { root: 0 }]);
+    });
+  });
+
+  it("backfills legacy origins at schema version 3 without making old tasks cancellable", async () => {
+    const { domain, stub } = fixture("origin-migration");
+    const topic = "work/linux";
+    await stub.create({ domain, topic, data: { legacy: true } }, creator);
+    const held = success(
+      await stub.own({ domain, topic, hold_seconds: 60 }, worker),
+    ).task;
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        "DROP INDEX tasks_root_origin; ALTER TABLE tasks DROP COLUMN root; ALTER TABLE tasks DROP COLUMN origin_id; UPDATE schema_version SET version = 3",
+      );
+    });
+    await evictDurableObject(stub);
+    const migrated = success(
+      await stub.read({ domain, topic, id: held.id }, creator),
+    ).task;
+    expect(migrated).toEqual({ ...held, origin_id: held.id });
+    error(
+      await stub.cancel({ domain, topic, origin_id: held.id }, creator),
+      "not_found",
+    );
+    success(await stub.delete({ domain, topic, id: held.id }, worker));
+    const fresh = success(
+      await stub.create({ domain, topic, data: {} }, creator),
+    ).id;
+    success(await stub.cancel({ domain, topic, origin_id: fresh }, creator));
+    await runInDurableObject(stub, (_instance, state) => {
+      expect(
+        state.storage.sql.exec("SELECT version FROM schema_version").one(),
+      ).toEqual({ version: 4 });
+    });
   });
 });
 

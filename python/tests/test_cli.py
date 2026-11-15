@@ -521,6 +521,7 @@ def test_tasks_passes_cursor_and_returns_one_page_as_json(
 def task_summary(identifier: str, *, lease: int, owned_count: int = 1) -> TaskSummary:
     return {
         "id": identifier,
+        "origin_id": identifier,
         "created_at": 0,
         "lease_until": lease,
         "owned_count": owned_count,

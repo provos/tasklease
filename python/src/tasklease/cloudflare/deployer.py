@@ -202,12 +202,14 @@ def _probe(
             )
             with Client(url, identity["token"], transport=transport) as client:
                 stage = "Durable Objects task flow"
-                client.create(
+                created = client.create(
                     {"domain": domain, "topic": "check", "data": {"probe": True}}
                 )
                 owned = client.own(
                     {"domain": domain, "topic": "check", "hold_seconds": 30}
                 )
+                if owned["task"]["origin_id"] != created["id"]:
+                    raise DeployError("Task origin did not survive Own")
                 client.consume(
                     {
                         "domain": domain,

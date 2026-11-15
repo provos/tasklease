@@ -1,4 +1,4 @@
-"""Durable requester commands and recovery after uncertain submissions."""
+"""Requester commands correlated by server-carried origins."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import argparse
 import json
 from pathlib import Path
 from typing import cast
-from uuid import uuid4
 
 from tasklease.cli.common import (
     client,
@@ -22,8 +21,8 @@ from tasklease.cli.common import (
     text,
 )
 from tasklease.client import Client, reject_nonfinite
-from tasklease.errors import ConfigError, TaskleaseError
-from tasklease.store import RequestRecord, Store
+from tasklease.errors import ConfigError, NotFound, SubmissionError, TaskleaseError
+from tasklease.store import CancelResult, RequestRecord, Store
 
 
 def agent_store(args: argparse.Namespace) -> Store:
@@ -54,49 +53,41 @@ def _data(value: str) -> dict[str, object]:
 def _status(record: RequestRecord) -> None:
     output(
         {
-            "request_id": record.request_id,
-            "task_id": record.task_id,
+            "origin_id": record.origin_id,
             "state": record.state,
         }
     )
 
 
-def _report_recovery(store: Store, request_id: str) -> None:
+def _report_recovery(store: Store, origin_id: str) -> None:
     try:
-        record = store.request(request_id)
+        record = store.request(origin_id)
     except (TaskleaseError, OSError, ValueError):
         return
     if record is None:
         return
     _status(record)
-    if record.state == "submission_unknown":
-        message(
-            "Submission outcome is unknown. Resume with tl wait --request-id "
-            f"{request_id}, or resend with tl request --resend {request_id}. "
-            "Cancellation is unavailable until a task ID is saved."
-        )
-    else:
-        message(
-            f"Request {request_id} remains saved. "
-            f"Resume with tl wait --request-id {request_id}."
-        )
+    message(
+        f"Request {origin_id} remains saved. "
+        f"Resume with tl wait --origin-id {origin_id}."
+    )
 
 
 def _wait_for(
     store: Store,
     api: Client,
-    request_id: str,
+    origin_id: str,
     timeout_seconds: int,
     wait_seconds: int,
 ) -> int:
     reply = store.wait(
-        api, request_id, timeout_seconds=timeout_seconds, wait_seconds=wait_seconds
+        api, origin_id, timeout_seconds=timeout_seconds, wait_seconds=wait_seconds
     )
     if reply is None:
-        output({"request_id": request_id, "timed_out": True})
-        message(f"Timed out; request {request_id} remains saved for tl wait")
+        output({"origin_id": origin_id, "timed_out": True})
+        message(f"Timed out; request {origin_id} remains saved for tl wait")
         return 3
-    output({"request_id": request_id, "data": reply.data, "creator": reply.creator})
+    output({"origin_id": origin_id, "data": reply.data, "creator": reply.creator})
     return 0
 
 
@@ -104,46 +95,25 @@ def _request(args: argparse.Namespace) -> int:
     timeout = duration_seconds(text(args, "timeout"), name="Timeout")
     # Validated before Create, but only when this request will wait.
     wait = requester_wait_seconds(args) if flag(args, "wait") else 0
-    resend = optional_text(args, "resend")
-    if resend is not None:
-        if any(
-            optional_text(args, name) is not None
-            for name in ("domain", "topic", "reply_topic", "data", "request_id")
-        ):
-            raise ConfigError(
-                "--resend uses the saved request; omit --domain, --topic, "
-                "--reply-topic, --data and --request-id"
-            )
-        request_id = resend
-        payload = None
-        selected = topic = reply_topic = None
-    else:
-        selected = domain(args, configuration(args))
-        topic = text(args, "topic")
-        reply_topic = text(args, "reply_topic")
-        payload = _data(text(args, "data"))
-        supplied_id = optional_text(args, "request_id")
-        request_id = uuid4().hex if supplied_id is None else supplied_id
+    selected = domain(args, configuration(args))
+    topic = text(args, "topic")
+    reply_topic = text(args, "reply_topic")
+    payload = _data(text(args, "data"))
     store = agent_store(args)
     with client(args) as api:
         try:
-            if resend is not None:
-                record = store.resend(api, request_id)
-            else:
-                assert selected is not None and topic is not None
-                assert reply_topic is not None and payload is not None
-                record = store.submit(
-                    api,
-                    selected,
-                    topic,
-                    reply_topic,
-                    payload,
-                    request_id=request_id,
-                )
+            record = store.submit(api, selected, topic, reply_topic, payload)
+        except SubmissionError as error:
+            message(
+                f"Cancel the created request with tl cancel --domain {selected} "
+                f"--topic {topic} --origin-id {error.origin_id}."
+            )
+            raise
+        try:
             if flag(args, "wait"):
-                return _wait_for(store, api, request_id, timeout, wait)
+                return _wait_for(store, api, record.origin_id, timeout, wait)
         except (TaskleaseError, OSError, ValueError, KeyboardInterrupt):
-            _report_recovery(store, request_id)
+            _report_recovery(store, record.origin_id)
             raise
         _status(record)
     return 0
@@ -154,28 +124,36 @@ def _wait(args: argparse.Namespace) -> int:
     wait = requester_wait_seconds(args)
     store = agent_store(args)
     with client(args) as api:
-        return _wait_for(store, api, text(args, "request_id"), timeout, wait)
+        return _wait_for(store, api, text(args, "origin_id"), timeout, wait)
 
 
 def _cancel(args: argparse.Namespace) -> int:
-    store = agent_store(args)
-    request_id = text(args, "request_id")
+    origin_id = text(args, "origin_id")
+    topic = optional_text(args, "topic")
+    if topic is None and optional_text(args, "domain") is not None:
+        raise ConfigError("--domain requires --topic for direct cancellation")
+    store = agent_store(args) if topic is None else None
+    result: CancelResult
     with client(args) as api:
-        result = store.cancel(api, request_id)
+        if store is not None:
+            result = store.cancel(api, origin_id)
+        else:
+            assert topic is not None
+            selected = domain(args, configuration(args))
+            try:
+                api.cancel({"domain": selected, "topic": topic, "origin_id": origin_id})
+            except NotFound:
+                result = "not_found"
+            else:
+                result = "cancelled"
     output(
-        {
-            "request_id": request_id,
-            "cancelled": result == "cancelled",
-            "state": result,
-        }
+        {"origin_id": origin_id, "cancelled": result == "cancelled", "state": result}
     )
-    if result == "submission_unknown":
-        message("Cannot cancel: the submission has no saved task ID; use tl wait")
-        return 1
     if result == "not_found":
+        hint = " The request remains saved for tl wait." if store is not None else ""
         message(
-            "Cannot confirm cancellation: the task was already taken or removed. "
-            "The request remains saved for tl wait."
+            "Cannot confirm cancellation: the first task finished, was removed, "
+            f"or moved to a later stage.{hint}"
         )
         return 1
     return 0
@@ -187,12 +165,9 @@ def configure_parser(
     request = subparsers.add_parser("request", help="Submit a durable agent request")
     connection_options(request)
     request.add_argument("--domain")
-    request.add_argument("--topic")
-    request.add_argument("--reply-topic")
-    request.add_argument("--data", help="JSON object or @file")
-    identifiers = request.add_mutually_exclusive_group()
-    identifiers.add_argument("--request-id")
-    identifiers.add_argument("--resend", metavar="REQUEST_ID")
+    request.add_argument("--topic", required=True)
+    request.add_argument("--reply-topic", required=True)
+    request.add_argument("--data", required=True, help="JSON object or @file")
     request.add_argument("--wait", action="store_true")
     request.add_argument("--timeout", default="6h", help="Wait duration, e.g. 6h")
     request.add_argument(
@@ -204,7 +179,7 @@ def configure_parser(
 
     wait = subparsers.add_parser("wait", help="Wait for a saved request's reply")
     connection_options(wait)
-    wait.add_argument("--request-id", required=True)
+    wait.add_argument("--origin-id", required=True)
     wait.add_argument("--timeout", default="6h", help="Wait duration, e.g. 6h")
     wait.add_argument(
         "--wait-seconds",
@@ -213,7 +188,13 @@ def configure_parser(
     )
     wait.set_defaults(handler=_wait)
 
-    cancel = subparsers.add_parser("cancel", help="Cancel a saved unowned request")
+    cancel = subparsers.add_parser(
+        "cancel", help="Cancel a queued or running first-stage request"
+    )
     connection_options(cancel)
-    cancel.add_argument("--request-id", required=True)
+    cancel.add_argument("--origin-id", required=True)
+    cancel.add_argument(
+        "--topic", help="Cancel directly without a local request record"
+    )
+    cancel.add_argument("--domain")
     cancel.set_defaults(handler=_cancel)

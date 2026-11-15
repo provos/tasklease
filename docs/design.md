@@ -161,6 +161,12 @@ storage, with the tables in spec §7.2.
 
 - **Schema setup** in the constructor under `blockConcurrencyWhile`, with a
   `schema_version` row; migrations are plain SQL steps keyed by version.
+- **Origins and cancellation:** Create sets `origin_id = id` and `root = 1`;
+  Own preserves both, while Consume copies the origin and clears `root` on
+  every successor. A partial unique index on `origin_id WHERE root = 1`
+  enforces at most one initial task. Cancel reads its id and creator through
+  that index, checks creator/operator ownership, and deletes atomically.
+  Migration 3 backfills older tasks with their current ID and `root = 0`.
 - **Every operation is one `ctx.storage.transactionSync(() => …)`** with no
   `await` inside, so it is atomic and other requests wait for it.
 - **Results, not exceptions.** If the function passed to `transactionSync`
@@ -423,7 +429,7 @@ several processes publish the same path and exactly one sees `created`.
 
 The local request records and reply store from spec §6.3, under the
 platform's user data folder (`platformdirs.user_data_path("tasklease")`):
-`requests/h(agent)/`, `replies/h(agent)/`, `replies/h(agent)/unmatched/`,
+`requests/h(agent)/` and `replies/h(agent)/`,
 where `h` is the hash from spec §6.3. Every write goes through
 `publish_new`. Each folder also holds an `agent.json` with the original
 agent ID, so `tl inbox --all` and `tl monitor` can show it.
@@ -445,29 +451,47 @@ When a long poll is refused as `invalid`, the client asks `/v1/version`
 (within the call's timeout) and raises `WaitUnsupported` if the service
 predates 0.4.0.
 
-**Request states** are read from the files, never stored:
+**Identity and state.** `submit` calls Create first, then publishes the
+returned origin's request record. `SubmissionError` exposes the known origin
+if local saving fails. An uncertain Create has no local record; retries are
+independent submissions that may both execute. All files use
+`<origin_id>.json`; only agent directories are hashed. There are no sidecars,
+resend operation, unmatched directory, or locally chosen correlation IDs.
 
-Names are hashed (spec §6.3): `A = h(agent_id)`, `R = h(request_id)`.
+A request is pending without a reply file and answered with one. Replies are
+keyed only by the server's origin, so both lookup and duplicate handling are
+targeted reads and cannot be influenced by payload correlation fields. Each
+Store keeps the first reply per origin. `matched` reports whether a local
+request currently exists; it can change with concurrent publication, pruning
+or cancellation and does not establish trust.
 
-| State | Files |
-|---|---|
-| submission unknown | `requests/A/R.json`, no `requests/A/R.task.json`, no `replies/A/R.json` |
-| pending | `requests/A/R.json` and `R.task.json`, no `replies/A/R.json` |
-| answered | `replies/A/R.json` exists |
-| cancelled | the request record was deleted by `tl cancel` |
+`cancel` calls the service's origin-based operation, which removes only the
+initial task before its first Consume. A confirmed success removes the local
+request file. `not_found` leaves it saved because a reply may be in flight.
+The CLI also supports cancellation directly by domain/topic/origin without a
+Store.
 
-`tl wait` leaves the request record in place: the reply's existence already
-says "answered". `tl cancel` deletes the record after a successful Delete.
-
-**Pruning.** Request records, replies and unmatched replies older than 7 days
-are removed, the same retention as the blobs replies point to. `tl inbox
---prune` does it on demand, and `drain` does it at most once a day.
+**Pruning.** Replies older than seven days from receipt are removed first.
+Request records older than seven days from submission are then removed if
+no retained reply exists. `tl inbox --prune` runs it on demand, and `drain`
+and `poll` do it at most once a day. Retained replies remain readable even
+when a request record is absent. Legacy 0.4.x files raise `StoreError`;
+the coordinated upgrade resets old Store roots instead of adding legacy
+parsing branches.
 
 **All agents on the machine.** Several agent sessions on one machine have
 different agent IDs and so different folders. `tl inbox --all` and
 `tl monitor` read every agent folder under `requests/` and `replies/`.
 
 ### 5.4 `worker.py`
+
+Handlers receive `LeaseEvent`, a `threading.Event` subclass with `reason`
+(`not_found`, `forbidden`, or `expired`) and a separate `revoked` event.
+All internal transitions share a synchronized helper; the first transition
+wins. Renewal rejection sets both events, while local expiry sets only the
+loss event. A late renewal cannot overwrite expiry or resurrect the lease.
+Existing handlers accepting `Event` remain compatible. Cooperative handler
+shutdown never posts a reply or error task after lease loss.
 
 The generic worker loop from spec §6.1, as a library. The library refuses
 topics ending in `/error` before polling, just as
@@ -636,7 +660,7 @@ anything broken?" before anything else:
   busy, idle, waiting for capacity, silent, down or lease lapsed.
 - **Pending requests:** a summary of each request's data and its task's
   state: queued with its position, running and on which worker, lapsed,
-  unconfirmed, or queued with no live worker.
+  moved to its error topic, or queued with no live worker.
 
 Below them: the inbox (including unmatched replies) and throughput and
 latency per topic and hour (created / consumed, average and maximum wait
@@ -660,9 +684,10 @@ measured against each domain's `generated_at`:
   and a **warning** when its oldest task has waited over 10 minutes and 3×
   its average wait, or a held lease has lapsed. An error topic with tasks
   is critical.
-- A pending request finds its task by `task_id` among the topic's first
-  100 tasks. A request whose submission stays unconfirmed for 5 minutes is
-  a warning.
+- A pending request finds its task by `origin_id` among the topic's first
+  100 tasks, including across Own rotations. If absent, the monitor checks
+  its `/error` topic and reports the move explicitly. Inbox entries show
+  their origin and an unmatched label when no local request exists.
 
 Busy detection only sees tasks among the first 100 per topic, and a worker
 that waits for capacity held outside tasklease (such as a machine-wide test
@@ -779,8 +804,9 @@ client agree.
 Unit tests for the store, the worker loop (with a fake client), the CLI and
 the monitor server (the `Host` check, the 25-second reuse, and a missing
 dashboard build). `fsio` and the store run on all three OSes, including
-request IDs that differ only in case (`Foo`, `foo`) and Windows reserved
-names (`CON`), which must land in separate files. The dashboard
+lowercase Windows-reserved agent names such as `con`, which use hashed
+directories, and rejection of mixed-case agent IDs. Request and reply
+filenames use canonical TaskIds. The dashboard
 gets `svelte-check` and a few component tests (Vitest) that render a
 snapshot fixture taken from `schema/examples/`.
 

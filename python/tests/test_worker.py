@@ -19,6 +19,7 @@ from tasklease.generated import protocol as p
 from tasklease.testing import FakeBoard
 from tasklease.worker import (
     EchoHandler,
+    LeaseEvent,
     Rejection,
     UnlimitedCapacity,
     WorkerLoop,
@@ -35,6 +36,7 @@ TASK = "t_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 def task(data: p.Data | None = None, *, owned_count: int = 1) -> p.Task:
     return {
         "id": TASK,
+        "origin_id": TASK,
         "domain": DOMAIN,
         "topic": TOPIC,
         "creator": "requester",
@@ -149,7 +151,7 @@ def test_echo_only_identifying_fields_and_small_message() -> None:
     assert new_tasks(backend.consumed[0]) == [
         {
             "topic": REPLY,
-            "data": {"request_id": "req", "status": "ok", "message": "hello"},
+            "data": {"status": "ok", "message": "hello"},
         }
     ]
     assert backend.calls[0][0] == "own"
@@ -384,7 +386,7 @@ def test_too_large_error_uses_escaping_aware_bounded_payload() -> None:
     assert cast(str, data["original"]).startswith('{"request_id":"req"')
 
 
-@pytest.mark.parametrize("kind", ["exception", "rejection", "request_id", "outcome"])
+@pytest.mark.parametrize("kind", ["exception", "rejection", "reply", "outcome"])
 def test_unencodable_values_still_finish_with_bounded_error(kind: str) -> None:
     backend = Backend()
     handler = CustomHandler()
@@ -396,9 +398,11 @@ def test_unencodable_values_still_finish_with_bounded_error(kind: str) -> None:
         handler.on_run = fail
     elif kind == "rejection":
         handler.on_validate = lambda task: Rejection("\ud800")
-    elif kind == "request_id":
+    elif kind == "reply":
         backend.task["data"]["request_id"] = "\ud800"
-        handler.on_reply = lambda task, outcome: EchoHandler().reply(task, {})
+        handler.on_reply = lambda task, outcome: [
+            {"topic": REPLY, "data": task["data"]}
+        ]
     else:
         handler.on_run = lambda r, lost: {"invalid": "\ud800"}
     loop(backend, handler).step()
@@ -486,13 +490,23 @@ def test_short_lease_retries_failed_renew_before_deadline() -> None:
 
 
 @pytest.mark.parametrize("error", [NotFound("reowned"), Forbidden("not holder")])
-def test_fencing_marks_handler_lost_without_completion(error: Exception) -> None:
+@pytest.mark.parametrize("unwind", [False, True])
+def test_fencing_marks_handler_lost_without_completion(
+    error: Exception, unwind: bool
+) -> None:
     backend = Backend()
     backend.renew_errors = [error]
     handler = CustomHandler()
 
     def run(request: object, lost: threading.Event) -> object:
         assert lost.wait(1)
+        assert isinstance(lost, LeaseEvent)
+        assert lost.reason == (
+            "not_found" if isinstance(error, NotFound) else "forbidden"
+        )
+        assert lost.revoked.is_set()
+        if unwind:
+            raise RuntimeError("Unwinding a cancelled handler")
         return {}
 
     handler.on_run = run
@@ -500,9 +514,14 @@ def test_fencing_marks_handler_lost_without_completion(error: Exception) -> None
     worker.renew_every = 0.02
     worker.step()
     assert not backend.consumed
+    backend.empty = True
+    assert worker.step() == "empty"
 
 
-def test_blocked_renewal_cannot_extend_deadline_or_release_capacity_early() -> None:
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_blocked_renewal_cannot_extend_deadline_or_release_capacity_early(
+    cancelled: bool,
+) -> None:
     backend = Backend()
     handler = CustomHandler()
     renewal_started = threading.Event()
@@ -515,10 +534,16 @@ def test_blocked_renewal_cannot_extend_deadline_or_release_capacity_early() -> N
         assert release_renewal.wait(3)
 
     backend.on_renew = renew
+    if cancelled:
+        backend.renew_errors = [NotFound("cancelled during the blocked renewal")]
+    events: list[LeaseEvent] = []
 
     def run(request: object, lost: threading.Event) -> object:
         assert renewal_started.wait(1)
         assert lost.wait(1.5)
+        assert isinstance(lost, LeaseEvent)
+        assert lost.reason == "expired" and not lost.revoked.is_set()
+        events.append(lost)
         lost_seen.set()
         return {}
 
@@ -544,8 +569,27 @@ def test_blocked_renewal_cannot_extend_deadline_or_release_capacity_early() -> N
         release_renewal.set()
         thread.join(3)
     assert finished.is_set()
+    assert events[0].reason == "expired" and not events[0].revoked.is_set()
     assert not backend.consumed
     assert not any(t.name.startswith("tasklease-") for t in threading.enumerate())
+
+
+def test_forbidden_error_fallback_sets_the_lease_loss_reason() -> None:
+    backend = Backend()
+    backend.consume_errors = [Forbidden("reply denied"), Forbidden("fallback denied")]
+    handler = CustomHandler()
+    events: list[LeaseEvent] = []
+
+    def run(request: object, lost: threading.Event) -> object:
+        assert isinstance(lost, LeaseEvent)
+        events.append(lost)
+        return {}
+
+    handler.on_run = run
+    assert loop(backend, handler).step() == "worked"
+    assert events[0].is_set() and events[0].revoked.is_set()
+    assert events[0].reason == "forbidden"
+    assert len(backend.consumed) == 2
 
 
 def test_own_response_after_deadline_does_not_execute() -> None:

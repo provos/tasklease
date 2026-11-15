@@ -36,6 +36,7 @@ class Service:
     denied: str | None = None
     delay: float = 0
     reply: dict[str, object] | None = None
+    origins: list[str] = field(default_factory=list)
 
     def respond(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["Authorization"] == f"Bearer {TOKEN}"
@@ -80,7 +81,9 @@ class Service:
                 },
             )
         if operation == "create":
-            return httpx.Response(200, json={"ok": True, "id": TASK_ID})
+            origin = f"t_{len(self.origins):026d}"
+            self.origins.append(origin)
+            return httpx.Response(200, json={"ok": True, "id": origin})
         if operation == "own":
             reply, self.reply = self.reply, None
             if reply is not None:
@@ -213,7 +216,7 @@ def test_explicit_domain_fetches_only_selected_authorized_service_view(
 ) -> None:
     running.service.domains = ["acme/a", "acme/b", "acme/b"]
     local = Store("agent-a", running.state_root)
-    local.submit(running.api, "acme/a", "work", "reply/agent-a", {}, "local-pending")
+    local.submit(running.api, "acme/a", "work", "reply/agent-a", {})
     running.service.calls.clear()
     status, _, body = running.request("/api/snapshot?hours=7")
     assert status == 200
@@ -239,7 +242,6 @@ def test_unpermitted_domain_does_not_fetch_snapshot_or_read_local_data(
         "work",
         "reply/local-agent",
         {"private": "local-secret-must-not-leak"},
-        "private-local",
     )
     running.service.calls.clear()
 
@@ -487,11 +489,12 @@ def test_all_agent_local_views_are_read_only_even_with_one_missing_folder(
     running: Running, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     first = Store("agent-a", running.state_root)
-    first.submit(running.api, "acme/a", "work", "reply/agent-a", {}, "pending")
+    first.submit(running.api, "acme/a", "work", "reply/agent-a", {})
     second = Store("agent-b", running.state_root)
-    second.submit(running.api, "acme/b", "work", "reply/agent-b", {}, "answered")
+    second.submit(running.api, "acme/b", "work", "reply/agent-b", {})
     running.service.reply = {
         "id": REPLY_ID,
+        "origin_id": running.service.origins[-1],
         "domain": "acme/b",
         "topic": "reply/agent-b",
         "created_at": 2_000_000_000_000,
@@ -533,8 +536,8 @@ def test_answered_large_input_is_omitted_while_reply_and_pending_states_remain(
     running: Running,
 ) -> None:
     store = Store("agent-a", running.state_root)
-    store.submit(
-        running.api, "acme/a", "work", "reply/agent-a", {"message": "pending"}, "known"
+    pending = store.submit(
+        running.api, "acme/a", "work", "reply/agent-a", {"message": "pending"}
     )
 
     def lost_response(request: httpx.Request) -> httpx.Response:
@@ -545,23 +548,18 @@ def test_answered_large_input_is_omitted_while_reply_and_pending_states_remain(
     ) as flaky:
         with pytest.raises(TransportError):
             store.submit(
-                flaky,
-                "acme/a",
-                "work",
-                "reply/agent-a",
-                {"message": "unknown"},
-                "unknown",
+                flaky, "acme/a", "work", "reply/agent-a", {"message": "unknown"}
             )
-    store.submit(
+    completed = store.submit(
         running.api,
         "acme/a",
         "work",
         "reply/agent-a",
-        {"answered_large_input": "completed-original-" + "x" * 250_000},
-        "answered",
+        {"answered_large_input": "completed-original-" + "x" * 250000},
     )
     running.service.reply = {
         "id": REPLY_ID,
+        "origin_id": running.service.origins[-1],
         "domain": "acme/a",
         "topic": "reply/agent-a",
         "created_at": 2_000_000_000_000,
@@ -573,7 +571,7 @@ def test_answered_large_input_is_omitted_while_reply_and_pending_states_remain(
         "data": {"request_id": "answered", "answer": "done"},
     }
     store.drain(running.api, "acme/a", "reply/agent-a")
-    answered = store.request("answered")
+    answered = store.request(completed.origin_id)
     assert answered is not None and answered.state == "answered"
     before = tree(running.state_root)
     status, _, body = running.request()
@@ -582,9 +580,8 @@ def test_answered_large_input_is_omitted_while_reply_and_pending_states_remain(
     assert len(body) < 10_000
     local = decoded(body)["local"]
     assert isinstance(local, dict)
-    assert {record["request_id"]: record["state"] for record in local["requests"]} == {
-        "known": "pending",
-        "unknown": "submission_unknown",
+    assert {record["origin_id"]: record["state"] for record in local["requests"]} == {
+        pending.origin_id: "pending"
     }
     assert local["replies"][0]["data"] == {"request_id": "answered", "answer": "done"}
     assert tree(running.state_root) == before

@@ -1,0 +1,10 @@
+{
+  "kind": "error",
+  "body": {
+    "ok": false,
+    "error": {
+      "code": "other",
+      "message": "Invalid request"
+    }
+  }
+}

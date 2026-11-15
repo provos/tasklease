@@ -1,0 +1,8 @@
+{
+  "kind": "request",
+  "body": {
+    "domain": "acme/pipeline",
+    "topic": "work/linux",
+    "origin_id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+  }
+}

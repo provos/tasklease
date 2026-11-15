@@ -20,6 +20,13 @@ describe("mock snapshots", () => {
             validateMonitorSnapshotResponse(domain),
             JSON.stringify(validateMonitorSnapshotResponse.errors),
           ).toBe(true);
+          for (const topic of domain.topics) {
+            for (const task of topic.tasks) {
+              expect(task.state).toBe(
+                task.lease_until <= domain.generated_at ? "available" : "held",
+              );
+            }
+          }
           const current = Math.floor(NOW / HOUR) * HOUR;
           for (const row of domain.stats) {
             expect(row.hour).toBeLessThanOrEqual(current);
@@ -29,6 +36,18 @@ describe("mock snapshots", () => {
         // `tl monitor` omits answered requests from the local list.
         expect(
           snapshot.local.requests.every((r) => r.state !== "answered"),
+        ).toBe(true);
+        expect(
+          snapshot.local.requests.every((r) =>
+            /^t_[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(r.origin_id),
+          ),
+        ).toBe(true);
+        expect(
+          snapshot.local.replies.every(
+            (r) =>
+              /^t_[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(r.origin_id) &&
+              typeof r.matched === "boolean",
+          ),
         ).toBe(true);
       }
     },

@@ -6,6 +6,39 @@ Node is needed to build/check a source checkout and to deploy the bundled
 Worker. Installing the resulting wheel or sdist, running requesters/workers
 and opening the monitor do not need Node.
 
+## Upgrade from 0.4.x to 0.5.0
+
+This is a coordinated upgrade. Extra task metadata is tolerated by the old
+Python client, but the old and new worker/requester payload conventions are
+not interoperable: old requesters require an echoed `data.request_id`, which
+0.5.0 workers no longer produce, and old profiles may require that field in
+new requests. Do not run both versions on the same work topics.
+
+1. Pause producers. Let 0.4.x workers finish queued and running work, and let
+   old requesters/listeners drain their replies. Stop requesters, workers,
+   listeners and monitors before resetting local state.
+2. Deploy the accepted 0.5.0 service bundle using the new package's
+   `tl service deploy`. Migration 3 backfills any remaining tasks with
+   `origin_id = current id` and `root = 0`; those legacy tasks remain usable
+   through fenced operations but are not eligible for first-stage Cancel.
+   The deploy probe verifies that a newly created origin survives Own.
+3. Archive and reset the old `requests/` and `replies/` directories under
+   every Store root, including custom application roots. The default root is
+   `platformdirs.user_data_path("tasklease")`. Keep configuration, credentials
+   and worker-control files. 0.5.0 deliberately rejects legacy Store files.
+4. Upgrade all requesters, workers, monitors and downstream profiles together
+   (`uv tool upgrade tasklease` for tool installations). Update applications
+   to `origin_id`, remove supplied request IDs/resend, and use Consume when
+   preserving an origin across a handoff. Session answers sent by Create
+   receive independent origins and use application conversation fields.
+5. Restart workers/listeners first, then resume producers. Verify origin-based
+   replies, post-Own cancellation, and pending-request tracking in the monitor.
+
+A lost Create response may represent accepted work with an unknown origin;
+retrying can execute both submissions. When the origin is known but local
+saving fails, use the error's `origin_id` with stateless `tl cancel --domain
+DOMAIN --topic TOPIC --origin-id ID` or inspect the task directly.
+
 ## First-release setup
 
 Complete these once, then use the checklist below for the first release and

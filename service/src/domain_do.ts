@@ -1,6 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 import { failure } from "./errors";
 import type {
+  CancelRequest,
+  CancelResponse,
   ConsumeRequest,
   ConsumeResponse,
   CreateRequest,
@@ -47,6 +49,8 @@ type RpcTaskResponse<T extends { ok: true; task: Task }> = Omit<T, "task"> & {
 
 type TaskRow = {
   id: string;
+  origin_id: string;
+  root: number;
   topic: string;
   created_at: number;
   lease_until: number;
@@ -58,8 +62,8 @@ type TaskRow = {
   data: string;
 };
 
-type TaskMetadataRow = Omit<TaskRow, "data">;
-const metadataColumns = `id, topic, created_at, lease_until, owned_count, creator,
+type TaskMetadataRow = Omit<TaskRow, "data" | "root">;
+const metadataColumns = `id, origin_id, topic, created_at, lease_until, owned_count, creator,
   owner_identity, owner_worker, owned_at`;
 
 type PollerRow = {
@@ -331,6 +335,10 @@ const migrations = [
     PRIMARY KEY (snapshot_id, seq)
   );
   CREATE INDEX monitor_snapshots_expiry ON monitor_snapshots (expires_at);`,
+  `ALTER TABLE tasks ADD COLUMN origin_id TEXT NOT NULL DEFAULT '';
+  ALTER TABLE tasks ADD COLUMN root INTEGER NOT NULL DEFAULT 0;
+  UPDATE tasks SET origin_id = id;
+  CREATE UNIQUE INDEX tasks_root_origin ON tasks (origin_id) WHERE root = 1;`,
 ];
 
 export class DomainObject extends DurableObject<Env> {
@@ -721,6 +729,28 @@ export class DomainObject extends DurableObject<Env> {
     });
   }
 
+  async cancel(
+    request: CancelRequest,
+    caller: Caller,
+  ): Promise<Result<CancelResponse>> {
+    return this.operation((now) => {
+      const row = this.ctx.storage.sql
+        .exec<Pick<TaskRow, "id" | "creator">>(
+          "SELECT id, creator FROM tasks WHERE origin_id = ? AND topic = ? AND root = 1",
+          request.origin_id,
+          request.topic,
+        )
+        .toArray()[0];
+      if (!row) return failure("not_found");
+      if (!caller.operator && row.creator !== caller.identity) {
+        return failure("forbidden");
+      }
+      this.ctx.storage.sql.exec("DELETE FROM tasks WHERE id = ?", row.id);
+      this.recordStats(request.topic, now, { deleted: 1 });
+      return { ok: true };
+    });
+  }
+
   async consume(
     request: ConsumeRequest,
     caller: Caller,
@@ -742,7 +772,13 @@ export class DomainObject extends DurableObject<Env> {
       }
       this.ctx.storage.sql.exec("DELETE FROM tasks WHERE id = ?", row.id);
       const ids = request.tasks.map((target) =>
-        this.insertTask(target.topic, JSON.stringify(target.data), caller, now),
+        this.insertTask(
+          target.topic,
+          JSON.stringify(target.data),
+          caller,
+          now,
+          row.origin_id,
+        ),
       ) as ConsumeResponse["ids"];
       const run = row.owned_at === null ? null : now - row.owned_at;
       this.recordStats(row.topic, now, {
@@ -1136,10 +1172,13 @@ export class DomainObject extends DurableObject<Env> {
     data: string,
     caller: Caller,
     now: number,
+    originId?: string,
   ): string {
     const id = newTaskId(now);
     this.insertRow({
       id,
+      origin_id: originId ?? id,
+      root: originId === undefined ? 1 : 0,
       topic,
       data,
       created_at: now,
@@ -1156,9 +1195,11 @@ export class DomainObject extends DurableObject<Env> {
 
   private insertRow(row: TaskRow): void {
     this.ctx.storage.sql.exec(
-      `INSERT INTO tasks (id, topic, created_at, lease_until, owned_count, creator,
-       owner_identity, owner_worker, owned_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (id, origin_id, root, topic, created_at, lease_until, owned_count, creator,
+       owner_identity, owner_worker, owned_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       row.id,
+      row.origin_id,
+      row.root,
       row.topic,
       row.created_at,
       row.lease_until,
@@ -1209,6 +1250,7 @@ export class DomainObject extends DurableObject<Env> {
 function taskFields(row: TaskMetadataRow): Omit<TaskSummary, "state"> {
   return {
     id: row.id,
+    origin_id: row.origin_id,
     created_at: row.created_at,
     lease_until: row.lease_until,
     owned_count: row.owned_count,

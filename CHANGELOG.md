@@ -6,6 +6,46 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+### Added
+
+- Required server-carried `origin_id` on tasks and summaries. Create mints it,
+  Own and Renew preserve it, and Consume carries it onto every successor.
+  Request/reply correlation no longer trusts `data.request_id`, including
+  replies bounced through a legitimate worker (Issue #17).
+- `cancel {domain, topic, origin_id}` and `Client.cancel` cancel the initial
+  task while queued, held or lapsed. Creators need no own scope; operators
+  retain their domain override. Consume successors cannot be cancelled by
+  this operation. `tl cancel --origin-id` supports saved requests and direct
+  `--topic`/`--domain` operation without a Store.
+- `LeaseEvent.reason` and `LeaseEvent.revoked` distinguish server rejection
+  from local lease expiry; the first loss transition wins. Existing handlers
+  accepting `threading.Event` remain compatible.
+- `SubmissionError.origin_id` exposes a successfully created origin when its
+  local request record cannot be saved.
+
+### Changed
+
+- Store calls Create before publishing its local request. Request and reply
+  files use `<origin_id>.json`; reply matching is independent of metadata
+  retention. `ReplyRecord.matched` reports current local request existence.
+- The monitor joins pending requests by origin across Own rotations, checks
+  the work topic's error queue, and labels unmatched inbox entries.
+
+### Breaking changes and deployment
+
+- The 0.5.0 package requires the 0.5.0 service. Use the coordinated upgrade
+  procedure in [releasing.md](docs/releasing.md#upgrade-from-04x-to-050): drain
+  old work, stop old processes, deploy the service, reset old Store roots,
+  and upgrade clients and profiles together before restarting.
+- Remove caller-supplied request IDs, `--request-id`, `--resend`,
+  `Store.resend`, `submission_unknown`, sidecars and unmatched directories.
+  Use the returned `origin_id` and `tl wait --origin-id`. An uncertain Create
+  leaves no local record, and a retry creates independent work.
+- Each Store retains one reply per origin; separate fan-out answers to a
+  single Store are not supported. Migration backfills old server tasks with
+  their current ID as origin and leaves them ineligible for initial-task
+  cancellation.
+
 ## [0.4.1] - 2026-11-12
 
 ### Added
