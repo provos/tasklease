@@ -1232,3 +1232,51 @@ Status: accepted after corrections, independent reviews and native qualification
 - **Publication is on hold at the user's request.** No publishing dispatch or
   GitHub Release was created. The accepted `v0.5.0` tag remains in place;
   publication requires renewed authorization.
+
+## UUIDv7 Create idempotency implementation (2026-11-15)
+
+- [PR #21](https://github.com/provos/tasklease/pull/21) implements
+  [create-idempotency.md](create-idempotency.md) for the held 0.5.0 release.
+  Its candidate is `8b7ed782ce6a9297c2c640222004ec838be9c76f`.
+  Optional canonical UUIDv7 keys are scoped to domain and creator; the first
+  accepted request wins for seven days from service acceptance. Replay keeps
+  the original origin after Own, Consume, Delete or Cancel. Local replay keeps
+  the first saved intent and timestamp while validating its domain.
+- The contract/service, Python/runtime, and integration/documentation stages
+  each passed simplify reuse, quality and efficiency review plus independent
+  Astra review at high effort. Full `make check` and `make build` passed:
+  239 service, 47 dashboard, 1,222 Python/tooling and 489 conformance tests,
+  with three and 36 expected skips. Shared conformance exercised both SQLite
+  and FakeBoard, including lost Create responses and replies drained before
+  local intent publication. No dependency or package-version changes were made.
+- The clean candidate export contains 475 files, SHA-256
+  `db6c9252e6ab700c05d5fbc8d5c7d98fa4cb065040230b2ab63b0a4c6fb112fa`.
+  Wheel/sdist metadata, license, RECORD, resources, README and private-path
+  inspection passed. macOS installed-wheel acceptance passed 1,127 tests with
+  three expected skips and the no-Node probe. Linux passed the same counts in
+  Docker Desktop's Linux aarch64 VM using a container filesystem and existing
+  image `sha256:f1ec535b79003d491fd9d60a223904a31e0032cca185cf1e0c8694bef863c7b1`.
+  The usual Spark hostname was unavailable in DNS. The run-owned container was
+  removed. This records the actual Linux environment rather than a Spark run.
+- An isolated, guarded Worker was bootstrapped from the verified published
+  0.4.1 wheel and upgraded from the exact installed candidate wheel. Held work,
+  credentials and statistics survived; origin fencing, cancellation, duplicate
+  reply archiving, forgery isolation and real R2 transfers passed. New live
+  checks passed concurrent keyed Creates, first-request-wins behavior,
+  creator isolation, replay after Own/Consume/Cancel and already answered Store
+  recovery. The new client diagnosed a prior service's unknown key field, and
+  the old client tolerated new service metadata. All temporary identities were
+  revoked, the run-owned Worker was deleted with API 404 verification, and the
+  existing acceptance bucket and lifecycle were unchanged.
+- **Windows native acceptance is pending:** the Windows 11 VM is suspended,
+  and manual resume was requested. The fresh bundle and runner are prepared;
+  no Windows result is claimed for this candidate. The
+  [acceptance report](acceptance/0.5.0-idempotency.json) records this open gate.
+  The PR remains draft. Publication remains on hold; the existing `v0.5.0` tag
+  still identifies `cb036405e49c51ed56a8aef1f3910d0ab4b06e2e` and has not moved.
+  No publishing workflow or GitHub Release was created for this revision.
+- Evidence is retained in
+  `python/dist/acceptance-0.5.0-idempotency-8b7ed78/evidence.zip`, SHA-256
+  `c6ea4c3d735be3874d3733139214d4b2424477c06f477f8d93a19d6f36dc1e4f`.
+  It contains 38 files and a hash manifest. Recursive scanning of 685 files
+  and archive members against actual credentials passed; private state is excluded.

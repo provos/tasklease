@@ -1,0 +1,372 @@
+{
+  "version": "0.5.0",
+  "date": "2026-11-15",
+  "date_timezone": "America/Los_Angeles",
+  "status": "pending_windows_native",
+  "implementation": "complete; PR draft until remaining native acceptance",
+  "pr": "https://github.com/provos/tasklease/pull/21",
+  "source_commit": "8b7ed782ce6a9297c2c640222004ec838be9c76f",
+  "source_dirty": false,
+  "source_tree_sha256": "dbb45076223357e466ca428be45780a031b26ba6afb192cccba480aaba63c329",
+  "acceptance_zip_sha256": "db6c9252e6ab700c05d5fbc8d5c7d98fa4cb065040230b2ab63b0a4c6fb112fa",
+  "gates": {
+    "make_check": "passed",
+    "make_build": "passed",
+    "dependency_policy": "unchanged lockfiles; installed-tree, age policy and audit passed in make check",
+    "service": {
+      "passed": 239
+    },
+    "monitor": {
+      "passed": 47
+    },
+    "python": {
+      "passed": 1222,
+      "skipped": 3
+    },
+    "conformance": {
+      "passed": 489,
+      "skipped": 36
+    }
+  },
+  "reviews": [
+    {
+      "stage": "contract/service",
+      "simplify": "reuse, quality, efficiency: no actionable findings",
+      "independent_astra": "high effort: no correctness/security findings"
+    },
+    {
+      "stage": "Python/runtime",
+      "simplify": "reuse, quality, efficiency: no actionable findings",
+      "independent_astra": "high effort: no correctness/security findings"
+    },
+    {
+      "stage": "integration/docs",
+      "simplify": "reuse, quality, efficiency: no actionable findings",
+      "independent_astra": "high effort: no correctness/security findings"
+    }
+  ],
+  "artifact_inspection": {
+    "status": "passed",
+    "version": "0.5.0",
+    "metadata_license_record_resources_verified": true,
+    "sdist_readme_and_private_path_check": true,
+    "distributions": {
+      "tasklease-0.5.0-py3-none-any.whl": {
+        "sha256": "4c524755b67284a5121c45bdac8b5566ccbb3f6321e8c669fa33a80616af4063",
+        "bytes": 274522
+      },
+      "tasklease-0.5.0.tar.gz": {
+        "sha256": "339d320b586e13524efb9b3b658b19a9710e290232391906b7130d26b2d70d08",
+        "bytes": 403542
+      }
+    }
+  },
+  "native": {
+    "macos": {
+      "architecture": "arm64",
+      "archive_sha256": "db6c9252e6ab700c05d5fbc8d5c7d98fa4cb065040230b2ab63b0a4c6fb112fa",
+      "ignored_node_suites": ["test_build.py", "test_deploy.py"],
+      "installed_wheel_probe": {
+        "command": [
+          "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-idempotency-050-9xtuge9p/macos-final/venv/bin/python",
+          "-I",
+          "-c",
+          "\nimport io, json, plistlib, sys, zipfile\nfrom contextlib import redirect_stdout\nfrom importlib.resources import files\nfrom pathlib import Path, PurePosixPath\nfrom xml.etree import ElementTree\nimport tasklease\nfrom tasklease.cli import main\nfrom tasklease.client import Client\n\nroot = Path(tasklease.__file__).resolve().parent\nassert sys.prefix != sys.base_prefix, 'Use a clean virtual environment'\nassert root.is_relative_to(Path(sys.prefix).resolve()), (\n    'Editable/source import is not an installed-wheel check'\n)\nassert 'site-packages' in str(root).lower(), 'Use installed site-packages'\nassert tasklease.__version__ == sys.argv[2], 'Installed version differs'\nwith zipfile.ZipFile(sys.argv[1]) as wheel:\n    for name in wheel.namelist():\n        if name.startswith('tasklease/') and not name.endswith('/'):\n            relative = PurePosixPath(name).parts[1:]\n            assert root.joinpath(*relative).read_bytes() == wheel.read(name), (\n                'Installed package differs from wheel: ' + name\n            )\np = files('tasklease')\nhtml = p.joinpath('monitor/static/index.html').read_text()\nassert '<html' in html and p.joinpath('monitor/static/assets').is_dir()\nbundle = json.loads(p.joinpath('service_bundle/manifest.json').read_text())\ntemplate = json.loads(p.joinpath('service_bundle/wrangler.template.jsonc').read_text())\nassert bundle['service_version'] == tasklease.__version__\nassert template['no_bundle'] is True\nassert p.joinpath('service_bundle', template['main']).read_bytes()\nfor target in ('systemd', 'launchd', 'windows', 'windows-stop'):\n    output = io.StringIO()\n    with redirect_stdout(output):\n        assert main(['worker', 'template', '--platform', target]) == 0\n    text = output.getvalue()\n    assert text\n    if target == 'launchd':\n        assert plistlib.loads(text.encode())['RunAtLoad'] is True\n    if target == 'windows':\n        ElementTree.fromstring(text)\nClient('http://127.0.0.1:1', 'acceptance-fake-token').close()\nprint(json.dumps({\n    'version': tasklease.__version__, 'package_path': str(root),\n    'templates': 4, 'node_path': 'absent',\n}))\n",
+          "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-idempotency-050-9xtuge9p/bundle/artifacts/tasklease-0.5.0-py3-none-any.whl",
+          "0.5.0"
+        ],
+        "cwd": "/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-native-work-dw4qjagj",
+        "exit_code": 0,
+        "log": "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-idempotency-050-9xtuge9p/evidence/macos/native-report.probe.log",
+        "seconds": 0.184,
+        "timed_out": false
+      },
+      "package_version": "0.5.0",
+      "platform": "macOS-27.0-arm64-arm-64bit",
+      "python": "3.12.12",
+      "python_executable": "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-idempotency-050-9xtuge9p/macos-final/venv/bin/python",
+      "release": "27.0.0",
+      "runtime": {
+        "command": [
+          "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-idempotency-050-9xtuge9p/macos-final/venv/bin/python",
+          "-I",
+          "-m",
+          "pytest",
+          "-c",
+          "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-idempotency-050-9xtuge9p/bundle/source/python/pyproject.toml",
+          "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-idempotency-050-9xtuge9p/bundle/source/python/tests",
+          "--ignore=/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-idempotency-050-9xtuge9p/bundle/source/python/tests/test_build.py",
+          "--ignore=/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-idempotency-050-9xtuge9p/bundle/source/python/tests/test_deploy.py",
+          "--junitxml=/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-idempotency-050-9xtuge9p/evidence/macos/native-report.junit.xml",
+          "-q"
+        ],
+        "cwd": "/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-native-work-dw4qjagj",
+        "exit_code": 0,
+        "log": "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-idempotency-050-9xtuge9p/evidence/macos/native-report.pytest.log",
+        "seconds": 16.975,
+        "timed_out": false
+      },
+      "source_commit": "8b7ed782ce6a9297c2c640222004ec838be9c76f",
+      "source_dirty": false,
+      "source_tree_sha256": "dbb45076223357e466ca428be45780a031b26ba6afb192cccba480aaba63c329",
+      "status": "passed",
+      "system": "Darwin",
+      "tests": {
+        "errors": 0,
+        "failed_cases": [],
+        "failures": 0,
+        "passed": 1127,
+        "skipped": 3,
+        "skipped_cases": [
+          {
+            "reason": "Native Windows file sharing",
+            "test": "tests.test_fsio::test_windows_loser_flush_and_reader_share_an_inflight_delete_handle"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[unicode_string]"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[utf8_file]"
+          }
+        ],
+        "tests": 1130
+      },
+      "uv": {
+        "command": ["/Users/provos/.local/bin/uv", "--version"],
+        "cwd": "/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-native-work-dw4qjagj",
+        "exit_code": 0,
+        "log": "/private/var/folders/_q/k3k25rx94lz_qpft0cynpyym0000gn/T/tasklease-idempotency-050-9xtuge9p/evidence/macos/native-report.uv.log",
+        "seconds": 0.012,
+        "timed_out": false,
+        "version": "uv 0.9.15 (5eafae332 2025-12-02)"
+      },
+      "wheel_sha256": "4c524755b67284a5121c45bdac8b5566ccbb3f6321e8c669fa33a80616af4063"
+    },
+    "linux": {
+      "architecture": "aarch64",
+      "archive_sha256": "db6c9252e6ab700c05d5fbc8d5c7d98fa4cb065040230b2ab63b0a4c6fb112fa",
+      "ignored_node_suites": ["test_build.py", "test_deploy.py"],
+      "installed_wheel_probe": {
+        "command": [
+          "/acceptance/venv/bin/python",
+          "-I",
+          "-c",
+          "\nimport io, json, plistlib, sys, zipfile\nfrom contextlib import redirect_stdout\nfrom importlib.resources import files\nfrom pathlib import Path, PurePosixPath\nfrom xml.etree import ElementTree\nimport tasklease\nfrom tasklease.cli import main\nfrom tasklease.client import Client\n\nroot = Path(tasklease.__file__).resolve().parent\nassert sys.prefix != sys.base_prefix, 'Use a clean virtual environment'\nassert root.is_relative_to(Path(sys.prefix).resolve()), (\n    'Editable/source import is not an installed-wheel check'\n)\nassert 'site-packages' in str(root).lower(), 'Use installed site-packages'\nassert tasklease.__version__ == sys.argv[2], 'Installed version differs'\nwith zipfile.ZipFile(sys.argv[1]) as wheel:\n    for name in wheel.namelist():\n        if name.startswith('tasklease/') and not name.endswith('/'):\n            relative = PurePosixPath(name).parts[1:]\n            assert root.joinpath(*relative).read_bytes() == wheel.read(name), (\n                'Installed package differs from wheel: ' + name\n            )\np = files('tasklease')\nhtml = p.joinpath('monitor/static/index.html').read_text()\nassert '<html' in html and p.joinpath('monitor/static/assets').is_dir()\nbundle = json.loads(p.joinpath('service_bundle/manifest.json').read_text())\ntemplate = json.loads(p.joinpath('service_bundle/wrangler.template.jsonc').read_text())\nassert bundle['service_version'] == tasklease.__version__\nassert template['no_bundle'] is True\nassert p.joinpath('service_bundle', template['main']).read_bytes()\nfor target in ('systemd', 'launchd', 'windows', 'windows-stop'):\n    output = io.StringIO()\n    with redirect_stdout(output):\n        assert main(['worker', 'template', '--platform', target]) == 0\n    text = output.getvalue()\n    assert text\n    if target == 'launchd':\n        assert plistlib.loads(text.encode())['RunAtLoad'] is True\n    if target == 'windows':\n        ElementTree.fromstring(text)\nClient('http://127.0.0.1:1', 'acceptance-fake-token').close()\nprint(json.dumps({\n    'version': tasklease.__version__, 'package_path': str(root),\n    'templates': 4, 'node_path': 'absent',\n}))\n",
+          "/acceptance/bundle/artifacts/tasklease-0.5.0-py3-none-any.whl",
+          "0.5.0"
+        ],
+        "cwd": "/tmp/tasklease-native-work-jtgk9d7w",
+        "exit_code": 0,
+        "log": "/acceptance/reports/native-report.probe.log",
+        "seconds": 0.355,
+        "timed_out": false
+      },
+      "package_version": "0.5.0",
+      "platform": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+      "python": "3.12.12",
+      "python_executable": "/acceptance/venv/bin/python",
+      "release": "7.0.14-linuxkit",
+      "runtime": {
+        "command": [
+          "/acceptance/venv/bin/python",
+          "-I",
+          "-m",
+          "pytest",
+          "-c",
+          "/acceptance/bundle/source/python/pyproject.toml",
+          "/acceptance/bundle/source/python/tests",
+          "--ignore=/acceptance/bundle/source/python/tests/test_build.py",
+          "--ignore=/acceptance/bundle/source/python/tests/test_deploy.py",
+          "--junitxml=/acceptance/reports/native-report.junit.xml",
+          "-q"
+        ],
+        "cwd": "/tmp/tasklease-native-work-jtgk9d7w",
+        "exit_code": 0,
+        "log": "/acceptance/reports/native-report.pytest.log",
+        "seconds": 15.251,
+        "timed_out": false
+      },
+      "source_commit": "8b7ed782ce6a9297c2c640222004ec838be9c76f",
+      "source_dirty": false,
+      "source_tree_sha256": "dbb45076223357e466ca428be45780a031b26ba6afb192cccba480aaba63c329",
+      "status": "passed",
+      "system": "Linux",
+      "tests": {
+        "errors": 0,
+        "failed_cases": [],
+        "failures": 0,
+        "passed": 1127,
+        "skipped": 3,
+        "skipped_cases": [
+          {
+            "reason": "Native Windows file sharing",
+            "test": "tests.test_fsio::test_windows_loser_flush_and_reader_share_an_inflight_delete_handle"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[unicode_string]"
+          },
+          {
+            "reason": "Native Windows Task Scheduler COM",
+            "test": "tests.test_windows_template::test_native_scheduler_parses_exported_template[utf8_file]"
+          }
+        ],
+        "tests": 1130
+      },
+      "uv": {
+        "command": ["/usr/local/bin/uv", "--version"],
+        "cwd": "/tmp/tasklease-native-work-jtgk9d7w",
+        "exit_code": 0,
+        "log": "/acceptance/reports/native-report.uv.log",
+        "seconds": 0.004,
+        "timed_out": false,
+        "version": "uv 0.9.30"
+      },
+      "wheel_sha256": "4c524755b67284a5121c45bdac8b5566ccbb3f6321e8c669fa33a80616af4063",
+      "environment": {
+        "kind": "Docker Desktop Linux VM; Linux container filesystem",
+        "image_id": "sha256:f1ec535b79003d491fd9d60a223904a31e0032cca185cf1e0c8694bef863c7b1",
+        "architecture": "aarch64",
+        "normal_host": "spark.localdomain unavailable in DNS"
+      }
+    },
+    "windows": {
+      "status": "pending",
+      "reason": "Windows 11 VM is suspended; resume requested. No result claimed for this candidate.",
+      "prepared_guest_root": "C:\\Users\\provos\\AppData\\Local\\Temp\\tli-8b7ed78"
+    }
+  },
+  "live": {
+    "status": "passed",
+    "checks": {
+      "published_bootstrap_and_r2_probe": true,
+      "exact_installed_candidate_wheel_bytes": true,
+      "new_client_prior_service_explicit_key_error": true,
+      "new_client_prior_service_explicit_origin_error": true,
+      "legacy_origin_backfill_root_zero": true,
+      "upgrade_exact_task_credentials_stats_preserved": true,
+      "snapshot_atomic_reply_and_stale_id_fencing": true,
+      "signed_content_length_rejection_and_r2_roundtrip": true,
+      "public_blob_helpers_live_r2": true,
+      "key_replay_after_cancel_and_creator_isolation": true,
+      "concurrent_key_first_request_wins_and_lifecycle_replay": true,
+      "creator_cancel_held_without_own_scope": true,
+      "store_replay_recovers_already_answered_origin": true,
+      "origin_fanout_duplicate_archive_and_post_consume_cancel": true,
+      "payload_forgery_does_not_take_answer_slot": true,
+      "origin_cancel_archive_live": true,
+      "old_client_new_service_wire": true,
+      "temporary_identities_revoked": true,
+      "new_worker_deleted_existing_bucket_untouched": true
+    },
+    "events": [
+      "Bootstrapping new isolated Worker from installed published 0.4.1 wheel",
+      "Bucket tasklease-acceptance-90d25ae: unchanged",
+      "Lifecycle tasklease-expire: unchanged",
+      "Worker uploaded; deployment coordinates saved. Verification is pending.",
+      "Generated bootstrap admin credential, retained only in private state",
+      "Admin token confirmed.",
+      "Task and R2 upload/download checks passed.",
+      "Next: tl identity add for each machine; tl topic declare for well-known topics.",
+      "Prior service, scoped identity, held task and statistics prepared",
+      "Upgrading the same isolated Worker from installed candidate wheel",
+      "Bucket tasklease-acceptance-90d25ae: unchanged",
+      "Lifecycle tasklease-expire: unchanged",
+      "Worker uploaded; deployment coordinates saved. Verification is pending.",
+      "Task and R2 upload/download checks passed.",
+      "Next: tl identity add for each machine; tl topic declare for well-known topics.",
+      "Exact held task, credentials and hourly stats survived; reply/fencing passed",
+      "Real R2 signed-size rejection, SHA-256 and public file helpers passed",
+      "Live origin, creator cancellation, duplicate archive and forgery isolation passed",
+      "Candidate live upgrade, origin and idempotency acceptance passed",
+      "Prior client accepts new wire metadata; coordinated profile upgrade remains required",
+      "Deleting only this run's temporary acceptance Worker",
+      "Temporary Worker deleted; existing acceptance bucket and lifecycle retained"
+    ],
+    "worker_api_observations": [
+      {
+        "name": "tasklease-050-acceptance-3b23490372",
+        "http_status": 404
+      },
+      {
+        "name": "tasklease-050-acceptance-3b23490372",
+        "http_status": 404
+      }
+    ],
+    "name": "tasklease-050-acceptance-3b23490372",
+    "url": "https://tasklease-050-acceptance-3b23490372.provos.workers.dev",
+    "bucket": "tasklease-acceptance-90d25ae",
+    "prior_version": "0.4.1",
+    "candidate_source_commit": "8b7ed782ce6a9297c2c640222004ec838be9c76f",
+    "candidate_source_dirty": false,
+    "candidate_source_tree_sha256": "dbb45076223357e466ca428be45780a031b26ba6afb192cccba480aaba63c329",
+    "candidate_archive_sha256": "db6c9252e6ab700c05d5fbc8d5c7d98fa4cb065040230b2ab63b0a4c6fb112fa",
+    "candidate_wheel_sha256": "4c524755b67284a5121c45bdac8b5566ccbb3f6321e8c669fa33a80616af4063",
+    "helper_total_timeout_seconds": 60,
+    "helper_roundtrip_elapsed_seconds": 0.7529133753851056,
+    "helper_blob": {
+      "size": 1048593,
+      "sha256": "60b9a60f363734ba0289050b62f6bbab4f8961a3cb98585e8d7d256d6f7d8f30"
+    },
+    "candidate_version": "0.5.0",
+    "mixed_profile_compatibility": "Wire metadata is tolerated; mixed payload conventions remain unsupported and require the documented coordinated upgrade.",
+    "cleanup": {
+      "temporary_identities_revoked": true,
+      "worker_api_status": 404,
+      "worker_deleted": true,
+      "existing_bucket_unchanged": true,
+      "existing_bucket_lifecycle_unchanged": true,
+      "lifecycle_before": [
+        {
+          "name": "Default Multipart Abort Rule",
+          "enabled": "Yes",
+          "prefix": "(all prefixes)",
+          "action": "Abort incomplete multipart uploads after 7 days"
+        },
+        {
+          "name": "tasklease-expire",
+          "enabled": "Yes",
+          "prefix": "(all prefixes)",
+          "action": "Expire objects after 7 days"
+        }
+      ],
+      "lifecycle_after": [
+        {
+          "name": "Default Multipart Abort Rule",
+          "enabled": "Yes",
+          "prefix": "(all prefixes)",
+          "action": "Abort incomplete multipart uploads after 7 days"
+        },
+        {
+          "name": "tasklease-expire",
+          "enabled": "Yes",
+          "prefix": "(all prefixes)",
+          "action": "Expire objects after 7 days"
+        }
+      ],
+      "test_objects_retained_under_seven_day_expiry": true
+    },
+    "guarded_absent_before_creation": true
+  },
+  "release": {
+    "publication": "held_by_user",
+    "existing_tag": "v0.5.0",
+    "existing_tag_commit": "cb036405e49c51ed56a8aef1f3910d0ab4b06e2e",
+    "tag_moved": false,
+    "publishing_workflow_dispatched": false,
+    "github_release_created": false
+  },
+  "retained_evidence": {
+    "path": "/Users/provos/src/tasklease/python/dist/acceptance-0.5.0-idempotency-8b7ed78/evidence.zip",
+    "sha256": "c6ea4c3d735be3874d3733139214d4b2424477c06f477f8d93a19d6f36dc1e4f",
+    "files": 38,
+    "secret_scan": {
+      "status": "passed",
+      "files_and_archive_members": 685,
+      "actual_credential_values_checked": 6,
+      "private_state_excluded": true
+    }
+  }
+}
