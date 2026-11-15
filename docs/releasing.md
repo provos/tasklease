@@ -21,7 +21,9 @@ new requests. Do not run both versions on the same work topics.
    `tl service deploy`. Migration 3 backfills any remaining tasks with
    `origin_id = current id` and `root = 0`; those legacy tasks remain usable
    through fenced operations but are not eligible for first-stage Cancel.
-   The deploy probe verifies that a newly created origin survives Own.
+   Migration 4 adds `create_keys` for seven-day Create deduplication. The deploy
+   probe verifies that a newly created origin survives Own and that repeated
+   Create returns the same origin without queuing a second task.
 3. Archive and reset the old `requests/` and `replies/` directories under
    every Store root, including custom application roots. The default root is
    `platformdirs.user_data_path("tasklease")`. Keep configuration, credentials
