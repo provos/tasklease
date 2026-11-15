@@ -1181,3 +1181,54 @@ Status: accepted after corrections, independent reviews and native qualification
   a SHA-256 manifest and passed credential scanning against the actual
   private values. Its SHA-256 is
   `d65c842456f26885a85152d77f840982b0e83ff8caf6923855393c3ba51e1ff4`.
+
+## 0.5.0 release acceptance (2026-11-15)
+
+- PR #19 was squash-merged as `dffbd2cc19cb0dd99084a78051a395014b711f73`
+  and its branch deleted. The accepted release commit is
+  `cb036405e49c51ed56a8aef1f3910d0ab4b06e2e`, tagged `v0.5.0`.
+  The release requires the coordinated service/client upgrade documented in
+  [releasing.md](releasing.md#upgrade-from-04x-to-050).
+- Clean `make install`, full `make check` and `make build` passed. After the
+  native Windows fix, full checks passed again: 222 Worker, 47 dashboard,
+  1,179 Python/tooling and 441 conformance tests, with three and 36 expected
+  skips. The locked dependency graph was unchanged. The wheel and sdist
+  passed metadata, license, resources, RECORD and private-path inspection.
+- Initial Windows acceptance found a real MAX_PATH failure while archiving a
+  duplicate reply: the destination fit, but the staging filename repeated its
+  full name and exceeded the limit. The fixed short staging prefix preserves
+  exclusive same-directory publication and existing cleanup. A regression
+  exercises a 250-character destination. Simplify review and an independent
+  Astra review at high effort found no remaining issues.
+- The rebuilt installed wheel passed 1,086 native tests on macOS and Linux
+  with three expected skips each, and 1,071 on Windows with 18 expected skips.
+  All ran the installed-wheel/no-Node resource probe. Windows also passed
+  Task Scheduler COM XML parsing without registering a task. Its dependencies
+  came from the existing seven-day-qualified offline wheelhouse; interrupted
+  setup attempts and the original failing report remain in the evidence.
+- A new isolated Worker was bootstrapped from the SHA-256-verified published
+  0.4.1 wheel and upgraded to 0.5.0. Held work, credentials and statistics were
+  preserved; legacy tasks remained usable and ineligible for creator Cancel.
+  Both compatibility directions, creator Cancel after Own without own scope,
+  post-Consume cancellation refusal, duplicate archiving, payload forgery
+  isolation, signed-size rejection and real R2 helper transfers passed.
+  A macOS requester and Linux worker also exchanged a 128 KiB+17 blob/reply.
+  These checks ran before the local staging-name fix; comparison proves the
+  final wheel's executable service/dashboard assets are byte-identical.
+- All temporary identities were revoked, the run-owned Worker was deleted
+  with API 404 verification, and the existing acceptance-only bucket and its
+  seven-day lifecycle were unchanged. Remote temporary credentials were
+  removed. No production service or client profiles were upgraded.
+- The [candidate report](acceptance/0.5.0.json) records hashes, commands,
+  native skips and live results. The retained local archive is
+  `python/dist/acceptance-0.5.0-cb03640/evidence.zip`, SHA-256
+  `067b647eac0eb5a41f7610a401fb989646ecefcc8a454d05485bb2a5b6d762c7`.
+  It contains 70 evidence files and a hash manifest; recursive scanning of
+  1,325 files/archive members against actual credentials passed.
+- The [build-only rehearsal](https://github.com/provos/tasklease/actions/runs/43730362978)
+  passed; its publish job was skipped. Its wheel and sdist match the candidate
+  apart from source-path comments/maps, the bundle README timestamp and RECORD.
+  Artifacts and the workflow log are retained in the evidence archive.
+- **Publication is on hold at the user's request.** No publishing dispatch or
+  GitHub Release was created. The accepted `v0.5.0` tag remains in place;
+  publication requires renewed authorization.
