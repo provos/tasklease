@@ -32,7 +32,13 @@ from tasklease.errors import (
     TransportError,
 )
 from tasklease.generated import protocol as p
-from tasklease.names import is_domain, is_segment, is_task_id, is_topic
+from tasklease.names import (
+    is_domain,
+    is_idempotency_key,
+    is_segment,
+    is_task_id,
+    is_topic,
+)
 
 type RequestState = Literal["pending", "answered"]
 type CancelResult = Literal["cancelled", "not_found"]
@@ -388,10 +394,14 @@ class Store:
         topic: str,
         reply_topic: str,
         data: Mapping[str, object],
+        *,
+        idempotency_key: str | None = None,
     ) -> RequestRecord:
         """Create a new origin, then durably publish its local request record.
 
-        An uncertain Create may have succeeded; retrying creates another origin.
+        Reuse an idempotency_key within seven days to recover an uncertain Create.
+        Without a key, retrying creates another origin. Keyed replays preserve
+        the first saved intent and its timestamp.
         Intent persistence failures raise SubmissionError with the known origin.
         Later reply inspection failures raise ReplyStateError for that saved origin.
         """
@@ -400,6 +410,8 @@ class Store:
             _name(topic),
             _name(reply_topic),
         )
+        if idempotency_key is not None and not is_idempotency_key(idempotency_key):
+            raise StoreError("idempotency_key must be a canonical lowercase UUIDv7")
         payload = _object(dict(data))
         if "reply_topic" in payload and payload["reply_topic"] != reply_topic:
             raise StoreError("Request reply_topic conflicts with the command")
@@ -407,9 +419,14 @@ class Store:
         # Round-trip once so caller mutation cannot change the saved/sent payload.
         payload = _object(json.loads(_encode(payload)))
         created_at = int(time.time() * 1000)
-        response = client.create(
-            {"domain": domain, "topic": topic, "data": cast(p.Data, payload)}
-        )
+        request: p.CreateRequest = {
+            "domain": domain,
+            "topic": topic,
+            "data": cast(p.Data, payload),
+        }
+        if idempotency_key is not None:
+            request["idempotency_key"] = idempotency_key
+        response = client.create(request)
         origin_id = _task_id(response["id"])
         record = RequestRecord(
             self.agent_id, origin_id, domain, topic, reply_topic, created_at, payload
@@ -419,8 +436,12 @@ class Store:
             saved = self._request_intent(origin_id)
             if saved is None:
                 raise StoreError("Saved request disappeared after publication")
-            if result == "exists" and _encode(saved._intent()) != _encode(
-                record._intent()
+            if saved.domain != domain:
+                raise StoreError("Saved request belongs to another domain")
+            if (
+                result == "exists"
+                and idempotency_key is None
+                and _encode(saved._intent()) != _encode(record._intent())
             ):
                 raise StoreError("Origin already belongs to another saved request")
         except StoreError as error:

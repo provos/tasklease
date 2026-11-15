@@ -31,7 +31,9 @@ from tasklease.cloudflare.wrangler import (
     worker_url,
 )
 from tasklease.config import Config, save_deployment
-from tasklease.errors import TaskleaseError
+from tasklease.errors import Empty, TaskleaseError
+from tasklease.generated import protocol as p
+from tasklease.names import new_idempotency_key
 
 type Reporter = Callable[[str], None]
 
@@ -202,9 +204,16 @@ def _probe(
             )
             with Client(url, identity["token"], transport=transport) as client:
                 stage = "Durable Objects task flow"
-                created = client.create(
-                    {"domain": domain, "topic": "check", "data": {"probe": True}}
-                )
+                # Keep one key across the probe's repeated Create calls.
+                create_request: p.CreateRequest = {
+                    "domain": domain,
+                    "topic": "check",
+                    "data": {"probe": True},
+                    "idempotency_key": new_idempotency_key(),
+                }
+                created = client.create(create_request)
+                if client.create(create_request)["id"] != created["id"]:
+                    raise DeployError("Create replay did not preserve its origin")
                 owned = client.own(
                     {"domain": domain, "topic": "check", "hold_seconds": 30}
                 )
@@ -218,6 +227,12 @@ def _probe(
                         "tasks": [],
                     }
                 )
+                try:
+                    client.own({"domain": domain, "topic": "check", "hold_seconds": 30})
+                except Empty:
+                    pass
+                else:
+                    raise DeployError("Create replay enqueued a duplicate task")
                 payload = secrets.token_bytes(16)
                 stage = "R2 upload"
                 put = client.blob_put_url(

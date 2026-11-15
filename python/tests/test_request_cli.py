@@ -23,6 +23,44 @@ REPLY_TOPIC = "reply/agent-a"
 TASK_ID = "t_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 REPLY_ID = "t_01ARZ3NDEKTSV4RRFFQ69G5FAW"
 OTHER_ID = "t_01ARZ3NDEKTSV4RRFFQ69G5FAX"
+KEY = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f"
+
+
+def test_request_key_replay_and_recovery_hint(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    first = True
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal first
+        assert operation(request) == "create"
+        assert body(request)["idempotency_key"] == KEY
+        if first:
+            first = False
+            raise httpx.ReadError("uncertain response")
+        return httpx.Response(200, json={"ok": True, "id": TASK_ID})
+
+    cli.respond = respond
+    assert cli.run(request_args() + ["--idempotency-key", KEY]) == 1
+    failed = capsys.readouterr()
+    assert f"--idempotency-key={KEY}" in failed.err
+    assert not cli.record_path().exists()
+    assert cli.run(request_args() + ["--idempotency-key", KEY]) == 0
+    assert json.loads(capsys.readouterr().out)["origin_id"] == TASK_ID
+    assert (
+        cli.run(request_args(data='{"changed":true}') + ["--idempotency-key", KEY]) == 0
+    )
+    capsys.readouterr()
+    records = Store(AGENT, cli.root).requests()
+    assert len(records) == 1 and records[0].data["input"] == "hello"
+
+
+def test_invalid_request_key_does_not_initialize_store_or_send(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.run(request_args() + ["--idempotency-key", "invalid"]) == 1
+    assert "UUIDv7" in capsys.readouterr().err
+    assert cli.requests == [] and not cli.root.exists()
 
 
 def hashed(value: str) -> str:
@@ -287,8 +325,12 @@ def test_uncertain_create_has_no_invented_origin_or_local_record(
     assert len(cli.requests) == 1
 
 
+@pytest.mark.parametrize("key", [None, KEY])
 def test_local_save_failure_reports_known_origin_and_stateless_cancel_hint(
-    cli: CLI, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    cli: CLI,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    key: str | None,
 ) -> None:
     from tasklease import fsio
 
@@ -301,7 +343,10 @@ def test_local_save_failure_reports_known_origin_and_stateless_cancel_hint(
 
     monkeypatch.setattr(fsio, "publish_new", publish)
     cli.respond = lambda request: httpx.Response(200, json={"ok": True, "id": TASK_ID})
-    assert cli.run(request_args()) == 1
+    assert (
+        cli.run(request_args() + ([] if key is None else ["--idempotency-key", key]))
+        == 1
+    )
     captured = capsys.readouterr()
     assert captured.out == ""
     assert TASK_ID in captured.err
@@ -310,6 +355,7 @@ def test_local_save_failure_reports_known_origin_and_stateless_cancel_hint(
         in captured.err
     )
     assert "private disk diagnostic" not in captured.err
+    assert (f"--idempotency-key={KEY}" in captured.err) is (key is not None)
 
 
 def test_reply_read_failure_reports_wait_recovery_instead_of_failed_save(

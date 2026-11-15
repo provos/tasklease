@@ -383,7 +383,7 @@ def test_invalid_worker_labels_are_refused(label: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "operation", ["renew", "consume", "blob.put_url", "blob.get_url"]
+    "operation", ["create", "renew", "consume", "blob.put_url", "blob.get_url"]
 )
 def test_worker_per_call_timeout_caps_configured_phases(operation: str) -> None:
     seen: list[object] = []
@@ -398,7 +398,11 @@ def test_worker_per_call_timeout_caps_configured_phases(operation: str) -> None:
         transport=httpx.MockTransport(handler),
         timeout=httpx.Timeout(connect=2, read=None, write=0.5, pool=4),
     ) as client:
-        if operation == "renew":
+        if operation == "create":
+            create = cast(p.CreateRequest, example(operation, "request"))
+            client.create(create, timeout=1.25)
+            client.create(create)
+        elif operation == "renew":
             request = cast(p.RenewRequest, example(operation, "request"))
             client.renew(request, timeout=1.25)
             client.renew(request)
@@ -430,6 +434,10 @@ def test_worker_timeout_cap_rejects_invalid_values_without_network(
     with Client(
         "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
     ) as client:
+        with pytest.raises(Invalid):
+            client.create(
+                cast(p.CreateRequest, example("create", "request")), timeout=timeout
+            )
         with pytest.raises(Invalid):
             client.renew(
                 cast(p.RenewRequest, example("renew", "request")), timeout=timeout
@@ -734,3 +742,67 @@ def test_own_version_lookup_keeps_within_the_caller_cap() -> None:
         with pytest.raises(WaitUnsupported):
             client.own(WAIT_REQUEST, timeout=3)
     assert timeouts[1] == {"connect": 3, "read": 3, "write": 3, "pool": 3}
+
+
+@pytest.mark.parametrize("reported", ["0.4.1", "0.5.0", "unknown", None])
+def test_create_idempotency_version_diagnostic_is_bounded_and_preserves_other_refusals(
+    reported: str | None,
+) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/v1/version":
+            if reported is None:
+                return httpx.Response(503)
+            return httpx.Response(
+                200, json={"service_version": reported, "protocol": "v1"}
+            )
+        return httpx.Response(
+            400,
+            json={
+                "ok": False,
+                "error": {"code": "invalid", "message": "Invalid request body"},
+            },
+        )
+
+    request: p.CreateRequest = {
+        "domain": "acme/pipeline",
+        "topic": "work",
+        "data": {},
+        "idempotency_key": "017f22e2-79b0-7cc3-98c4-dc0c0c07398f",
+    }
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(ProtocolError if reported == "0.4.1" else Invalid) as error:
+            client.create(request, timeout=3)
+    assert [str(r.url.path) for r in seen] == ["/v1/create", "/v1/version"]
+    assert seen[1].extensions["timeout"] == {
+        "connect": 3,
+        "read": 3,
+        "write": 3,
+        "pool": 3,
+    }
+    if reported == "0.4.1":
+        assert "version 0.4.1" in str(error.value) and "0.5.0 or later" in str(
+            error.value
+        )
+
+
+def test_create_without_key_does_not_probe_version_on_invalid() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/create"
+        return httpx.Response(
+            400,
+            json={
+                "ok": False,
+                "error": {"code": "invalid", "message": "Invalid request body"},
+            },
+        )
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Invalid):
+            client.create({"domain": "acme/pipeline", "topic": "work", "data": {}})

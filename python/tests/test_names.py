@@ -8,13 +8,59 @@ from tasklease.names import (
     error_topic,
     is_bearer_token,
     is_domain,
+    is_idempotency_key,
     is_segment,
     is_task_id,
     is_topic,
     is_topic_glob,
     is_worker_label,
+    new_idempotency_key,
     topic_matches,
 )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        "",
+        "017f22e2-79b0-4cc3-98c4-dc0c0c07398f",
+        "017f22e2-79b0-7cc3-78c4-dc0c0c07398f",
+        "017F22E2-79B0-7CC3-98C4-DC0C0C07398F",
+        "017f22e279b07cc398c4dc0c0c07398f",
+        "017f22e2-79b0-7cc3-98c4-dc0c0c07398f\n",
+    ],
+)
+def test_idempotency_key_rejects_noncanonical_values(value: object) -> None:
+    assert not is_idempotency_key(value)
+
+
+def test_idempotency_key_generator_matches_rfc9562_vector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    timestamp = int("017f22e279b0", 16)
+    monkeypatch.setattr("tasklease.names.time.time_ns", lambda: timestamp * 1_000_000)
+    random_fields = iter([0xCC3, 0x18C4DC0C0C07398F])
+    monkeypatch.setattr(
+        "tasklease.names.secrets.randbits", lambda bits: next(random_fields)
+    )
+    value = new_idempotency_key()
+    assert value == "017f22e2-79b0-7cc3-98c4-dc0c0c07398f"
+    assert is_idempotency_key(value)
+
+
+def test_idempotency_keys_sort_by_millisecond_and_remain_unique_within_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tasklease.names.time.time_ns", lambda: 1_800_000_000_000_000_000
+    )
+    values = {new_idempotency_key() for _ in range(100)}
+    assert len(values) == 100 and all(is_idempotency_key(value) for value in values)
+    monkeypatch.setattr(
+        "tasklease.names.time.time_ns", lambda: 1_800_000_000_001_000_000
+    )
+    assert new_idempotency_key() > max(values)
 
 
 @pytest.mark.parametrize(

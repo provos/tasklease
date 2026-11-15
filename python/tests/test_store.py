@@ -35,6 +35,106 @@ REPLY = "replied/agent-1"
 TASK = "t_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 TASK2 = "t_01ARZ3NDEKTSV4RRFFQ69G5FAW"
 TASK3 = "t_01ARZ3NDEKTSV4RRFFQ69G5FAX"
+KEY = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f"
+
+
+def test_keyed_submit_recovers_a_lost_response_and_already_waiting_reply(
+    store: Store,
+) -> None:
+    board = FakeBoard(DOMAIN)
+    board.add_identity("requester", "token", create=["**"], own=["**"], read=["**"])
+    wire = board.transport()
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        response = wire.handle_request(request)
+        if request.url.path == "/v1/create":
+            calls += 1
+            if calls == 1:
+                with board.client("token", "worker") as worker:
+                    held = worker.own(
+                        {"domain": DOMAIN, "topic": TOPIC, "hold_seconds": 60}
+                    )["task"]
+                    worker.consume(
+                        {
+                            "domain": DOMAIN,
+                            "topic": TOPIC,
+                            "id": held["id"],
+                            "tasks": [{"topic": REPLY, "data": {"answer": "done"}}],
+                        }
+                    )
+                raise httpx.ReadError("response lost after commit")
+        return response
+
+    with Client(
+        board.base_url, "token", transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(TransportError):
+            store.submit(client, DOMAIN, TOPIC, REPLY, {}, idempotency_key=KEY)
+        assert store.requests() == []
+        recovered = store.submit(client, DOMAIN, TOPIC, REPLY, {}, idempotency_key=KEY)
+        result = store.wait(client, recovered.origin_id, 1, wait_seconds=0)
+        assert result is not None and result.data == {"answer": "done"}
+        assert calls == 2 and len(board.tasks) == 0
+
+
+def test_keyed_replay_returns_the_first_saved_intent_with_advancing_clock(
+    store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    board = FakeBoard(DOMAIN)
+    board.add_identity("requester", "token", create=["**"], own=[], read=[])
+    with board.client("token") as api:
+        monkeypatch.setattr(time, "time", lambda: 1_800_000_000)
+        first = store.submit(api, DOMAIN, TOPIC, REPLY, {"n": 1}, idempotency_key=KEY)
+        monkeypatch.setattr(time, "time", lambda: 1_800_000_060)
+        replay = store.submit(
+            api, DOMAIN, "other-work", "other-reply", {"n": 1.0}, idempotency_key=KEY
+        )
+    assert replay == first and len(board.tasks) == 1
+
+
+def test_keyed_replay_repairs_failed_local_publication(
+    store: Store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    board = FakeBoard(DOMAIN)
+    board.add_identity("requester", "token", create=["**"], own=[], read=[])
+    with board.client("token") as api:
+        with monkeypatch.context() as patch:
+
+            def fail(path: Path, value: dict[str, object]) -> None:
+                raise StoreError("disk full")
+
+            patch.setattr(stores, "_publish", fail)
+            with pytest.raises(SubmissionError) as error:
+                store.submit(api, DOMAIN, TOPIC, REPLY, {}, idempotency_key=KEY)
+        saved = store.submit(api, DOMAIN, TOPIC, REPLY, {}, idempotency_key=KEY)
+    assert saved.origin_id == error.value.origin_id and len(board.tasks) == 1
+
+
+def test_keyed_submit_rejects_a_cross_domain_origin_from_custom_transport(
+    store: Store,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True, "id": TASK})
+
+    with Client(
+        "https://tasks.example", "token", transport=httpx.MockTransport(handler)
+    ) as api:
+        first = store.submit(api, DOMAIN, TOPIC, REPLY, {}, idempotency_key=KEY)
+        with pytest.raises(SubmissionError) as error:
+            store.submit(api, "other/domain", TOPIC, REPLY, {}, idempotency_key=KEY)
+    assert isinstance(error.value.__cause__, StoreError)
+    assert "another domain" in str(error.value.__cause__)
+    assert store.request(TASK) == first
+
+
+def test_submit_rejects_invalid_key_before_create(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    with pytest.raises(StoreError, match="UUIDv7"):
+        store.submit(client, DOMAIN, TOPIC, REPLY, {}, idempotency_key="invalid")
+    assert backend.creates == []
 
 
 def task(
