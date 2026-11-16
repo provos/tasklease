@@ -40,15 +40,30 @@ export class DomainObject extends ProductionDomainObject {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (new URL(request.url).pathname === "/__model/clock") {
-      const body = (await request.json()) as {
-        domain: string;
-        now: number;
-        reset: boolean;
-      };
+      if (request.method !== "POST") {
+        return new Response("Model clock requires POST", {
+          status: 405,
+          headers: { Allow: "POST" },
+        });
+      }
+      let value: unknown;
+      try {
+        value = await request.json();
+      } catch {
+        return new Response("Invalid model clock JSON", { status: 400 });
+      }
+      if (value === null || typeof value !== "object" || Array.isArray(value)) {
+        return new Response("Invalid model clock", { status: 400 });
+      }
+      const body = value as Record<string, unknown>;
       if (
-        request.method !== "POST" ||
+        typeof body.domain !== "string" ||
+        body.domain.length === 0 ||
+        typeof body.now !== "number" ||
         !Number.isSafeInteger(body.now) ||
-        body.now < 0
+        body.now < 0 ||
+        body.now >= 2 ** 48 ||
+        typeof body.reset !== "boolean"
       ) {
         return new Response("Invalid model clock", { status: 400 });
       }

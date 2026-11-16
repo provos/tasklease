@@ -8,7 +8,9 @@ are compared with the model after each operation. Retired fencing IDs remain
 available for later commands.
 
 Run both implementations with `make test-model`. These tests also run as part of
-`make conformance` and `make check`. For an offline run:
+`make conformance` and `make check`. Service test files run in sequence to limit
+competing workloads during wall-clock lease and long-poll tests; explicit request
+races inside each test remain concurrent. For an offline run:
 
 ```sh
 cd python
@@ -29,21 +31,25 @@ just after lease and idempotency-retention boundaries. FakeBoard uses its
 injected clock. The Worker uses a separate local process whose entrypoint is
 `service/test/model-worker.ts`; its clock shim applies to the unmodified
 production implementation. Its control route and RPC exist only in this test
-entrypoint. The ordinary conformance process continues to test the shipped
-bundle using real time. Model histories in one process run serially because
-the clock shim is isolate-wide.
+entrypoint, served on loopback. The route checks POST before parsing JSON and
+validates its input, including the ULID timestamp range. The ordinary conformance
+process continues to test the shipped bundle using real time. Model histories in
+one process run serially because the clock shim is isolate-wide.
 
 Lost-response tests compose the existing `LostResponse` transport with a
-recording transport. The observer sees the hidden committed response to bind
-fresh IDs, while the caller receives a transport error. The next retry is a new
-operation: losing a reply does not roll back a committed mutation.
+recording transport. The observer checks the hidden committed response's HTTP
+status and body to bind fresh IDs, while the caller receives a transport error.
+The next retry is a new operation: losing a reply does not roll back a committed
+mutation.
 
 The current scope is the task lifecycle with finite integer payloads, two
 topics, three non-operator identities, exact topic grants, two worker labels,
-two idempotency keys and at most two Consume successors. A separate observer
-can read every generated topic, including denied destinations, to detect partial
-writes on refusal. Generated cases include expiry before
-Renew, re-ownership, stale-ID mutations, strict Delete cutoffs, origin-preserving
+two idempotency keys and at most two Consume successors. Own varies both worker
+labels, and Renew checks that changing the label keeps ownership metadata intact.
+Read grants vary by actor, covering denied reads and access through Own alone.
+A separate observer can read every generated topic, including denied
+destinations, to detect partial writes on refusal. Generated cases include expiry
+before Renew, re-ownership, stale-ID mutations, strict Delete cutoffs, origin-preserving
 fan-out, cancellation and keyed replay after removal. Existing schema, operator,
 transaction-rollback and concurrent-race tests remain complementary.
 
@@ -114,7 +120,9 @@ variants to fail their named checks: keeping an old ID live after Own, giving a
 Consume successor a forged origin, cancelling a descendant, and claiming out of
 order. The latter two also demonstrate reachability of descendants during
 cancellation and competing available tasks during Own. A parse error or unrelated
-failure does not count as detecting a mutation.
+failure does not count as detecting a mutation. Each anchor must occur exactly
+once within its named TLA+ action, independent of definition order. Missing JARs,
+Java startup failures and checker timeouts produce concise error diagnostics.
 
 This command is separate from `make check` so ordinary development and release
 checks do not require Java or a downloaded JAR. Run both before submitting a

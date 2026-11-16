@@ -1,5 +1,6 @@
 """Generated lifecycle histories checked against an independent spec model."""
 
+import json
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack
 from dataclasses import replace
@@ -41,11 +42,13 @@ class RecordingTransport(httpx.BaseTransport):
     def __init__(self, inner: httpx.BaseTransport) -> None:
         self.inner = inner
         self.body: dict[str, object] = {}
+        self.status = 0
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         response = self.inner.handle_request(request)
         response.read()
         self.body = cast(dict[str, object], response.json())
+        self.status = response.status_code
         return response
 
     def close(self) -> None:
@@ -72,7 +75,7 @@ class ModelTarget:
                 name, token = self.target.identity(
                     create=sorted(actor.create),
                     own=sorted(actor.own),
-                    read=list(TOPICS),
+                    read=sorted(actor.read),
                 )
                 actors.append(replace(actor, name=name))
                 self.tokens.append(token)
@@ -119,18 +122,18 @@ class ModelTarget:
                         url, json=command.body(self.model.domain), headers=headers
                     )
             actual = recording.body
+            status = recording.status
         else:
             response = self.http.post(
                 url, json=command.body(self.model.domain), headers=headers
             )
             actual = cast(dict[str, object], response.json())
-            code = (
-                "ok" if actual["ok"] else cast(dict[str, str], actual["error"])["code"]
-            )
-            assert (
-                response.status_code
-                == {"ok": 200, "forbidden": 403, "not_found": 404, "empty": 404}[code]
-            )
+            status = response.status_code
+        code = "ok" if actual["ok"] else cast(dict[str, str], actual["error"])["code"]
+        assert (
+            status
+            == {"ok": 200, "forbidden": 403, "not_found": 404, "empty": 404}[code]
+        ), f"HTTP {status} does not match {code}"
         fresh: list[str] = []
         if actual["ok"]:
             if command.operation == "create":
@@ -241,10 +244,13 @@ class LifecycleMachine(RuleBasedStateMachine):
         actor=st.integers(0, 2),
         topic=st.sampled_from(TOPICS),
         hold=st.sampled_from((1, 2, 5)),
+        worker=st.sampled_from(("main", "other")),
         lost=st.booleans(),
     )
-    def own(self, actor: int, topic: str, hold: int, lost: bool) -> None:
-        self.target.execute(Command("own", actor, topic, hold=hold), lost=lost)
+    def own(self, actor: int, topic: str, hold: int, worker: str, lost: bool) -> None:
+        self.target.execute(
+            Command("own", actor, topic, hold=hold, worker=worker), lost=lost
+        )
 
     @rule(
         data=st.data(),
@@ -376,5 +382,92 @@ def test_lifecycle_boundaries(model_target_factory: Callable[[], ModelTarget]) -
         target.execute(
             Command("cancel", task_id=next(iter(target.model.keys.values()))[0])
         )
+    finally:
+        target.close()
+
+
+@pytest.mark.parametrize("lost", [False, True])
+def test_http_status_is_checked_even_when_response_is_lost(
+    lost: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with ExitStack() as cleanup:
+        target = ModelTarget()
+        cleanup.callback(target.close)
+        inner = target.target.transport()
+        cleanup.callback(inner.close)
+
+        def wrong_status(request: httpx.Request) -> httpx.Response:
+            response = inner.handle_request(request)
+            response.status_code = 201
+            return response
+
+        def transport() -> httpx.BaseTransport:
+            return httpx.MockTransport(wrong_status)
+
+        monkeypatch.setattr(target.target, "transport", transport)
+        target.http = cleanup.enter_context(httpx.Client(transport=transport()))
+        with pytest.raises(AssertionError, match="HTTP 201 does not match ok"):
+            target.execute(Command("create"), lost=lost)
+
+
+def test_read_grants_and_owner_labels(
+    model_target_factory: Callable[[], ModelTarget],
+) -> None:
+    target = model_target_factory()
+    try:
+        created = target.execute(Command("create", topic="result"))
+        task_id = cast(str, created["id"])
+        # The requester cannot read result; worker-a can read through Own alone.
+        target.execute(Command("read", topic="result", task_id=task_id))
+        target.execute(Command("read", actor=1, topic="result", task_id=task_id))
+        held = target.execute(Command("own", actor=1, topic="result", worker="other"))
+        task_id = cast(dict[str, str], held["task"])["id"]
+        target.execute(Command("renew", actor=1, topic="result", task_id=task_id))
+        target.set_time(START + 1000)
+        target.execute(Command("own", actor=2, topic="result", worker="main"))
+    finally:
+        target.close()
+
+
+def test_model_clock_validation(
+    service_backend: str, model_target_factory: Callable[[], ModelTarget]
+) -> None:
+    if service_backend == "fake":
+        pytest.skip("Clock control belongs to the Worker-only test entrypoint")
+    target = model_target_factory()
+    try:
+        url = target.target.url + "/__model/clock"
+        base: dict[str, object] = {
+            "domain": target.model.domain,
+            "now": START,
+            "reset": False,
+        }
+        for method in ("GET", "PUT"):
+            response = target.http.request(method, url, content="{")
+            assert response.status_code == 405
+            assert response.headers["Allow"] == "POST"
+        assert target.http.post(url, content="{").status_code == 400
+        invalid_bodies: tuple[object, ...] = (
+            None,
+            [],
+            {},
+            base | {"domain": 1},
+            base | {"domain": ""},
+            base | {"now": "0"},
+            base | {"now": -1},
+            base | {"now": 0.5},
+            base | {"now": 2**48},
+            base | {"reset": "true"},
+        )
+        for body in invalid_bodies:
+            response = target.http.post(url, content=json.dumps(body))
+            assert response.status_code == 400, body
+        # Valid endpoints of the ULID timestamp range are accepted, then restore
+        # this serial test process's clock before observing production behavior.
+        for now in (0, 2**48 - 1):
+            response = target.http.post(url, json=base | {"now": now})
+            assert response.status_code == 200
+        target.set_time(START)
+        target.execute(Command("create"))
     finally:
         target.close()

@@ -35,7 +35,7 @@ check-python:
 	cd python && uv run ruff check --config pyproject.toml . ../conformance ../scripts
 	cd python && uv run ruff format --check --config pyproject.toml . ../conformance ../scripts
 	cd python && uv run mypy src tests hatch_build.py ../conformance ../scripts
-	cd python && uv run pytest -c pyproject.toml tests ../scripts/test_acceptance_tools.py
+	cd python && uv run pytest -c pyproject.toml tests ../scripts
 
 conformance:
 	cd python && uv run pytest -c pyproject.toml ../conformance
@@ -60,7 +60,7 @@ test-service:
 	npm run test:service
 
 test-python:
-	cd python && uv run pytest -c pyproject.toml tests ../scripts/test_acceptance_tools.py
+	cd python && uv run pytest -c pyproject.toml tests ../scripts
 
 format:
 	npm run format

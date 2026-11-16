@@ -28,12 +28,13 @@ class Actor:
     name: str
     create: frozenset[str]
     own: frozenset[str]
+    read: frozenset[str]
 
 
 ACTORS = (
-    Actor("requester", frozenset(TOPICS), frozenset()),
-    Actor("worker-a", frozenset({"result"}), frozenset(TOPICS)),
-    Actor("worker-b", frozenset(TOPICS), frozenset(TOPICS)),
+    Actor("requester", frozenset(TOPICS), frozenset(), frozenset({"work"})),
+    Actor("worker-a", frozenset({"result"}), frozenset(TOPICS), frozenset()),
+    Actor("worker-b", frozenset(TOPICS), frozenset(TOPICS), frozenset({"result"})),
 )
 
 
@@ -160,7 +161,7 @@ class BoardModel:
         if (
             (op == "create" and topic not in actor.create)
             or (op in {"own", "renew", "consume"} and topic not in actor.own)
-            or (op == "read" and topic not in TOPICS)
+            or (op == "read" and topic not in actor.read | actor.own)
             or (
                 op == "consume"
                 and any(target not in actor.create for target, _ in command.targets)

@@ -7,6 +7,7 @@ state and trace files, including mutation controls, stay in a temporary director
 import argparse
 import hashlib
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -17,29 +18,36 @@ TLC_URL = "https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools
 
 
 def check(jar: Path, module: Path, config: Path, output: Path) -> str:
-    result = subprocess.run(
-        [
-            "java",
-            "-XX:+UseParallelGC",
-            "-Xmx1g",
-            "-cp",
-            str(jar),
-            "tlc2.TLC",
-            "-workers",
-            "1",
-            "-seed",
-            "1",
-            "-metadir",
-            str(output),
-            "-config",
-            str(config),
-            str(module),
-        ],
-        cwd=module.parent,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "java",
+                "-XX:+UseParallelGC",
+                "-Xmx1g",
+                "-cp",
+                str(jar),
+                "tlc2.TLC",
+                "-workers",
+                "1",
+                "-seed",
+                "1",
+                "-metadir",
+                str(output),
+                "-config",
+                str(config),
+                str(module),
+            ],
+            cwd=module.parent,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except OSError as error:
+        raise RuntimeError(f"Cannot start TLC using java: {error}") from error
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(
+            f"TLC exceeded {error.timeout} seconds while checking {config.name}"
+        ) from error
     log = result.stdout + result.stderr
     if result.returncode != 0:
         raise RuntimeError(log)
@@ -49,11 +57,32 @@ def check(jar: Path, module: Path, config: Path, output: Path) -> str:
     return log
 
 
+def replace_in_action(source: str, action: str, before: str, after: str) -> str:
+    """Replace one anchor inside a named top-level TLA+ definition, or fail."""
+    definitions = list(
+        re.finditer(r"(?m)^([A-Za-z][A-Za-z0-9_]*)(?:\([^\n]*\))? ==", source)
+    )
+    matches = [i for i, definition in enumerate(definitions) if definition[1] == action]
+    if len(matches) != 1:
+        raise RuntimeError(f"Expected one {action} definition, found {len(matches)}")
+    index = matches[0]
+    start = definitions[index].start()
+    end = (
+        definitions[index + 1].start() if index + 1 < len(definitions) else len(source)
+    )
+    definition = source[start:end]
+    count = definition.count(before)
+    if count != 1:
+        raise RuntimeError(f"Expected one mutation anchor in {action}, found {count}")
+    return source[:start] + definition.replace(before, after) + source[end:]
+
+
 def mutation_checks(jar: Path, temporary: Path) -> None:
     source = (ROOT / "formal/TaskLease.tla").read_text()
     mutations = (
         (
             "old-id-survives-own",
+            "Own",
             "Invariant Fencing is violated",
             "Fanout.cfg",
             r"tasks' = (tasks \ {t}) \cup",
@@ -61,6 +90,7 @@ def mutation_checks(jar: Path, temporary: Path) -> None:
         ),
         (
             "forged-successor-origin",
+            "Consume",
             "Invariant DescendantOrigins is violated",
             "TaskLease.cfg",
             "New(j, destinations[j], w, t.origin, FALSE)",
@@ -68,6 +98,7 @@ def mutation_checks(jar: Path, temporary: Path) -> None:
         ),
         (
             "cancel-descendant",
+            "Cancel",
             "Action property CancelPreservesDescendants is violated",
             "MultipleRoots.cfg",
             r"t.root /\ t.origin = origin",
@@ -75,18 +106,18 @@ def mutation_checks(jar: Path, temporary: Path) -> None:
         ),
         (
             "claim-out-of-order",
+            "Own",
             "Action property OwnSelectsOldest is violated",
             "MultipleRoots.cfg",
             r"/\ Oldest(t, topic)",
             r"/\ TRUE",
         ),
     )
-    for name, violation, config, before, after in mutations:
-        assert before in source, f"Mutation target disappeared: {name}"
+    for name, action, violation, config, before, after in mutations:
         directory = temporary / name
         directory.mkdir()
         module = directory / "TaskLease.tla"
-        module.write_text(source.replace(before, after, 1))
+        module.write_text(replace_in_action(source, action, before, after))
         config_path = directory / config
         config_path.write_text((ROOT / "formal" / config).read_text())
         try:
@@ -109,24 +140,31 @@ def main() -> None:
     if args.jar is None:
         parser.error(f"Set TLA2TOOLS_JAR or --jar to TLC 1.7.4 from {TLC_URL}")
     jar = Path(args.jar).resolve()
-    if hashlib.sha256(jar.read_bytes()).hexdigest() != TLC_SHA256:
+    try:
+        digest = hashlib.sha256(jar.read_bytes()).hexdigest()
+    except OSError as error:
+        parser.error(f"Cannot read TLC JAR {jar}: {error.strerror}")
+    if digest != TLC_SHA256:
         parser.error("TLC JAR does not match the pinned 1.7.4 SHA-256")
-    with tempfile.TemporaryDirectory(prefix="tasklease-model-") as directory:
-        temporary = Path(directory)
-        for config in (
-            "Retention.cfg",
-            "TaskLease.cfg",
-            "Fanout.cfg",
-            "MultipleRoots.cfg",
-        ):
-            check(
-                jar,
-                ROOT / "formal/TaskLease.tla",
-                ROOT / "formal" / config,
-                temporary / config,
-            )
-        if args.self_test:
-            mutation_checks(jar, temporary)
+    try:
+        with tempfile.TemporaryDirectory(prefix="tasklease-model-") as directory:
+            temporary = Path(directory)
+            for config in (
+                "Retention.cfg",
+                "TaskLease.cfg",
+                "Fanout.cfg",
+                "MultipleRoots.cfg",
+            ):
+                check(
+                    jar,
+                    ROOT / "formal/TaskLease.tla",
+                    ROOT / "formal" / config,
+                    temporary / config,
+                )
+            if args.self_test:
+                mutation_checks(jar, temporary)
+    except RuntimeError as error:
+        parser.exit(1, f"{parser.prog}: error: {error}\n")
 
 
 if __name__ == "__main__":
