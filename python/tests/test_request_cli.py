@@ -223,8 +223,11 @@ def test_request_creates_before_saving_and_preserves_global_flags(
 
 
 def test_wait_drains_other_origins_and_reads_its_answer_after_restart(
-    cli: CLI, capsys: pytest.CaptureFixture[str]
+    cli: CLI, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # This checks draining and restart recovery; filesystem latency must not
+    # exhaust its budget. Deadline behavior has a separate controlled-clock test.
+    monkeypatch.setattr("tasklease.store.time.monotonic", lambda: 100.0)
     replies = [
         reply(
             {"request_id": TASK_ID, "result": "unsolicited"},

@@ -220,8 +220,9 @@ Success is `200 {"ok": true, ...}`. Failure is
 | `exists` | 409 | Identity Add for a name already in use |
 | `too_large` | 413 | `data` over 256 KiB, more than 16 new tasks, or a blob over 2 GiB |
 
-A refused operation changes nothing. Every check runs before the transaction
-writes anything.
+A refused operation changes no task or keyed-submission state. An empty Own
+may still record poller activity (§4.9). For all other refusals, every check
+runs before the transaction writes anything.
 
 ### 4.1 Create
 

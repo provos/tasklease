@@ -16,5 +16,10 @@ export default defineConfig({
       },
     }),
   ],
-  test: { include: ["test/**/*.test.ts"] },
+  test: {
+    include: ["test/**/*.test.ts"],
+    // Limit competing workloads during wall-clock lease and long-poll tests.
+    // Explicit concurrent RPCs inside each test still run together.
+    fileParallelism: false,
+  },
 });

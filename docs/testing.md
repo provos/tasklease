@@ -158,6 +158,9 @@ separate from matching.
 
 ## Conformance
 
+See [Lifecycle verification](verification.md) for Hypothesis state-machine tests
+against both implementations and the separate bounded TLA+/TLC safety checks.
+
 `make conformance` runs the shared contract and runtime tests against both
 the fake and an isolated local Worker. Backend-specific capabilities have
 explicit exclusions. The shared tests use real clients and raw HTTP requests,

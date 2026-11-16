@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(scope="session")
-def worker_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
+def worker_bundle(tmp_path_factory: pytest.TempPathFactory) -> Path:
     temporary = tmp_path_factory.mktemp("tasklease-conformance")
     assets = temporary / "assets"
     environment = os.environ.copy()
@@ -58,8 +58,46 @@ def worker_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
             "remote": False,
         }
     ]
+    config["main"] = str(bundle / str(config["main"]))
     filename = bundle / "wrangler.json"
     filename.write_text(json.dumps(config))
+    return filename
+
+
+@pytest.fixture(scope="session")
+def worker_url(
+    worker_bundle: Path, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[str]:
+    yield from serve_worker(worker_bundle, tmp_path_factory.mktemp("worker"))
+
+
+@pytest.fixture(scope="session")
+def model_worker_url(
+    worker_bundle: Path, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[str]:
+    # Separate entrypoint and process: clock controls never enter the shipped
+    # bundle or affect the ordinary conformance target.
+    temporary = tmp_path_factory.mktemp("model-worker")
+    config = json.loads(worker_bundle.read_text())
+    config.update(
+        main=str(ROOT / "service/test/model-worker.ts"),
+        no_bundle=False,
+        define={
+            "TASKLEASE_VERSION": json.dumps(
+                json.loads((worker_bundle.parent / "manifest.json").read_text())[
+                    "service_version"
+                ]
+            )
+        },
+    )
+    filename = temporary / "wrangler.json"
+    filename.write_text(json.dumps(config))
+    yield from serve_worker(filename, temporary)
+
+
+def serve_worker(filename: Path, temporary: Path) -> Iterator[str]:
+    environment = os.environ.copy()
+    environment.update(WRANGLER_SEND_METRICS="false", CI="true", NO_COLOR="1")
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
