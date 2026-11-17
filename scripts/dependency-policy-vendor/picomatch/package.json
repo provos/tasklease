@@ -1,0 +1,17 @@
+{
+  "name": "@tasklease/picomatch",
+  "version": "4.0.7-tasklease.1",
+  "private": true,
+  "description": "Local security backport for GHSA-fc5q-39xc-vjpf",
+  "type": "commonjs",
+  "main": "index.js",
+  "sideEffects": false,
+  "license": "MIT",
+  "taskleaseVendor": {
+    "upstream": "picomatch@4.0.7",
+    "tarball": "https://registry.npmjs.org/picomatch/-/picomatch-4.0.7.tgz",
+    "integrity": "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==",
+    "published": "2026-08-24T14:36:23.690Z",
+    "advisory": "GHSA-fc5q-39xc-vjpf"
+  }
+}

@@ -178,12 +178,12 @@ loading build tools.
 
 Repository `.npmrc` disables dependency lifecycle scripts. The pinned esbuild
 and workerd optional native packages provide their binaries without those
-scripts. The sole local dependency exception is a reviewed
-[deepmerge security backport](../scripts/dependency-policy-vendor/deepmerge/README.md)
-with pinned source hashes, upstream provenance, license and regression tests.
-It fixes the advisory that currently has no upstream patched release; remove
-the backport when an aged compatible fix becomes available. Updating dependency
-pins requires rerunning these checks and the service/frontend build gates.
+scripts. The local [deepmerge](../scripts/dependency-policy-vendor/deepmerge/README.md)
+and [picomatch](../scripts/dependency-policy-vendor/picomatch/README.md)
+security backports have pinned source hashes, upstream provenance, licenses and
+regression tests. Replace each backport when an aged compatible fix becomes
+available. Update dependencies through the Aikido Safe Chain shims and rerun
+these checks and the service/frontend build gates.
 
 This policy qualifies the source checkout's locked build graph. Installed
 `tl service deploy` uses `npx` with the Wrangler version from the bundled
