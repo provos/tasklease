@@ -1454,3 +1454,25 @@ persistent Durable Object storage.
 
 The maintainer waived live Cloudflare/R2 acceptance for 0.6.0 after the
 local tests of both packaged service versions.
+
+## 0.6.0 publication (2026-11-17)
+
+- The annotated tag `v0.6.0` points to `106959969d3b3354fdf755c14938176d47e7a3ee`.
+  Only the review log changed after the locally qualified candidate.
+- The [build rehearsal](https://github.com/provos/tasklease/actions/runs/44202403653)
+  and [trusted publishing run](https://github.com/provos/tasklease/actions/runs/44202988496)
+  passed. Both builds matched the qualified distributions after accounting
+  for build paths, the bundle generation timestamp and wheel RECORD checksums.
+- Downloaded both [PyPI files](https://pypi.org/project/tasklease/0.6.0/)
+  and compared their bytes to the publishing workflow artifacts. PyPI's
+  provenance names the repository and workflow and contains the matching
+  digest for each distribution. Downloaded and verified both files and
+  `SHA256SUMS` from the [GitHub release](https://github.com/provos/tasklease/releases/tag/v0.6.0).
+- Fresh installations of the PyPI wheel on macOS, Linux and Windows passed
+  the version, CLI help, Worker bundle and dashboard checks. Live
+  Cloudflare/R2 acceptance was waived for this release.
+
+| Published distribution | SHA-256 |
+| --- | --- |
+| `tasklease-0.6.0-py3-none-any.whl` | `76533b90a0b4e396c689239494b892c399d8bf4eb27b50acd9746908fc1ad37a` |
+| `tasklease-0.6.0.tar.gz` | `4d6e5bdcb9f8a24e82ed276305d418b9bbbfa9f25e0ae3c11a4998009418c65d` |
