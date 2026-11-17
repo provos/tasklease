@@ -1413,3 +1413,44 @@ Status: accepted after corrections, independent reviews and native qualification
 - This cleanup updates current reports and the public release asset. Earlier
   Git commits and existing clones retain the historical documents; no history
   was rewritten.
+
+## 0.6.0 local release acceptance (2026-11-17)
+
+Candidate `27a6cadd744f0649f264996cbbb3a816586f052b` was built from a
+clean checkout. The 0.5.0 wheel used for comparison matched the published
+PyPI SHA-256 (`24b14ea998ed91253271d1c386662e669cf7f23b3fb79569a4a83aed4efc0b4d`).
+Both packaged Worker bundles ran locally with Wrangler against the same
+persistent Durable Object storage.
+
+| Worker | Service | Result |
+| --- | --- | --- |
+| Published 0.5.0 | 0.6.0 | Using an identity created on 0.5.0, the CLI consumed work queued before the upgrade, returned empty on the next poll, and woke for work posted during a long poll. Both replies preserved their origin IDs and payloads. A slow handler completed after four successful renewals of the same lease. |
+| 0.6.0 | Published 0.5.0 | The CLI completed a single-topic echo. A multi-topic request reported the deployed 0.5.0 version and the 0.6.0 minimum. |
+| 0.6.0 | 0.6.0 | A lease acquired before the upgrade remained renewable with the same ID and origin. A worker polling two topics consumed the oldest available task first, even with the newer task's topic listed first. |
+
+- `make install`, `make build` and `make check` passed with Safe Chain.
+  The dependency policy checked 301 registry versions and npm audit reported
+  zero vulnerabilities. The service and dashboard passed 242 and 47 tests.
+  Python/tooling passed 1,281 with 3 skips. Conformance, including the
+  Hypothesis lifecycle tests, passed 520 with 37 skips.
+- `make model-check` passed all five TLA+ configurations and rejected all
+  six mutation controls. The multi-topic configuration explored 37,820
+  distinct states.
+- The installed-wheel acceptance runner verified the same wheel and source
+  archive on all three platforms. macOS and Linux each passed 1,164 tests
+  with 3 Windows-only skips. Windows passed 1,149 with 18 platform skips,
+  including successful Task Scheduler XML and native file-sharing checks.
+- Inspected package metadata, the license, bundled dashboard, Worker version
+  and third-party notices in both distributions. The candidate artifacts and
+  private test evidence are retained in
+  `python/dist/acceptance-0.6.0-27a6cad/`.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Wheel | `350dd713a9018d4f776a6e6b7fe8d23ed7efa2644ee3314722a9620e1ed149f8` |
+| Source distribution | `e175ea456d7e8ce75e8f33bb471c97743e9b1b757515ae59a7490a20324a0c24` |
+| Native acceptance ZIP | `59ba4de5c552c84936e964ab2c7e2eb215ead1c2dc683952864c4b9155642cc7` |
+| Private evidence ZIP | `f72bb6310be7382b71b58e129691316e456a90693160945c5b3e70edf0c45cd4` |
+
+Live Cloudflare/R2 upgrade acceptance was deferred. Release tagging,
+publishing rehearsal and publication are pending.
