@@ -16,6 +16,12 @@ with group or other permission bits set. On Windows, use user-restricted ACLs.
 Default config paths and absolute, relative and `~` token paths are documented
 under [Client configuration](../README.md#client-configuration).
 
+Each startup template passes `--topic TOPIC`, which overrides the topic
+selection in the config file. To use `[worker].topics`, remove both
+`--topic` and its value from the startup arguments. In the launchd plist,
+remove both corresponding `<string>` elements. To keep the selection in the
+template, repeat `--topic` once per topic.
+
 ## Linux
 
 Save the edited [unit](../python/src/tasklease/worker_templates/systemd.service)

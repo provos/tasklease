@@ -362,10 +362,15 @@ Python `tasklease.client.Client` has a method for each. The
 
 A Linux worker can serve platform-neutral and Linux-only requests with
 `topics = ["verify/any", "verify/linux"]` in its `[worker]` config, or with
-`tl worker --topic verify/any --topic verify/linux`. Use `topic` for a single
-topic. One long poll covers the whole selection and leases the oldest available
-task across it. List order gives no priority. The worker needs `own` on every
-listed topic, and its handler must accept work from each of them.
+`tl worker --topic verify/any --topic verify/linux`. One long poll covers
+1–16 distinct topics and leases the oldest available task across them,
+regardless of list order. The worker needs `own` on every listed topic, and
+its handler must accept work from each of them.
+
+You can upgrade the service while existing workers continue to send `topic`.
+Deploy the updated service before switching a worker to `topics`, even for a
+one-item list. A single `--topic` flag or a `topic` setting in `[worker]`
+continues to send the single-topic request.
 
 `tl worker` owns a task, calls `validate`,
 calls `run` while it renews the lease, and then Consumes the task with the
@@ -438,7 +443,7 @@ with Client(URL, worker_token, "fetcher-1") as client:
             client.consume(
                 {
                     "domain": "crawl",
-                    "topic": "check/url",
+                    "topic": task["topic"],
                     "id": task["id"],
                     "tasks": [
                         {"topic": "classify/content", "data": successor},
