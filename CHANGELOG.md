@@ -6,6 +6,8 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-17
+
 ### Added
 
 - `Own` can lease the oldest available task across 1–16 topics in one domain.
@@ -13,7 +15,8 @@ Release preparation and verification are documented in
   repeat `tl worker --topic`. Deploy the updated service before enabling
   multi-topic workers. Existing clients that send `topic` can continue running
   through the service upgrade. Sending `topics` requires the updated service
-  even for a one-item list.
+  even for a one-item list. The upgrade preserves queued tasks, leases,
+  identities and local Store records.
 
 ## [0.5.0] - 2026-11-15
 

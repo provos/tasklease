@@ -268,9 +268,16 @@ Save the requester's token string in `requester.token` and the worker's in
 operator's machine. Once identity administration is finished, the requester
 and worker do not need `TL_ADMIN_TOKEN`.
 
+## Upgrade from 0.5.0 to 0.6.0
+
+Deploy the 0.6.0 service before enabling multi-topic workers. Existing
+0.5.0 workers can keep polling during the rollout. Keep their tokens, queued
+tasks and local Store records. A 0.6.0 worker can also use a 0.5.0 service
+with a single `topic`.
+
 ## Upgrade from 0.4.x to 0.5.0
 
-This release requires a coordinated service, worker, requester and application
+The 0.5.0 release requires a coordinated service, worker, requester and application
 profile upgrade. Drain old work and replies, stop the old processes, deploy
 the new service, archive/reset old local Store directories, then upgrade all
 clients and profiles before restarting workers and requesters. The package

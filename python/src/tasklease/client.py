@@ -46,6 +46,7 @@ MAX_WAIT_SECONDS = 30
 MAX_WAIT_GRACE = 15.0
 # The first service release that accepts Own's wait_seconds.
 WAIT_SERVICE_VERSION = (0, 4, 0)
+MULTI_TOPIC_SERVICE_VERSION = (0, 6, 0)
 IDEMPOTENCY_SERVICE_VERSION = (0, 5, 0)
 # The service's message for a request that fails its schema.
 _INVALID_BODY = "Invalid request body"
@@ -378,13 +379,14 @@ class Client:
             # older service rejects the field even when it is zero.
             if type(error) is Invalid and str(error) == _INVALID_BODY:
                 if "topics" in request:
-                    # Feature builds can share a version with the preceding release.
-                    raise Invalid(
-                        "Invalid request body for multi-topic Own. Check the request "
-                        "fields. If the deployed service supports only single-topic "
-                        "Own, upgrade it before enabling multi-topic workers."
-                    ) from error
-                if "wait_seconds" in request:
+                    reported = self._older_service(MULTI_TOPIC_SERVICE_VERSION, timeout)
+                    if reported is not None:
+                        raise Invalid(
+                            f"The tasklease service (version {reported}) rejected "
+                            "Own's topics. Upgrade the service to 0.6.0 or later, or "
+                            "use a single topic with the topic field."
+                        ) from error
+                elif "wait_seconds" in request:
                     self._check_wait_support(error, timeout)
             raise
 

@@ -677,14 +677,22 @@ def test_own_names_an_old_service_and_the_opt_out() -> None:
     assert isinstance(raised.value, Invalid)
 
 
+@pytest.mark.parametrize("version", ["0.3.0", "0.5.0", "0.6.0", None])
 @pytest.mark.parametrize("wait", [None, 0, 30])
 def test_multi_topic_schema_refusal_gives_rollout_hint_with_or_without_wait(
     wait: int | None,
+    version: str | None,
 ) -> None:
     paths: list[str] = []
 
     def reject(request: httpx.Request) -> httpx.Response:
         paths.append(request.url.path)
+        if request.url.path == "/v1/version":
+            if version is None:
+                return httpx.Response(503)
+            return httpx.Response(
+                200, json={"service_version": version, "protocol": "v1"}
+            )
         return httpx.Response(
             400,
             json={
@@ -703,11 +711,16 @@ def test_multi_topic_schema_refusal_gives_rollout_hint_with_or_without_wait(
         }
         if wait is not None:
             request["wait_seconds"] = wait
-        with pytest.raises(Invalid, match="single-topic Own, upgrade it") as error:
+        with pytest.raises(Invalid) as error:
             client.own(request)
     assert type(error.value) is Invalid
     assert "--wait-seconds" not in str(error.value)
-    assert paths == ["/v1/own"]
+    assert paths == ["/v1/own", "/v1/version"]
+    if version in {"0.3.0", "0.5.0"}:
+        assert f"version {version}" in str(error.value)
+        assert "0.6.0 or later" in str(error.value)
+    else:
+        assert str(error.value) == "Invalid request body"
 
 
 def test_own_explicit_zero_wait_also_names_an_old_service() -> None:

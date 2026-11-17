@@ -6,6 +6,15 @@ Node is needed to build/check a source checkout and to deploy the bundled
 Worker. Installing the resulting wheel or sdist, running requesters/workers
 and opening the monitor do not need Node.
 
+## Upgrade from 0.5.0 to 0.6.0
+
+Deploy the 0.6.0 bundle with `tl service deploy` using the existing service
+configuration. The durable storage schema and Store format carry over from
+0.5.0. Existing workers can keep serving their single topic as workers are
+upgraded. Enable `[worker].topics` or repeated `--topic` flags after the
+service reports version 0.6.0. To run a 0.6.0 worker against a 0.5.0 service,
+configure one `topic` or pass a single `--topic` flag.
+
 ## Upgrade from 0.4.x to 0.5.0
 
 This is a coordinated upgrade. Extra task metadata is tolerated by the old
@@ -108,9 +117,7 @@ package name; see [PyPI's pending-project documentation](https://docs.pypi.org/t
    that restores the old request). For the first release, test fresh
    bootstrap and the earlier-bundle upgrade flow. Record the candidate commit,
    artifact hashes, commands, results and any expected skips in the review log;
-   retain the reports with the release evidence. For the first multi-topic Own
-   release, use the selected release version for the client's minimum-version
-   diagnostic and verify it against the previous deployed Worker.
+   retain the reports with the release evidence.
 4. **Merge and tag the reviewed commit.** Merge the release changes into
    `main` and create an annotated `vMAJOR.MINOR.PATCH` tag using the
    [commands below](#publish-through-the-trusted-publisher). If merging changes
