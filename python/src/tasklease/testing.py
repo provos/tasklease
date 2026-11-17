@@ -19,12 +19,19 @@ import re
 import secrets
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import MappingProxyType
-from typing import Literal, NotRequired, cast, get_origin, get_type_hints
+from typing import (
+    Literal,
+    NotRequired,
+    cast,
+    get_origin,
+    get_type_hints,
+)
 from urllib.parse import quote
 
 import httpx
@@ -99,6 +106,12 @@ def _request_fields() -> dict[str, tuple[frozenset[str], frozenset[str]]]:
         )
         fields[operation] = (frozenset(annotations) - optional, optional)
     return fields
+
+
+def _own_topics(body: dict[str, object]) -> list[str]:
+    if "topics" in body:
+        return cast(list[str], body["topics"])
+    return [cast(str, body["topic"])]
 
 
 _FIELDS = _request_fields()
@@ -234,10 +247,21 @@ def _valid_request(operation: str, body: dict[str, object]) -> bool:
     required, optional = _FIELDS[operation]
     if not required <= body.keys() or body.keys() - required - optional:
         return False
+    if operation == "own" and ("topic" in body) == ("topics" in body):
+        return False
     if "domain" in body and not is_domain(body["domain"]):
         return False
     if "topic" in body and not is_topic(body["topic"]):
         return False
+    if "topics" in body:
+        topics = body["topics"]
+        if (
+            not isinstance(topics, list)
+            or not 1 <= len(topics) <= 16
+            or not all(is_topic(topic) for topic in topics)
+            or len(set(topics)) != len(topics)
+        ):
+            return False
     if "id" in body and not is_task_id(body["id"]):
         return False
     if "origin_id" in body and not is_task_id(body["origin_id"]):
@@ -337,7 +361,8 @@ class FakeBoard:
         # Long polls held per topic, as on the service. Beyond it, Own answers
         # at once with wait_refused; 0 refuses every wait.
         self._max_waiters = max_waiters
-        self._waiters: dict[str, int] = {}
+        self._waiters: Counter[str] = Counter()
+        self._identity_waiters: Counter[tuple[str, str]] = Counter()
         self._clock = (
             clock if clock is not None else lambda: time.time_ns() // 1_000_000
         )
@@ -568,10 +593,14 @@ class FakeBoard:
             return bool(scopes["create"])
         if operation == "blob.get_url":
             return bool(scopes["read"] or scopes["own"])
+        if operation == "own":
+            return all(
+                self._allows(scopes, "own", topic) for topic in _own_topics(body)
+            )
         topic = cast(str, body["topic"])
         if operation == "create":
             return self._allows(scopes, "create", topic)
-        if operation in {"own", "renew", "consume"}:
+        if operation in {"renew", "consume"}:
             return self._allows(scopes, "own", topic) and (
                 operation != "consume"
                 or all(
@@ -618,7 +647,7 @@ class FakeBoard:
         threads can make progress and notify this waiter. A topic already
         holding ``max_waiters`` waiters answers at once with ``wait_refused``.
         """
-        topic = cast(str, body["topic"])
+        topics = _own_topics(body)
         with self._changed:
             # Whichever clock has advanced furthest measures elapsed wait time:
             # an injected clock lets a test jump the deadline, while a frozen
@@ -628,9 +657,15 @@ class FakeBoard:
             response = self._operate("own", body, caller, worker, start_clock)
             if response.status_code != 404:
                 return response
-            if self._waiters.get(topic, 0) >= self._max_waiters:
+            if any(
+                self._waiters[topic] >= self._max_waiters
+                or self._identity_waiters[topic, caller["name"]] >= 1000
+                for topic in topics
+            ):
                 return _refused()
-            self._waiters[topic] = self._waiters.get(topic, 0) + 1
+            for topic in topics:
+                self._waiters[topic] += 1
+                self._identity_waiters[topic, caller["name"]] += 1
         try:
             while True:
                 with self._changed:
@@ -648,9 +683,14 @@ class FakeBoard:
                         return response
         finally:
             with self._changed:
-                self._waiters[topic] -= 1
-                if not self._waiters[topic]:
-                    del self._waiters[topic]
+                for topic in topics:
+                    key = (topic, caller["name"])
+                    self._identity_waiters[key] -= 1
+                    if not self._identity_waiters[key]:
+                        del self._identity_waiters[key]
+                    self._waiters[topic] -= 1
+                    if not self._waiters[topic]:
+                        del self._waiters[topic]
 
     def _wake(self) -> None:
         """Notify blocked Own callers; callers must hold the lock."""
@@ -680,31 +720,34 @@ class FakeBoard:
             self._wake()
             return _success({"ok": True, "id": task_id})
         if operation == "own":
+            topics = _own_topics(body)
             available = [
                 task
                 for task in self._tasks.values()
-                if task["topic"] == topic and task["lease_until"] <= now
+                if task["topic"] in topics and task["lease_until"] <= now
             ]
             old = min(
                 available,
                 key=lambda task: (task["created_at"], task["id"]),
                 default=None,
             )
-            key = (topic, identity, worker)
-            poller = self._pollers.get(key)
-            if (
-                old is not None
-                or poller is None
-                or poller["last_polled_at"] <= now - 60_000
-            ):
-                self._pollers[key] = {
-                    "identity": identity,
-                    "worker": worker,
-                    "last_polled_at": now,
-                    "last_owned_at": now
-                    if old is not None
-                    else (poller["last_owned_at"] if poller else None),
-                }
+            for topic in topics:
+                owned_here = old is not None and old["topic"] == topic
+                key = (topic, identity, worker)
+                poller = self._pollers.get(key)
+                if (
+                    owned_here
+                    or poller is None
+                    or poller["last_polled_at"] <= now - 60_000
+                ):
+                    self._pollers[key] = {
+                        "identity": identity,
+                        "worker": worker,
+                        "last_polled_at": now,
+                        "last_owned_at": now
+                        if owned_here
+                        else (poller["last_owned_at"] if poller else None),
+                    }
             if old is None:
                 return _failure("empty")
             task_id = "t_" + _new_ulid(now)

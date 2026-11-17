@@ -50,9 +50,14 @@ class Command:
     key: str | None = None
     cutoff: int | None = None
     targets: tuple[tuple[str, int], ...] = ()
+    topics: tuple[str, ...] | None = None
 
     def body(self, domain: str) -> dict[str, object]:
-        body: dict[str, object] = {"domain": domain, "topic": self.topic}
+        body: dict[str, object] = {"domain": domain}
+        if self.topics is None:
+            body["topic"] = self.topic
+        else:
+            body["topics"] = list(self.topics)
         if self.operation == "create":
             body["data"] = {"value": self.value}
             if self.key is not None:
@@ -158,9 +163,11 @@ class BoardModel:
         ids = iter(fresh_ids)
         actor = self.actors[command.actor]
         op, topic = command.operation, command.topic
+        selected = command.topics or (topic,)
         if (
-            (op == "create" and topic not in actor.create)
-            or (op in {"own", "renew", "consume"} and topic not in actor.own)
+            (op == "own" and not actor.own.issuperset(selected))
+            or (op == "create" and topic not in actor.create)
+            or (op in {"renew", "consume"} and topic not in actor.own)
             or (op == "read" and topic not in actor.read | actor.own)
             or (
                 op == "consume"
@@ -181,7 +188,7 @@ class BoardModel:
             available = [
                 task
                 for task in self.tasks.values()
-                if task.topic == topic and task.lease <= self.now
+                if task.topic in selected and task.lease <= self.now
             ]
             if not available:
                 return refused("empty")

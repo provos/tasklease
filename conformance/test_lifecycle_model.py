@@ -221,10 +221,16 @@ class LifecycleMachine(RuleBasedStateMachine):
     def teardown(self) -> None:
         self.target.close()
 
-    @initialize()
-    def held_root(self) -> None:
+    @initialize(gap=st.sampled_from((0, 1, 999, 1000)), reverse=st.booleans())
+    def competing_roots(self, gap: int, reverse: bool) -> None:
         self.target.execute(Command("create", key=KEYS[0]))
         self.target.execute(Command("own", actor=1))
+        self.target.execute(Command("create", topic="result"))
+        self.target.set_time(START + gap)
+        self.target.execute(Command("create", topic="work"))
+        self.target.execute(
+            Command("own", actor=2, topics=TOPICS[::-1] if reverse else TOPICS)
+        )
 
     @rule(
         actor=st.integers(0, 2),
@@ -243,13 +249,25 @@ class LifecycleMachine(RuleBasedStateMachine):
     @rule(
         actor=st.integers(0, 2),
         topic=st.sampled_from(TOPICS),
+        topics=st.sampled_from(
+            (None, ("result",), TOPICS, TOPICS[::-1], ("work", "denied"))
+        ),
         hold=st.sampled_from((1, 2, 5)),
         worker=st.sampled_from(("main", "other")),
         lost=st.booleans(),
     )
-    def own(self, actor: int, topic: str, hold: int, worker: str, lost: bool) -> None:
+    def own(
+        self,
+        actor: int,
+        topic: str,
+        topics: tuple[str, ...] | None,
+        hold: int,
+        worker: str,
+        lost: bool,
+    ) -> None:
         self.target.execute(
-            Command("own", actor, topic, hold=hold, worker=worker), lost=lost
+            Command("own", actor, topic, hold=hold, worker=worker, topics=topics),
+            lost=lost,
         )
 
     @rule(
@@ -337,11 +355,18 @@ def test_reproducible_equal_time_order(
         target = model_target_factory()
         try:
             ids = [
-                target.execute(Command("create", value=value))["id"]
+                target.execute(Command("create", topic=TOPICS[value % 2], value=value))[
+                    "id"
+                ]
                 for value in range(3)
             ]
             claims = [
-                cast(dict[str, object], target.execute(Command("own", actor=2))["task"])
+                cast(
+                    dict[str, object],
+                    target.execute(Command("own", actor=2, topics=TOPICS[::-1]))[
+                        "task"
+                    ],
+                )
                 for _ in range(3)
             ]
             histories.append((ids, [(task["id"], task["data"]) for task in claims]))

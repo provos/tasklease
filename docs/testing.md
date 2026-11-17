@@ -55,6 +55,10 @@ service: Create, Consume and Renew wake waiting callers, a wait ends at its
 deadline with `Empty`, and a frozen injected clock falls back to wall time so
 an offline test always terminates. The board releases its lock while waiting,
 so a Create or Consume on another thread can wake a waiter.
+A multi-topic Own records a poll on every requested topic and one ownership
+on the topic it claims. A long poll occupies a slot on every requested topic,
+with up to 1,000 simultaneous waits per identity on each topic.
+
 `FakeBoard(domain, max_waiters=N)` holds at most `N` waits per topic (default
 10,000, as on the service); beyond that, Own still attempts the claim and then
 raises `Empty` with `wait_refused` set. `max_waiters=0` refuses every wait, to

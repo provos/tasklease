@@ -164,7 +164,8 @@ so the limit leaves room for any useful glob.
 | Operation | Needs |
 |---|---|
 | Create | `create` on the topic |
-| Own, Renew | `own` on the topic |
+| Own | `own` on every requested topic |
+| Renew | `own` on the topic |
 | Consume | `own` on the task's topic and `create` on every new task's topic |
 | Read, Tasks List, Topic Pollers | `read` or `own` on the topic |
 | Topics List | `read` (filtered to the topics that `read` matches) |
@@ -253,8 +254,16 @@ creation; worker lease expiry can still cause repeated execution.
 
 `own {domain, topic, hold_seconds, wait_seconds?}` → `{task}`
 
-Picks the available task in the topic with the oldest `created_at` (ties
-broken by ID). A caller cannot choose which task it gets.
+`own {domain, topics: [topic, ...], hold_seconds, wait_seconds?}` → `{task}`
+
+Supply exactly one of `topic` and `topics`. The list contains 1–16 distinct
+literal topic names in the same domain. Invalid selectors return `invalid`.
+The caller needs `own` on every selected topic before any poll is recorded.
+One claim transaction selects the available task with the smallest
+`(created_at, id)` across the selected topics, regardless of list order.
+The returned task carries its actual topic for Renew, Consume and Delete.
+Later arrivals cannot overtake an older available task with an earlier
+creation timestamp. An expired lease retains its original creation time.
 
 Atomically, it retires the task and posts a copy with a new ID,
 `lease_until = now + hold_seconds`, `owned_count + 1` and
@@ -265,13 +274,13 @@ included.
 
 `wait_seconds`, when present, is between 0 and 30 and defaults to 0. With 0,
 Own answers at once. With a positive value and no available task, Own holds
-the request until a task becomes available in that topic or the wait ends,
+the request until a task becomes available in any selected topic or the wait ends,
 then returns the task or `empty`. A task becomes available when a Create or
 Consume posts it, or when a held task's lease expires. The caller's scopes and
 the domain are checked before the wait begins and are not rechecked.
 
 The wait is a hint to wake early, never a reservation: concurrent waiters
-race, and each Own transaction still decides the winner. Fencing is unchanged.
+race, and each Own transaction checks the entire selection again. Fencing is unchanged.
 Avoiding a claim for a client that has gone is best effort. A client that
 closes its connection during the wait normally cancels it before any claim.
 After a silent network drop (no close reaches the service, as with a
@@ -281,8 +290,8 @@ lost Own response.
 
 A held request is never a guarantee of a later answer from the same waiter.
 When the wait cannot be held, Own answers `empty` with `"wait_refused": true`
-in the error object: when a topic already holds the maximum number of
-waiters, or the caller's identity its maximum within the topic (Own still
+in the error object: when any selected topic already holds the maximum number of
+waiters, or the caller's identity its maximum within any selected topic (Own still
 attempts the claim first), when a deployment or a reset Durable Object
 ends a wait before any claim, or when a wait loses the bounded number of
 claim races it is allowed before its deadline. A failure during a claim stays
@@ -291,7 +300,9 @@ can back off instead of treating the answer as a completed wait and polling
 again straight away.
 
 Every Own, including one that returns `empty` or waits, updates the caller's
-entry in the topic's poller list (§4.9).
+entry in each selected topic’s poller list (§4.9). A held request counts
+once toward each selected topic’s waiter limits and releases every slot
+when the wait ends. Only the claimed topic records ownership activity.
 
 ### 4.3 Renew
 
@@ -564,7 +575,7 @@ same topic; the automatic glob expansion in §4.13 does not grant it.
 LEASE = 600 s; RENEW_EVERY = 180 s; MAX_OWNED = 3
 while not stopping:
     wait for local capacity                        # before Own, never after
-    task = own(domain, topic, LEASE)
+    task = own(domain, selected_topics, LEASE)
     if empty: release capacity; sleep(poll interval − time Own held); continue
     if stopping:                                   # stop arrived during the Own
         renew(task.id, 1 s), ignoring any failure  # hand it back unrun
@@ -592,10 +603,10 @@ finish(task, outcome):
         r = consume(task.id, [{topic: reply_topic, data: failure(task, outcome)}])
         if r is ok or r is not_found: return
     # no reply topic for a failure, or forbidden, invalid or too_large
-    r2 = consume(task.id, [{topic: error_topic(topic),
+    r2 = consume(task.id, [{topic: error_topic(task.topic),
                             data: {original: task.data, outcome: outcome, error: r}}])
     if r2 is too_large:
-        consume(task.id, [{topic: error_topic(topic),
+        consume(task.id, [{topic: error_topic(task.topic),
                            data: bounded(task.data, outcome, r)}])
 ```
 
@@ -854,7 +865,8 @@ CREATE TABLE stats_hourly (
 `topics.list` queries tasks, pollers and declared topics in one database;
 `monitor.snapshot` also reads hourly statistics. Key rows are internal to Create.
 
-Own scans `tasks_pick` for the first row with `lease_until <= now`. The index
+Own scans `tasks_pick` for the first available row per selected topic, then
+compares at most 16 candidates by creation time and ID. The index
 includes the lease expiry so held tasks can be filtered before fetching task
 payloads. The claim may examine many held entries before finding available
 work. Topics List aggregates every task in the domain using the same index

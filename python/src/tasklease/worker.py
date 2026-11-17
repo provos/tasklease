@@ -85,6 +85,17 @@ def validate_work_topic(topic: str) -> str:
     return topic
 
 
+def validate_work_topics(
+    topic: str | list[str] | tuple[str, ...],
+) -> str | tuple[str, ...]:
+    if isinstance(topic, str):
+        return validate_work_topic(topic)
+    topics = tuple(validate_work_topic(name) for name in topic)
+    if not 1 <= len(topics) <= 16 or len(set(topics)) != len(topics):
+        raise Invalid("worker topics must contain 1 to 16 distinct names")
+    return topics
+
+
 def _reply_topic(task: p.Task) -> str | None:
     value = task["data"].get("reply_topic")
     try:
@@ -285,7 +296,7 @@ class WorkerLoop[Request, Outcome]:
         self,
         client: Client,
         domain: str,
-        topic: str,
+        topic: str | list[str] | tuple[str, ...],
         capacity: Capacity,
         handler: Handler[Request, Outcome],
         *,
@@ -298,7 +309,7 @@ class WorkerLoop[Request, Outcome]:
     ) -> None:
         if not is_domain(domain):
             raise Invalid("Invalid domain name")
-        validate_work_topic(topic)
+        self.topic = validate_work_topics(topic)
         if type(lease) is not int or not 1 <= lease <= 86400:
             raise Invalid("lease must be an integer from 1 to 86400 seconds")
         if type(max_owned) is not int or max_owned <= 0:
@@ -321,7 +332,6 @@ class WorkerLoop[Request, Outcome]:
             )
         self.client = client
         self.domain = domain
-        self.topic = topic
         self.capacity = capacity
         self.handler = handler
         self.lease = lease
@@ -341,7 +351,7 @@ class WorkerLoop[Request, Outcome]:
                 self.client.consume(
                     {
                         "domain": self.domain,
-                        "topic": self.topic,
+                        "topic": task["topic"],
                         "id": task["id"],
                         "tasks": tasks,
                     },
@@ -357,7 +367,7 @@ class WorkerLoop[Request, Outcome]:
     def _fallback(
         self, task: p.Task, outcome: object, error: str, lease: _Lease
     ) -> None:
-        target = error_topic(self.topic)
+        target = error_topic(task["topic"])
         for bounded in (False, True):
             data = (
                 bounded_error(task["data"], outcome, error)
@@ -426,11 +436,11 @@ class WorkerLoop[Request, Outcome]:
             return "empty"
         wait = self._effective_wait(wait_seconds)
         sent = time.monotonic()
-        claim: p.OwnRequest = {
-            "domain": self.domain,
-            "topic": self.topic,
-            "hold_seconds": self.lease,
-        }
+        claim: p.OwnRequest = {"domain": self.domain, "hold_seconds": self.lease}
+        if isinstance(self.topic, str):
+            claim["topic"] = self.topic
+        else:
+            claim["topics"] = list(self.topic)
         if wait:
             claim["wait_seconds"] = wait
         try:
@@ -453,7 +463,7 @@ class WorkerLoop[Request, Outcome]:
             self.client,
             task,
             self.domain,
-            self.topic,
+            task["topic"],
             self.lease,
             self.renew_every,
             sent,
@@ -497,7 +507,7 @@ class WorkerLoop[Request, Outcome]:
             self.client.renew(
                 {
                     "domain": self.domain,
-                    "topic": self.topic,
+                    "topic": task["topic"],
                     "id": task["id"],
                     "hold_seconds": 1,
                 },

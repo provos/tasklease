@@ -6,6 +6,13 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+### Added
+
+- `Own` can lease the oldest available task across 1–16 topics in one domain.
+  A worker can serve all of them with one long poll. Set `[worker].topics` or
+  repeat `tl worker --topic`. Deploy the updated service before enabling
+  multi-topic workers.
+
 ## [0.5.0] - 2026-11-15
 
 ### Added

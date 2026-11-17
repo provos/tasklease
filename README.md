@@ -346,7 +346,7 @@ Python `tasklease.client.Client` has a method for each. The
 | Operation | What it does | Needs |
 | --- | --- | --- |
 | Create | Posts a task to a topic. | `create` on the topic |
-| Own | Leases the oldest available task for 1 second to 24 hours and gives it a new ID; optionally waits up to 30 seconds for one. | `own` on the topic |
+| Own | Leases the oldest available task across the requested topics for 1 second to 24 hours and gives it a new ID; optionally waits up to 30 seconds for one. | `own` on every requested topic |
 | Renew | Extends the lease and keeps the ID. | `own`, and holding the task |
 | Consume | Retires the held task and posts up to 16 successors, atomically. | `own` on the task's topic, `create` on each successor's topic |
 | Delete | Removes a task: its holder's, or its creator's before anyone owned it. | the holder rule |
@@ -360,7 +360,14 @@ Python `tasklease.client.Client` has a method for each. The
 
 ### Writing a handler
 
-`tl worker` runs a handler on one topic. It owns a task, calls `validate`,
+A Linux worker can serve platform-neutral and Linux-only requests with
+`topics = ["verify/any", "verify/linux"]` in its `[worker]` config, or with
+`tl worker --topic verify/any --topic verify/linux`. Use `topic` for a single
+topic. One long poll covers the whole selection and leases the oldest available
+task across it. List order gives no priority. The worker needs `own` on every
+listed topic, and its handler must accept work from each of them.
+
+`tl worker` owns a task, calls `validate`,
 calls `run` while it renews the lease, and then Consumes the task with the
 successors `reply` returns: one reply for a request, or a pipeline's next
 stages. A `Rejection`, an exception or too many Owns becomes a failure reply

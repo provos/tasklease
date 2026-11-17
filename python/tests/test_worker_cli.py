@@ -164,6 +164,29 @@ def test_echo_once_uses_capacity_and_small_correlated_reply(
     assert "tl_worker-test-secret" not in captured.out + captured.err
 
 
+@pytest.mark.parametrize("configured", [False, True])
+def test_multi_topic_worker_consumes_on_claimed_topic(
+    cli: CLI, configured: bool
+) -> None:
+    topics = ["work/other", TOPIC]
+    args = ["--topic", topics[0], "--topic", TOPIC]
+    if configured:
+        with cli.config.open("a") as config:
+            config.write(f"[worker]\ntopics={json.dumps(topics)}\n")
+        args = []
+
+    def response(request: httpx.Request) -> httpx.Response:
+        body = _body(request)
+        if request.url.path == "/v1/own":
+            assert body["topics"] == topics and "topic" not in body
+            return _owned()
+        assert request.url.path == "/v1/consume" and body["topic"] == TOPIC
+        return httpx.Response(200, json={"ok": True, "ids": [TASK_ID]})
+
+    cli.respond = response
+    assert cli.run([*args, "--once"]) == 0
+
+
 def test_empty_once_returns_without_idle_sleep(
     cli: CLI, capsys: pytest.CaptureFixture[str]
 ) -> None:

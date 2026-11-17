@@ -257,9 +257,10 @@ class MonitorSnapshotResponse(TypedDict):
 
 class OwnRequest(TypedDict):
     domain: DomainName
-    topic: TopicName
+    topic: NotRequired[TopicName]
     hold_seconds: int
     wait_seconds: NotRequired[int]
+    topics: NotRequired[list[TopicName]]
 
 
 class ReadRequest(TypedDict):

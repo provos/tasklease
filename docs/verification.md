@@ -42,10 +42,11 @@ status and body to bind fresh IDs, while the caller receives a transport error.
 The next retry is a new operation: losing a reply does not roll back a committed
 mutation.
 
-The current scope is the task lifecycle with finite integer payloads, two
+Each generated history begins with competing tasks on two topics, varying list order
+and the clock around lease expiry. The current scope is the task lifecycle with finite integer payloads, two
 topics, three non-operator identities, exact topic grants, two worker labels,
 two idempotency keys and at most two Consume successors. Own varies both worker
-labels, and Renew checks that changing the label keeps ownership metadata intact.
+labels, single-topic and multi-topic selectors, list order and mixed grants, and Renew checks that changing the label keeps ownership metadata intact.
 Read grants vary by actor, covering denied reads and access through Own alone.
 A separate observer can read every generated topic, including denied
 destinations, to detect partial writes on refusal. Generated cases include expiry
@@ -69,7 +70,7 @@ a delayed reply arrives. Clients learn IDs through delivered Create, Own, Renew
 and Consume responses. Live tasks can be re-owned after expiry, and stale IDs
 remain known to their previous holders.
 
-TLC exhaustively explores four finite configurations:
+TLC exhaustively explores five finite configurations:
 
 | Configuration | Workers | Fresh-ID budget | Initial tasks | Topics | Time horizon |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -77,12 +78,17 @@ TLC exhaustively explores four finite configurations:
 | `Fanout.cfg` | 1 | 4 | 1 | 2 | 1 |
 | `Retention.cfg` | 1 | 2 | 2 | 1 | 2 |
 | `MultipleRoots.cfg` | 1 | 4 | 2 | 1 | 1 |
+| `MultiTopic.cfg` | 1 | 3 | 2 | 2 | 1 |
 
 Each configuration starts empty. The ID budget counts every Create, Own and
 Consume insertion, including retired IDs. Fresh IDs are chosen nondeterministically
 from an ordered finite set, so tie-breaking does not assume insertion order.
 The fan-out configuration has enough IDs for Create, Own and two successors.
-The initial-task budget also counts removed tasks. The retention configuration
+The multi-topic configuration can create competing roots on either topic and
+claim from any nonempty subset. It explores ties, differing creation times
+and unavailable tasks. It checks that a ready worker with a fresh ID can
+claim whenever any selected topic has available work. The initial-task budget
+also counts removed tasks. The retention configuration
 permits a second initial task after key expiry. The multiple-root configuration
 permits competing available tasks before Own, and cancellation of one initial
 task while another origin has descendants. In this configuration the requester
@@ -98,8 +104,8 @@ lineage, one initial task per origin, at most one end per lineage, immutable
 lineage metadata, inherited origins and non-initial descendants. Action
 properties check that replay and stale-ID refusal preserve core state, live
 idempotency mappings retain their original acceptance time, cancellation
-preserves descendants and Own selects the oldest available task with ID
-tie-breaking. Task insertion, key publication and Consume successors
+preserves descendants and Own selects the oldest available task across the
+selected topics with ID tie-breaking. Task insertion, key publication and Consume successors
 are atomic model steps; the existing SQLite rollback tests check that assumption
 against the implementation.
 
@@ -115,11 +121,12 @@ The runner checks SHA-256
 `936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88`
 before executing the JAR. It downloads nothing, uses one TLC worker and a 1 GiB
 heap, limits each run to five minutes, and keeps generated state/trace files in
-a temporary directory. `make model-check` also requires four deliberately broken
+a temporary directory. `make model-check` also requires six deliberately broken
 variants to fail their named checks: keeping an old ID live after Own, giving a
-Consume successor a forged origin, cancelling a descendant, and claiming out of
-order. The latter two also demonstrate reachability of descendants during
-cancellation and competing available tasks during Own. A parse error or unrelated
+Consume successor a forged origin, cancelling a descendant, claiming out of
+order, checking age only within the claimed topic, and requiring every selected
+topic to have work before claiming. The multi-topic mutations exercise both
+competing tasks and selections that include an empty topic. A parse error or unrelated
 failure does not count as detecting a mutation. Each anchor must occur exactly
 once within its named TLA+ action, independent of definition order. Missing JARs,
 Java startup failures and checker timeouts produce concise error diagnostics.

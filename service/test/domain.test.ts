@@ -1613,6 +1613,34 @@ describe("long-poll Own", () => {
     });
   });
 
+  it("counts a multi-topic wait against every cap and releases all slots", async () => {
+    const { domain, stub } = fixture("wait-multi-cap");
+    const multi = {
+      domain,
+      topics: ["a", "b"] as [string, string],
+      hold_seconds: 60,
+    };
+    await runInDurableObject(stub, (instance: DomainObject) => {
+      internals(instance).maxWaitersPerTopic = 1;
+    });
+    const parked = stub.park(multi, worker, 5_000);
+    // RPCs to this object register the earlier waiter before checking the cap.
+    expect(
+      await stub.park({ ...multi, topics: ["c", "b"] }, worker, 1_000),
+    ).toBe("refused");
+    await runInDurableObject(stub, (instance: DomainObject) => {
+      expect([...internals(instance).waiting.keys()].sort()).toEqual([
+        "a",
+        "b",
+      ]);
+    });
+    success(await stub.create({ domain, topic: "b", data: {} }, creator));
+    expect(await parked).toBe("retry");
+    await runInDurableObject(stub, (instance: DomainObject) => {
+      expect(internals(instance).waiting.size).toBe(0);
+    });
+  });
+
   it("never claims from a parked call; a hint answers retry", async () => {
     const { domain, stub } = fixture("wait-no-ghost");
     const topic = "work/ghost";

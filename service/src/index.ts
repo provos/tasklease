@@ -13,7 +13,7 @@ import { allows } from "./scopes";
 import type { Caller } from "./types";
 import { version } from "./version";
 
-import { ownWithWait } from "./domain_do";
+import { ownTopics, ownWithWait } from "./domain_do";
 
 export { DomainObject } from "./domain_do";
 export { RegistryObject } from "./registry_do";
@@ -282,7 +282,8 @@ const routes: Record<Operation, Route> = {
   ),
   own: domainRoute(
     validators.validateOwnRequest,
-    (body, caller) => allows(caller.scopes, "own", body.topic),
+    (body, caller) =>
+      ownTopics(body).every((topic) => allows(caller.scopes, "own", topic)),
     (body, caller, env, _identity, signal) =>
       ownWithWait(env.DOMAINS.getByName(body.domain), body, caller, signal),
   ),
