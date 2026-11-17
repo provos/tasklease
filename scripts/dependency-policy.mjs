@@ -4,27 +4,49 @@ import { resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const WEEK = 7 * 24 * 60 * 60 * 1000;
-const VENDOR = "scripts/dependency-policy-vendor/deepmerge";
+const vendorPath = (name) => `scripts/dependency-policy-vendor/${name}`;
+const vendorNames = ["deepmerge", "picomatch"];
 const LOCAL_PACKAGES = new Map([
   ["service", "@tasklease/service"],
   ["monitor", "@tasklease/monitor"],
-  [VENDOR, "@tasklease/deepmerge"],
+  ...vendorNames.map((name) => [vendorPath(name), `@tasklease/${name}`]),
 ]);
 const LOCAL_LINKS = new Map([
   ["node_modules/@tasklease/service", "service"],
   ["node_modules/@tasklease/monitor", "monitor"],
-  ["node_modules/deepmerge", VENDOR],
+  ...vendorNames.map((name) => [`node_modules/${name}`, vendorPath(name)]),
 ]);
 // This is reviewed first-party source, based on an aged upstream release.
 // Updating these hashes requires reviewing the backport and its regression tests.
 const VENDOR_HASHES = {
-  "index.cjs":
-    "be8e1b8bf1e6b11e31ac41782c07fc54a5569706096ad86a2714ab9c11a5317e",
-  "index.d.ts":
-    "146ba4b99c5feb82663e17a671bf9f53bb39c704cd76345d6c5a801c26372f44",
-  LICENSE: "6cfc4687cb2f2d86f4a77e6b526290d3878e5e512f3fec2f4cb36a9cb36f798b",
-  "package.json":
-    "f5e0272c5f3c402259a249db9d30e42fb986fedaea04fbb7590ec6abbf1983bc",
+  deepmerge: {
+    "index.cjs":
+      "be8e1b8bf1e6b11e31ac41782c07fc54a5569706096ad86a2714ab9c11a5317e",
+    "index.d.ts":
+      "146ba4b99c5feb82663e17a671bf9f53bb39c704cd76345d6c5a801c26372f44",
+    LICENSE: "6cfc4687cb2f2d86f4a77e6b526290d3878e5e512f3fec2f4cb36a9cb36f798b",
+    "package.json":
+      "f5e0272c5f3c402259a249db9d30e42fb986fedaea04fbb7590ec6abbf1983bc",
+  },
+  picomatch: {
+    LICENSE: "d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9",
+    "index.js":
+      "02ae26406508e28f9ba0865be16cf77f0b33de6c4d4d49c212c4176df1d5625a",
+    "lib/constants.js":
+      "c28f952d2758261fe5428a121add485cc25b03e0193633f649de903dc0e5e222",
+    "lib/parse.js":
+      "16fbd61a0ad9351911f41ff466f47e982617c906cd48b3139ba4782fcb4fb4de",
+    "lib/picomatch.js":
+      "fdd249d7ffff853f3bb1c77eafc8baa1a437bea85a94c35877b83c6a40d9ca94",
+    "lib/scan.js":
+      "6457a1764e5c2e543cc3a0c00ce12ebb3764097628868198370b64d4e642aaae",
+    "lib/utils.js":
+      "f04604f70cd1a3f6ace80b84766468674ff38b4bb83818d2ef1d81fc6355f935",
+    "package.json":
+      "6061a4e721bfc82a2f68a16025990139f2dc6b6abd6463b78e548666e50c9f65",
+    "posix.js":
+      "5695ff5dfcd5a338a40630bd506056f2950bcb08fe1cc068519cbbfe60add480",
+  },
 };
 
 async function json(path) {
@@ -59,12 +81,12 @@ export function policyCutoff(now = new Date(), requested) {
   return cutoff;
 }
 
-async function verifyVendor(root) {
-  for (const [file, expected] of Object.entries(VENDOR_HASHES)) {
-    const bytes = await readFile(resolve(root, VENDOR, file));
+async function verifyVendor(root, name) {
+  for (const [file, expected] of Object.entries(VENDOR_HASHES[name])) {
+    const bytes = await readFile(resolve(root, vendorPath(name), file));
     const actual = createHash("sha256").update(bytes).digest("hex");
     if (actual !== expected)
-      throw new Error(`Unreviewed vendor source: ${file}`);
+      throw new Error(`Unreviewed vendor source: ${name}/${file}`);
   }
 }
 
@@ -178,17 +200,23 @@ export async function checkDependencies({
     throw new Error(
       "Root dependency specifications differ from package-lock.json",
     );
-  if (
-    manifest.devDependencies?.deepmerge !== `file:${VENDOR}` ||
-    manifest.overrides?.deepmerge !== "$deepmerge" ||
-    lock.packages["node_modules/deepmerge"]?.resolved !== VENDOR ||
-    !lock.packages["node_modules/deepmerge"]?.link
-  )
-    throw new Error(
-      "Reviewed deepmerge security backport must replace the upstream package",
-    );
+  for (const name of vendorNames) {
+    const path = vendorPath(name);
+    const link = lock.packages[`node_modules/${name}`];
+    if (
+      manifest.devDependencies?.[name] !== `file:${path}` ||
+      manifest.overrides?.[name] !== `$${name}` ||
+      link?.resolved !== path ||
+      !link.link ||
+      !lock.packages[path]
+    ) {
+      throw new Error(
+        `Reviewed ${name} security backport must replace the upstream package`,
+      );
+    }
+    await verifyVendor(root, name);
+  }
   const registry = new Map();
-  let vendor = false;
   for (const [path, entry] of Object.entries(lock.packages)) {
     if (!path) continue;
     if (LOCAL_PACKAGES.has(path)) {
@@ -200,7 +228,6 @@ export async function checkDependencies({
           JSON.stringify(dependencySpecs(entry))
       )
         throw new Error(`Local package differs from lock: ${path}`);
-      vendor ||= path === VENDOR;
       continue;
     }
     if (entry.link) {
@@ -214,8 +241,8 @@ export async function checkDependencies({
     const name = packageName(path);
     if (entry.name && entry.name !== name)
       throw new Error(`Unapproved package alias: ${path}`);
-    if (name === "deepmerge")
-      throw new Error(`Unpatched upstream deepmerge: ${path}`);
+    if (vendorNames.includes(name))
+      throw new Error(`Unpatched upstream ${name}: ${path}`);
     if (
       !entry.version ||
       !entry.integrity?.startsWith("sha512-") ||
@@ -228,7 +255,6 @@ export async function checkDependencies({
       throw new Error(`Conflicting registry sources: ${name}@${entry.version}`);
     registry.get(name).set(entry.version, entry);
   }
-  if (vendor) await verifyVendor(root);
   const jobs = [...registry];
   const violations = [];
   let index = 0;

@@ -13,7 +13,7 @@ import { allows } from "./scopes";
 import type { Caller } from "./types";
 import { version } from "./version";
 
-import { ownWithWait } from "./domain_do";
+import { ownTopics, ownWithWait } from "./domain_do";
 
 export { DomainObject } from "./domain_do";
 export { RegistryObject } from "./registry_do";
@@ -282,7 +282,8 @@ const routes: Record<Operation, Route> = {
   ),
   own: domainRoute(
     validators.validateOwnRequest,
-    (body, caller) => allows(caller.scopes, "own", body.topic),
+    (body, caller) =>
+      ownTopics(body).every((topic) => allows(caller.scopes, "own", topic)),
     (body, caller, env, _identity, signal) =>
       ownWithWait(env.DOMAINS.getByName(body.domain), body, caller, signal),
   ),
@@ -382,6 +383,7 @@ export default {
     let identity: Identity | null = null;
     let body: unknown;
     let result = "internal_error";
+    let claimedTopic: string | undefined;
     try {
       const route = routes[name];
       const token = bearerToken(request);
@@ -411,6 +413,15 @@ export default {
         result = outcome.ok ? "ok" : "internal_error";
         return outcome;
       }
+      if (
+        name === "own" &&
+        outcome.ok &&
+        "task" in outcome &&
+        record(outcome.task) &&
+        typeof outcome.task.topic === "string"
+      ) {
+        claimedTopic = outcome.task.topic;
+      }
       result = outcome.ok ? "ok" : outcome.error.code;
       return respond(outcome);
     } catch {
@@ -434,6 +445,16 @@ export default {
           )
             metadata[field] = value;
         }
+      }
+      if (claimedTopic !== undefined) metadata.topic = claimedTopic;
+      if (
+        name === "own" &&
+        result === "empty" &&
+        record(body) &&
+        Array.isArray(body.topics)
+      ) {
+        // An empty result is only possible after validating the 1–16 topic limit.
+        metadata.topic_count = body.topics.length;
       }
       console.log(metadata);
     }

@@ -124,8 +124,8 @@ fetch(request)
                   own scope, and the key's first segment is the encoded domain
                   → blobs.ts (R2 binding and presigning, no Durable Object)
     all others  → check domain ∈ identity.domains → forbidden
-                  check the topic scope for the request's topic, and for
-                  Consume each target topic → forbidden
+                  check topic scopes, including every Own topic and
+                  each Consume target topic → forbidden
                   → DomainObject (getByName(domain))
   → map the result to {ok: true, ...} or {ok: false, error} and the HTTP
     status (errors.ts)
@@ -190,12 +190,13 @@ storage, with the tables in spec §7.2.
 - **Time:** `Date.now()` is read once at the start of each operation and used
   throughout it. (In Workers the clock does not advance during synchronous
   execution anyway.)
-- **Own:** select the first row of `tasks_pick` for the topic with
-  `lease_until <= now`, then delete it and insert the copy with a new ID,
+- **Own:** find the first row with `lease_until <= now` in `tasks_pick` for
+  each selected topic. Pick the smallest `(created_at, id)` among those
+  candidates, then delete the winning row and insert the copy with a new ID,
   `owned_count + 1`, the new owner, `owned_at = now` and
-  `lease_until = now + hold`. Upsert the poller row in the same transaction,
-  also on `empty`, but on `empty` only when its `last_polled_at` is at least
-  a minute old (spec §4.9). An empty poll then usually writes nothing, and a
+  `lease_until = now + hold`. Record poller activity for every selected topic in the
+  same transaction. Refresh an existing row if it claimed work or its
+  `last_polled_at` is at least a minute old (spec §4.9). An empty poll then usually writes nothing, and a
   request that writes nothing does not wait for a storage commit: idle
   polling, the bulk of a domain's traffic, stays cheap. Empty polls are not
   counted in the statistics for the same reason. The index orders by `(topic, created_at, id)` and includes
@@ -203,7 +204,7 @@ storage, with the tables in spec §7.2.
   task's payload. Topic aggregates use the same index and supply the live
   topic names for both listing and monitor snapshots.
 - **Long-poll Own:** the Worker drives the wait with two kinds of Domain
-  Object call. A `park` call registers an in-memory waiter for the topic,
+  Object call. A `park` call registers an in-memory waiter on the selected topics,
   records the poll, and returns `retry` at once if a task is available;
   otherwise it parks until a hint or the remaining wait ends (`timeout`). It
   never claims. After `retry` the Worker makes an ordinary `own` call, the
@@ -218,6 +219,9 @@ storage, with the tables in spec §7.2.
   with `wait_refused`, because the wait was not held to its end. A Worker
   that sees `request.signal` aborted (where the runtime reports a
   disconnect) skips the claim after a hint.
+  A multi-topic poll registers one waiter on every selected topic after
+  checking all caps. The first hint wakes that waiter. On wake or timeout it
+  releases every registration, and a claim checks the full topic selection.
   Create and Consume hint one waiter per newly available task after their
   transaction commits. One timer per topic, armed for the next lease expiry
   (Own and Renew move it earlier when they write a sooner lease), hints one

@@ -4,13 +4,13 @@ EXTENDS Naturals, Integers, FiniteSets, TLC
 \* Finite safety model of spec §§2–5. One requester, Workers identities,
 \* unordered fresh IDs, atomic storage transitions, independently delivered
 \* or lost responses. Payloads, scopes, telemetry and long polls are abstracted.
-CONSTANTS Workers, Requester, Topics, WorkTopic, MaxIds, MaxRoots,
+CONSTANTS Workers, Requester, Topics, RootTopics, MaxIds, MaxRoots,
           Horizon, Retention, Holds
 
 Ids == 1..MaxIds
 Principals == Workers \cup {Requester}
 NoOwner == "no-owner"
-ASSUME /\ WorkTopic \in Topics
+ASSUME /\ RootTopics \subseteq Topics /\ RootTopics # {}
        /\ NoOwner \notin Principals
        /\ Holds # {}
        /\ Holds \subseteq 1..Horizon
@@ -36,10 +36,12 @@ New(i, topic, creator, origin, root) ==
    topic |-> topic, creator |-> creator, created |-> now,
    lease |-> now - 1, owner |-> NoOwner, count |-> 0]
 
-Oldest(t, topic) == \A other \in tasks :
-  (other.topic = topic /\ other.lease <= now) =>
-    (t.created < other.created \/
-     (t.created = other.created /\ t.id <= other.id))
+Selections == (SUBSET Topics) \ {{}}
+Eligible(selected) == {t \in tasks : t.topic \in selected /\ t.lease <= now}
+Precedes(t, u) == t.created < u.created \/ (t.created = u.created /\ t.id < u.id)
+Heads(rows) == {t \in rows : ~\E u \in rows : Precedes(u, t)}
+\* Mirror the indexed claim: compare only the head of each selected topic.
+Pick(selected) == Heads(UNION {Heads(Eligible({topic})) : topic \in selected})
 
 Init ==
   /\ tasks = {} /\ births = {} /\ edges = {}
@@ -49,11 +51,11 @@ Init ==
   /\ pending = [p \in Principals |-> NoReply]
   /\ known = [p \in Principals |-> {}]
 
-Create(i, keyed) ==
+Create(i, keyed, topic) ==
   /\ Ready(Requester) /\ i \in Fresh
   /\ Cardinality({b \in births : b.root}) < MaxRoots
   /\ ~keyed \/ ~KeyLive
-  /\ LET t == New(i, WorkTopic, Requester, i, TRUE) IN
+  /\ LET t == New(i, topic, Requester, i, TRUE) IN
        /\ tasks' = tasks \cup {t}
        /\ births' = births \cup {t}
   /\ used' = used \cup {i}
@@ -67,11 +69,10 @@ Replay ==
   /\ pending' = [pending EXCEPT ![Requester] = Reply({keyOrigin})]
   /\ UNCHANGED <<core, now, known>>
 
-Own(w, topic, i, j, hold) ==
+Own(w, selected, i, j, hold) ==
   /\ Ready(w) /\ i \in LiveIds /\ j \in Fresh
   /\ LET t == Row(i) IN
-       /\ t.topic = topic /\ t.lease <= now
-       /\ Oldest(t, topic)
+       /\ t \in Pick(selected)
        /\ tasks' = (tasks \ {t}) \cup
             {[t EXCEPT !.id = j, !.lease = now + hold,
                         !.owner = w, !.count = @ + 1]}
@@ -149,10 +150,10 @@ Tick ==
   /\ UNCHANGED <<core, pending, known>>
 
 Next ==
-  \/ \E i \in Fresh, keyed \in BOOLEAN : Create(i, keyed)
+  \/ \E i \in Fresh, keyed \in BOOLEAN, topic \in RootTopics : Create(i, keyed, topic)
   \/ Replay
-  \/ \E w \in Workers, topic \in Topics, i \in LiveIds,
-         j \in Fresh, hold \in Holds : Own(w, topic, i, j, hold)
+  \/ \E w \in Workers, selected \in Selections, i \in LiveIds,
+         j \in Fresh, hold \in Holds : Own(w, selected, i, j, hold)
   \/ \E w \in Workers, i \in LiveIds, hold \in Holds : Renew(w, i, hold)
   \/ \E w \in Workers, i \in LiveIds, children \in SUBSET Fresh :
        /\ Cardinality(children) <= 2
@@ -212,7 +213,15 @@ RetainLiveKey == [][KeyLive =>
                     (keyOrigin' = keyOrigin /\ keyAt' = keyAt)]_vars
 CancelPreservesDescendants == [][(\E origin \in Ids : Cancel(origin)) =>
   {t \in tasks : ~t.root} \subseteq tasks']_vars
-OwnSelectsOldest == [][(\A w \in Workers, topic \in Topics, i \in LiveIds,
+\* Refusing a nonempty selection would satisfy oldest-first safety vacuously.
+OwnCanClaim == \A w \in Workers, selected \in Selections :
+  (Ready(w) /\ Fresh # {} /\ Eligible(selected) # {}) =>
+    ENABLED (\E i \in LiveIds, j \in Fresh, hold \in Holds :
+               Own(w, selected, i, j, hold))
+OwnSelectsOldest == [][(\A w \in Workers, selected \in Selections, i \in LiveIds,
                          j \in Fresh, hold \in Holds :
-  Own(w, topic, i, j, hold) => Oldest(Row(i), topic))]_vars
+  Own(w, selected, i, j, hold) =>
+    /\ Row(i) \in Eligible(selected)
+    /\ \A u \in Eligible(selected) :
+         Row(i).created < u.created \/ (Row(i).created = u.created /\ i <= u.id))]_vars
 =============================================================================

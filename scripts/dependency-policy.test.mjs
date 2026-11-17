@@ -31,22 +31,14 @@ async function save(root, path, value) {
 async function fixture(t) {
   const root = await mkdtemp(resolve(tmpdir(), "tasklease-policy-test-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  await cp(resolve(sourceRoot, vendor), resolve(root, vendor), {
-    recursive: true,
-  });
-  const fork = JSON.parse(
-    await readFile(resolve(root, vendor, "package.json"), "utf8"),
-  );
   const manifest = {
-    devDependencies: { deepmerge: `file:${vendor}`, example: "1.0.0" },
-    overrides: { deepmerge: "$deepmerge" },
+    devDependencies: { example: "1.0.0" },
+    overrides: {},
   };
   const lock = {
     lockfileVersion: 3,
     packages: {
       "": manifest,
-      [vendor]: { name: fork.name, version: fork.version },
-      "node_modules/deepmerge": { resolved: vendor, link: true },
       "node_modules/example": {
         version: "1.0.0",
         resolved: "https://registry.npmjs.org/example/-/example-1.0.0.tgz",
@@ -54,6 +46,19 @@ async function fixture(t) {
       },
     },
   };
+  for (const name of ["deepmerge", "picomatch"]) {
+    const path = `scripts/dependency-policy-vendor/${name}`;
+    await cp(resolve(sourceRoot, path), resolve(root, path), {
+      recursive: true,
+    });
+    const fork = JSON.parse(
+      await readFile(resolve(root, path, "package.json"), "utf8"),
+    );
+    manifest.devDependencies[name] = `file:${path}`;
+    manifest.overrides[name] = `$${name}`;
+    lock.packages[path] = { name: fork.name, version: fork.version };
+    lock.packages[`node_modules/${name}`] = { resolved: path, link: true };
+  }
   await save(root, "package.json", manifest);
   await save(root, "package-lock.json", lock);
   const calls = [];
@@ -83,11 +88,13 @@ async function fixture(t) {
 async function installFixture(fixture) {
   const { root, lock } = fixture;
   await mkdir(resolve(root, "node_modules"));
-  await symlink(
-    resolve(root, vendor),
-    resolve(root, "node_modules/deepmerge"),
-    "junction",
-  );
+  for (const name of ["deepmerge", "picomatch"]) {
+    await symlink(
+      resolve(root, lock.packages[`node_modules/${name}`].resolved),
+      resolve(root, `node_modules/${name}`),
+      "junction",
+    );
+  }
   await save(root, "node_modules/example/package.json", {
     name: "example",
     version: "1.0.0",
@@ -299,4 +306,64 @@ test("minimatch override preserves the typescript-estree matching API", () => {
     minimatch("src/index.ts", "{src,test}/**/*.ts", { dot: true }),
     true,
   );
+});
+
+test("rejects an additional registry picomatch and modified backport files", async (t) => {
+  const f = await fixture(t);
+  const nested = "node_modules/example/node_modules/picomatch";
+  f.lock.packages[nested] = { version: "4.0.7" };
+  await save(f.root, "package-lock.json", f.lock);
+  await assert.rejects(
+    checkDependencies(f.options),
+    /Unpatched upstream picomatch/,
+  );
+  delete f.lock.packages[nested];
+  await save(f.root, "package-lock.json", f.lock);
+  await writeFile(
+    resolve(f.root, "scripts/dependency-policy-vendor/picomatch/lib/parse.js"),
+    "modified",
+  );
+  await assert.rejects(
+    checkDependencies(f.options),
+    /Unreviewed vendor source: picomatch/,
+  );
+});
+
+test("glob consumers use the patched matcher and retain normal file matching", () => {
+  for (const parent of ["vite", "vitest", "tinyglobby", "fdir"]) {
+    const consumer = createRequire(require.resolve(parent));
+    assert.equal(
+      consumer("picomatch/package.json").name,
+      "@tasklease/picomatch",
+    );
+    for (const match of [consumer("picomatch"), consumer("picomatch/posix")]) {
+      assert.equal(match("src/**/*.{js,ts}")("src/client/api.ts"), true);
+      assert.equal(match("src/+(api|web).ts")("src/apiweb.ts"), true);
+      assert.equal(match("src/+(api|web).ts")("src/app.ts"), false);
+    }
+  }
+});
+
+test("repeated single-wildcard branches compile without an outer unbounded repeat", () => {
+  const match = require("picomatch");
+  for (const options of [
+    {},
+    { capture: true },
+    { windows: true },
+    { maxExtglobRecursion: false },
+  ]) {
+    for (const operator of ["+", "*"]) {
+      const pattern = `images/${operator}(frame*.png)/end`;
+      const re = match.makeRe(pattern, options);
+      assert.doesNotMatch(re.source, /\)[+*]/);
+      assert.equal(re.test("images/frame1.pngframe2.png/end"), true);
+      assert.equal(re.test("images/frame1.jpg/end"), false);
+      assert.equal(re.test("images/frame1/2.png/end"), false);
+      assert.equal(re.test("images//end"), operator === "*");
+    }
+  }
+  // A complex body takes the parser's literal fallback; literal star classes
+  // still take the ordinary character-class path.
+  assert.equal(match("images/+(part*/end)")("images/part2/end"), false);
+  assert.equal(match("images/+([*])")("images/**"), true);
 });

@@ -37,13 +37,15 @@
     "prettier-plugin-svelte": "4.1.1",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.1",
-    "deepmerge": "file:scripts/dependency-policy-vendor/deepmerge"
+    "deepmerge": "file:scripts/dependency-policy-vendor/deepmerge",
+    "picomatch": "file:scripts/dependency-policy-vendor/picomatch"
   },
   "overrides": {
     "@typescript-eslint/typescript-estree": {
       "minimatch": "11.0.3"
     },
     "semver": "7.8.5",
-    "deepmerge": "$deepmerge"
+    "deepmerge": "$deepmerge",
+    "picomatch": "$picomatch"
   }
 }

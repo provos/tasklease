@@ -109,8 +109,25 @@ def mutation_checks(jar: Path, temporary: Path) -> None:
             "Own",
             "Action property OwnSelectsOldest is violated",
             "MultipleRoots.cfg",
-            r"/\ Oldest(t, topic)",
-            r"/\ TRUE",
+            r"/\ t \in Pick(selected)",
+            r"/\ t \in Eligible(selected)",
+        ),
+        (
+            "claim-oldest-only-within-one-topic",
+            "Own",
+            "Action property OwnSelectsOldest is violated",
+            "MultiTopic.cfg",
+            r"/\ t \in Pick(selected)",
+            r"/\ t.topic \in selected /\ t \in Pick({t.topic})",
+        ),
+        (
+            "require-work-on-every-topic",
+            "Own",
+            "Invariant OwnCanClaim is violated",
+            "MultiTopic.cfg",
+            r"/\ t \in Pick(selected)",
+            r"/\ t \in Pick(selected) /\ "
+            r"\A topic \in selected : Eligible({topic}) # {}",
         ),
     )
     for name, action, violation, config, before, after in mutations:
@@ -154,6 +171,7 @@ def main() -> None:
                 "TaskLease.cfg",
                 "Fanout.cfg",
                 "MultipleRoots.cfg",
+                "MultiTopic.cfg",
             ):
                 check(
                     jar,

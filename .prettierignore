@@ -10,3 +10,4 @@ dist/
 scripts/dependency-policy-vendor/deepmerge/index.cjs
 scripts/dependency-policy-vendor/deepmerge/index.d.ts
 scripts/dependency-policy-vendor/deepmerge/LICENSE
+scripts/dependency-policy-vendor/picomatch/**/*.js

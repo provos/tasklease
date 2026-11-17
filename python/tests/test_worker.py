@@ -125,12 +125,16 @@ class CustomHandler:
 
 
 def loop(
-    backend: Backend, handler: CustomHandler | None = None, *, wait_seconds: int = 30
+    backend: Backend,
+    handler: CustomHandler | None = None,
+    *,
+    wait_seconds: int = 30,
+    topic: str | tuple[str, ...] = TOPIC,
 ) -> WorkerLoop[object, object]:
     return WorkerLoop(
         backend.client(),
         DOMAIN,
-        TOPIC,
+        topic,
         UnlimitedCapacity(),
         handler or CustomHandler(),
         wait_seconds=wait_seconds,
@@ -227,6 +231,33 @@ def test_bad_work_topics_rejected_before_network(topic: str) -> None:
     backend = Backend()
     with pytest.raises(Invalid):
         WorkerLoop(backend.client(), DOMAIN, topic, UnlimitedCapacity(), EchoHandler())
+    assert not backend.calls
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        None,
+        7,
+        {"work": 1},
+        {"work"},
+        [],
+        [f"work/{i}" for i in range(17)],
+        ["work", "work"],
+        ["work", "other/error"],
+        ["work", 9],
+    ],
+)
+def test_bad_multi_topic_selector_refused_before_network(selector: object) -> None:
+    backend = Backend()
+    with backend.client() as client, pytest.raises(Invalid):
+        WorkerLoop(
+            client,
+            DOMAIN,
+            cast(list[str], selector),
+            UnlimitedCapacity(),
+            EchoHandler(),
+        )
     assert not backend.calls
 
 
@@ -355,11 +386,15 @@ def test_failure_without_reply_topic_goes_to_the_error_topic(stage: str) -> None
 @pytest.mark.parametrize(
     "error", [Forbidden("denied"), Invalid("invalid"), TooLarge("big")]
 )
-def test_refused_reply_falls_back(error: Exception) -> None:
+@pytest.mark.parametrize("selector", [TOPIC, ("other", TOPIC)])
+def test_refused_reply_falls_back(
+    error: Exception, selector: str | tuple[str, ...]
+) -> None:
     backend = Backend()
     backend.consume_errors = [error]
-    loop(backend).step()
+    loop(backend, topic=selector).step()
     assert len(backend.consumed) == 2
+    assert all(body["topic"] == TOPIC for body in backend.consumed)
     assert new_tasks(backend.consumed[1])[0]["topic"] == TOPIC + "/error"
     assert backend.consumed[0]["id"] == backend.consumed[1]["id"] == TASK
 
@@ -430,7 +465,10 @@ def test_bounded_error_limits_error_and_handles_json_escaping() -> None:
     assert cast(str, value["original"]).startswith('{"v":')
 
 
-def test_renewal_keeps_id_and_transport_error_retries() -> None:
+@pytest.mark.parametrize("selector", [TOPIC, ("other", TOPIC)])
+def test_renewal_keeps_id_and_transport_error_retries(
+    selector: str | tuple[str, ...],
+) -> None:
     backend = Backend()
     handler = CustomHandler()
     renewals = threading.Event()
@@ -451,12 +489,13 @@ def test_renewal_keeps_id_and_transport_error_retries() -> None:
         return {}
 
     handler.on_run = run
-    worker = loop(backend, handler)
+    worker = loop(backend, handler, topic=selector)
     worker.renew_every = 0.02
     worker.step()
     calls = [body for op, body in backend.calls if op == "renew"]
     assert len(calls) >= 2
     assert {body["id"] for body in calls} == {TASK}
+    assert {body["topic"] for body in calls} == {TOPIC}
     assert backend.consumed
 
 
@@ -975,7 +1014,10 @@ def test_run_does_not_long_poll_while_holding_real_capacity() -> None:
     assert "wait_seconds" not in backend.calls[0][1]
 
 
-def test_stop_during_a_held_poll_hands_back_the_task_unrun() -> None:
+@pytest.mark.parametrize("selector", [TOPIC, ("other", TOPIC)])
+def test_stop_during_a_held_poll_hands_back_the_task_unrun(
+    selector: str | tuple[str, ...],
+) -> None:
     backend = Backend()
     stop = threading.Event()
     # The stop arrives while the Own is held; the service then claims a task.
@@ -985,7 +1027,7 @@ def test_stop_during_a_held_poll_hands_back_the_task_unrun() -> None:
     WorkerLoop(
         backend.client(),
         DOMAIN,
-        TOPIC,
+        selector,
         UnlimitedCapacity(),
         handler,
         stop=stop,

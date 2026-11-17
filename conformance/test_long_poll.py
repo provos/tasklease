@@ -7,7 +7,7 @@ from typing import cast
 import pytest
 
 from conformance.support import ServiceTarget
-from tasklease.errors import Empty, Invalid
+from tasklease.errors import Empty, Forbidden, Invalid
 from tasklease.generated import protocol as p
 
 
@@ -17,8 +17,9 @@ def poll_identity(target: ServiceTarget) -> tuple[str, str]:
     return target.domain, token
 
 
+@pytest.mark.parametrize("multi", [False, True])
 def test_long_poll_wakes_promptly_on_create(
-    target: ServiceTarget, poll_identity: tuple[str, str]
+    target: ServiceTarget, poll_identity: tuple[str, str], multi: bool
 ) -> None:
     domain, token = poll_identity
     with (
@@ -34,6 +35,13 @@ def test_long_poll_wakes_promptly_on_create(
                 "hold_seconds": 60,
                 "wait_seconds": 30,
             }
+            if multi:
+                request = {
+                    "domain": domain,
+                    "topics": ["work/other", "work/wait"],
+                    "hold_seconds": 60,
+                    "wait_seconds": 30,
+                }
             waiting.append(waiter.own(request)["task"])
 
         thread = threading.Thread(target=own)
@@ -57,6 +65,12 @@ def test_long_poll_wakes_promptly_on_create(
         # Well inside the 30-second wait: the Create woke the held poll.
         assert time.monotonic() - created_at < 5
         task = waiting[0]
+        if multi:
+            poller = creator.topic_pollers({"domain": domain, "topic": "work/other"})[
+                "pollers"
+            ][0]
+            assert poller["worker"] == "waiter" and poller["last_owned_at"] is None
+        assert task["topic"] == "work/wait"
         assert task["id"] != created
         assert task["data"] == {"n": 1}
 
@@ -130,6 +144,13 @@ def test_competing_long_polls_claim_each_task_once(
                 "hold_seconds": 60,
                 "wait_seconds": 5,
             }
+            if index % 2:
+                request = {
+                    "domain": domain,
+                    "topics": ["work/other", "work/compete"],
+                    "hold_seconds": 60,
+                    "wait_seconds": 5,
+                }
             task = client.own(request)["task"]
             with lock:
                 claims.append(task)
@@ -174,3 +195,54 @@ def test_competing_long_polls_claim_each_task_once(
     assert remaining_value not in {
         cast(dict[str, object], task["data"])["n"] for task in claims
     }
+
+
+def test_multi_topic_wait_wakes_on_lease_expiry(
+    target: ServiceTarget, poll_identity: tuple[str, str]
+) -> None:
+    domain, token = poll_identity
+    with target.client(token) as client:
+        origin = client.create({"domain": domain, "topic": "work/linux", "data": {}})[
+            "id"
+        ]
+        first = client.own(
+            {"domain": domain, "topic": "work/linux", "hold_seconds": 1}
+        )["task"]
+        next_task = client.own(
+            {
+                "domain": domain,
+                "topics": ["work/any", "work/linux"],
+                "hold_seconds": 30,
+                "wait_seconds": 5,
+            }
+        )["task"]
+        assert next_task["origin_id"] == origin
+        assert next_task["id"] != first["id"]
+        assert next_task["owned_count"] == 2
+
+
+def test_multi_topic_scope_refusal_records_no_partial_poll(
+    target: ServiceTarget, poll_identity: tuple[str, str]
+) -> None:
+    domain, token = poll_identity
+    with target.client(token) as client:
+        created = client.create({"domain": domain, "topic": "work/any", "data": {}})
+        with pytest.raises(Forbidden):
+            client.own(
+                {
+                    "domain": domain,
+                    "topics": ["work/any", "private"],
+                    "hold_seconds": 30,
+                    "wait_seconds": 5,
+                }
+            )
+        assert (
+            client.topic_pollers({"domain": domain, "topic": "work/any"})["pollers"]
+            == []
+        )
+        assert (
+            client.own({"domain": domain, "topic": "work/any", "hold_seconds": 1})[
+                "task"
+            ]["origin_id"]
+            == created["id"]
+        )

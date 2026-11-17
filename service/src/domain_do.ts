@@ -121,8 +121,8 @@ const MAX_WAIT_ROUNDS = 20;
  */
 type Waiter = {
   identity: string;
-  /** A wake hint was delivered; the waiter will answer `retry`. */
-  hinted: boolean;
+  /** Topic that delivered the wake hint, or null while waiting. */
+  hintedBy: string | null;
   /** Settles a parked waiter early; null while it is not parked. */
   wake: (() => void) | null;
 };
@@ -149,7 +149,7 @@ export type ParkResult = "retry" | "timeout" | "refused";
 
 /** Park until a hint (true) or until `delay` elapses (false). */
 function park(waiter: Waiter, delay: number): Promise<boolean> {
-  if (waiter.hinted) return Promise.resolve(true);
+  if (waiter.hintedBy) return Promise.resolve(true);
   return new Promise<boolean>((resolve) => {
     const timer = setTimeout(() => {
       waiter.wake = null;
@@ -161,6 +161,11 @@ function park(waiter: Waiter, delay: number): Promise<boolean> {
       resolve(true);
     };
   });
+}
+
+export function ownTopics(request: OwnRequest): string[] {
+  // The validated wire request contains exactly one selector.
+  return request.topics ?? [request.topic!];
 }
 
 type OwnStub = Pick<DomainObject, "own" | "park">;
@@ -441,15 +446,32 @@ export class DomainObject extends DurableObject<Env> {
     caller: Caller,
   ): Promise<Result<RpcTaskResponse<OwnResponse>>> {
     return this.operation((now) => {
-      const row = this.ctx.storage.sql
-        .exec<TaskRow>(
-          `SELECT * FROM tasks WHERE topic = ? AND lease_until <= ?
-           ORDER BY created_at, id LIMIT 1`,
-          request.topic,
-          now,
-        )
-        .toArray()[0];
-      this.recordPoll(request.topic, caller, now, row !== undefined);
+      const topics = ownTopics(request);
+      // The covering index yields one candidate per topic. Sort only those
+      // candidates, and fetch the payload once the winning ID is known.
+      const sql = this.ctx.storage.sql;
+      const row = (
+        topics.length === 1
+          ? sql.exec<TaskRow>(
+              `SELECT * FROM tasks WHERE topic = ? AND lease_until <= ?
+             ORDER BY created_at, id LIMIT 1`,
+              topics[0]!,
+              now,
+            )
+          : sql.exec<TaskRow>(
+              `SELECT * FROM tasks WHERE id = (
+               SELECT id FROM tasks WHERE id IN (
+                 SELECT (SELECT id FROM tasks WHERE topic = selected.value AND lease_until <= ?
+                         ORDER BY created_at, id LIMIT 1)
+                 FROM json_each(?) AS selected
+               ) ORDER BY created_at, id LIMIT 1
+             )`,
+              now,
+              JSON.stringify(topics),
+            )
+      ).toArray()[0];
+      for (const topic of topics)
+        this.recordPoll(topic, caller, now, topic === row?.topic);
       if (!row) return failure("empty");
       const next: TaskRow = {
         ...row,
@@ -463,7 +485,7 @@ export class DomainObject extends DurableObject<Env> {
       this.ctx.storage.sql.exec("DELETE FROM tasks WHERE id = ?", row.id);
       this.insertRow(next);
       const wait = now - row.created_at;
-      this.recordStats(request.topic, now, {
+      this.recordStats(row.topic, now, {
         owned: 1,
         reowned: row.owned_count > 0 ? 1 : 0,
         ...(row.owned_count === 0
@@ -493,7 +515,8 @@ export class DomainObject extends DurableObject<Env> {
     caller: Caller,
   ): Promise<Result<RpcTaskResponse<OwnResponse>>> {
     const result = await this.attemptOwn(request, caller);
-    if (result.ok) this.leaseChanged(request.topic, result.task.lease_until);
+    if (result.ok)
+      this.leaseChanged(result.task.topic, result.task.lease_until);
     return result;
   }
 
@@ -507,55 +530,60 @@ export class DomainObject extends DurableObject<Env> {
     caller: Caller,
     waitMs: number,
   ): Promise<ParkResult> {
-    const topic = request.topic;
-    let state = this.waiting.get(topic);
-    if (
-      waitMs > 0 &&
-      ((state?.waiters.size ?? 0) >= this.maxWaitersPerTopic ||
-        (state?.identities.get(caller.identity) ?? 0) >=
-          this.maxWaitersPerIdentity)
-    ) {
-      return "refused";
+    const topics = ownTopics(request);
+    for (const topic of topics) {
+      const state = this.waiting.get(topic);
+      if (
+        waitMs > 0 &&
+        ((state?.waiters.size ?? 0) >= this.maxWaitersPerTopic ||
+          (state?.identities.get(caller.identity) ?? 0) >=
+            this.maxWaitersPerIdentity)
+      ) {
+        return "refused";
+      }
     }
-    // Register before any await, so a Create that commits meanwhile hints
-    // this waiter.
+    // Check all caps before registering the same waiter on each topic.
     const waiter: Waiter = {
       identity: caller.identity,
-      hinted: false,
+      hintedBy: null,
       wake: null,
     };
-    if (!state) {
-      state = {
-        waiters: new Set(),
-        identities: new Map(),
-        timer: null,
-        at: 0,
-        checked: Date.now(),
-      };
-      this.waiting.set(topic, state);
+    for (const topic of topics) {
+      let state = this.waiting.get(topic);
+      if (!state) {
+        state = {
+          waiters: new Set(),
+          identities: new Map(),
+          timer: null,
+          at: 0,
+          checked: Date.now(),
+        };
+        this.waiting.set(topic, state);
+      }
+      state.waiters.add(waiter);
+      state.identities.set(
+        caller.identity,
+        (state.identities.get(caller.identity) ?? 0) + 1,
+      );
     }
-    state.waiters.add(waiter);
-    state.identities.set(
-      caller.identity,
-      (state.identities.get(caller.identity) ?? 0) + 1,
-    );
     let retry = false;
     try {
       await this.operation((now) => {
-        this.recordPoll(topic, caller, now, false);
+        for (const topic of topics) this.recordPoll(topic, caller, now, false);
         return { ok: true };
       });
       // Check availability and arm the lease timer in one synchronous turn
       // after the last await, so no lease can expire between the two.
-      if (this.available(topic, Date.now(), 1) > 0) {
+      const now = Date.now();
+      if (topics.some((topic) => this.available(topic, now, 1) > 0)) {
         retry = true;
       } else if (waitMs > 0) {
-        this.armLease(topic);
+        for (const topic of topics) this.armLease(topic);
         retry = await park(waiter, Math.min(waitMs, MAX_WAIT_MS));
       }
       return retry ? "retry" : "timeout";
     } finally {
-      this.release(topic, waiter, retry);
+      for (const topic of topics) this.release(topic, waiter, retry);
     }
   }
 
@@ -615,7 +643,7 @@ export class DomainObject extends DurableObject<Env> {
     if (state.waiters.size === 0) {
       if (state.timer !== null) clearTimeout(state.timer);
       this.waiting.delete(topic);
-    } else if (waiter.hinted && !used) {
+    } else if (waiter.hintedBy === topic && !used) {
       this.notify(topic);
     }
   }
@@ -632,8 +660,8 @@ export class DomainObject extends DurableObject<Env> {
     let delivered = false;
     for (const waiter of state.waiters) {
       if (count <= 0) break;
-      if (waiter.hinted) continue;
-      waiter.hinted = true;
+      if (waiter.hintedBy) continue;
+      waiter.hintedBy = topic;
       waiter.wake?.();
       delivered = true;
       count--;

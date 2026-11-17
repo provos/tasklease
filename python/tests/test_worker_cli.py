@@ -164,6 +164,29 @@ def test_echo_once_uses_capacity_and_small_correlated_reply(
     assert "tl_worker-test-secret" not in captured.out + captured.err
 
 
+@pytest.mark.parametrize("configured", [False, True])
+def test_multi_topic_worker_consumes_on_claimed_topic(
+    cli: CLI, configured: bool
+) -> None:
+    topics = ["work/other", TOPIC]
+    args = ["--topic", topics[0], "--topic", TOPIC]
+    if configured:
+        with cli.config.open("a") as config:
+            config.write(f"[worker]\ntopics={json.dumps(topics)}\n")
+        args = []
+
+    def response(request: httpx.Request) -> httpx.Response:
+        body = _body(request)
+        if request.url.path == "/v1/own":
+            assert body["topics"] == topics and "topic" not in body
+            return _owned()
+        assert request.url.path == "/v1/consume" and body["topic"] == TOPIC
+        return httpx.Response(200, json={"ok": True, "ids": [TASK_ID]})
+
+    cli.respond = response
+    assert cli.run([*args, "--once"]) == 0
+
+
 def test_empty_once_returns_without_idle_sleep(
     cli: CLI, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -189,6 +212,19 @@ def test_settings_and_cli_overrides(cli: CLI) -> None:
         "topic": TOPIC,
         "hold_seconds": 600,
     }
+
+
+def test_conflicting_worker_selectors_require_an_override(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with cli.config.open("a") as config:
+        config.write('[worker]\ntopic="work/a"\ntopics=["work/b"]\n')
+    assert cli.run(["--once"]) == 1
+    assert "only one of topic and topics" in capsys.readouterr().err
+    assert not cli.requests
+    cli.respond = lambda request: _empty()
+    assert cli.run(["--topic", TOPIC, "--once"]) == 0
+    assert _body(cli.requests[0])["topic"] == TOPIC
 
 
 def test_config_handler_and_topic_used(cli: CLI) -> None:

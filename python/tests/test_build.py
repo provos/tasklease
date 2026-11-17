@@ -98,6 +98,7 @@ def test_wheel_contains_deployable_assets(artifacts: Path) -> None:
         for name, license_file in (
             ("ajv", "LICENSE"),
             ("aws4fetch", "LICENSE"),
+            ("fast-deep-equal", "LICENSE"),
             ("svelte", "LICENSE.md"),
             ("vite", "LICENSE.md"),
         ):

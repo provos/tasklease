@@ -376,12 +376,16 @@ class Client:
         except Invalid as error:
             # Only the service's schema refusal can mean an unknown field; an
             # older service rejects the field even when it is zero.
-            if (
-                "wait_seconds" in request
-                and type(error) is Invalid
-                and str(error) == _INVALID_BODY
-            ):
-                self._check_wait_support(error, timeout)
+            if type(error) is Invalid and str(error) == _INVALID_BODY:
+                if "topics" in request:
+                    # Feature builds can share a version with the preceding release.
+                    raise Invalid(
+                        "Invalid request body for multi-topic Own. Check the request "
+                        "fields. If the deployed service supports only single-topic "
+                        "Own, upgrade it before enabling multi-topic workers."
+                    ) from error
+                if "wait_seconds" in request:
+                    self._check_wait_support(error, timeout)
             raise
 
     def _older_service(

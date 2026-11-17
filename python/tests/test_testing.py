@@ -817,6 +817,44 @@ def test_long_poll_refuses_a_wait_beyond_max_waiters() -> None:
     assert not immediate.value.wait_refused
 
 
+def test_multi_topic_wait_counts_and_releases_each_identity_slot(
+    board: FakeBoard, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("tasklease.testing._MAX_WAITERS_PER_IDENTITY", 1)
+    request: p.OwnRequest = {
+        "domain": board.domain,
+        "topics": ["a", "b"],
+        "hold_seconds": 60,
+        "wait_seconds": 3,
+    }
+    with (
+        board.client("token", "first") as first,
+        board.client("token", "second") as second,
+        ThreadPoolExecutor(max_workers=1) as pool,
+    ):
+        pending = pool.submit(first.own, request)
+        deadline = time.monotonic() + 2
+        while ("b", "worker", "first") not in board.pollers:
+            assert time.monotonic() < deadline
+            time.sleep(0.01)
+        for topic in ("a", "b"):
+            with pytest.raises(Empty) as refused:
+                second.own(
+                    {
+                        "domain": board.domain,
+                        "topic": topic,
+                        "hold_seconds": 60,
+                        "wait_seconds": 1,
+                    }
+                )
+            assert refused.value.wait_refused
+        second.create({"domain": board.domain, "topic": "b", "data": {}})
+        assert pending.result(timeout=2)["task"]["topic"] == "b"
+        with pytest.raises(Empty) as completed:
+            second.own({**request, "wait_seconds": 1})
+        assert not completed.value.wait_refused
+
+
 def test_long_poll_is_not_cut_short_by_frequent_wakeups(
     board: FakeBoard, monkeypatch: pytest.MonkeyPatch
 ) -> None:

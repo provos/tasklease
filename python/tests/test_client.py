@@ -677,6 +677,39 @@ def test_own_names_an_old_service_and_the_opt_out() -> None:
     assert isinstance(raised.value, Invalid)
 
 
+@pytest.mark.parametrize("wait", [None, 0, 30])
+def test_multi_topic_schema_refusal_gives_rollout_hint_with_or_without_wait(
+    wait: int | None,
+) -> None:
+    paths: list[str] = []
+
+    def reject(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return httpx.Response(
+            400,
+            json={
+                "ok": False,
+                "error": {"code": "invalid", "message": "Invalid request body"},
+            },
+        )
+
+    with Client(
+        "https://tasks.example", TOKEN, transport=httpx.MockTransport(reject)
+    ) as client:
+        request: p.OwnRequest = {
+            "domain": "acme/pipeline",
+            "topics": ["work/linux", "work/any"],
+            "hold_seconds": 60,
+        }
+        if wait is not None:
+            request["wait_seconds"] = wait
+        with pytest.raises(Invalid, match="single-topic Own, upgrade it") as error:
+            client.own(request)
+    assert type(error.value) is Invalid
+    assert "--wait-seconds" not in str(error.value)
+    assert paths == ["/v1/own"]
+
+
 def test_own_explicit_zero_wait_also_names_an_old_service() -> None:
     with Client(
         "https://tasks.example",

@@ -29,7 +29,7 @@ from tasklease.worker import (
     Handler,
     UnlimitedCapacity,
     WorkerLoop,
-    validate_work_topic,
+    validate_work_topics,
 )
 from tasklease.worker_control import WorkerControl, request_stop
 
@@ -69,6 +69,24 @@ def _text(value: object, name: str) -> str:
     if not isinstance(value, str) or not value:
         raise ConfigError(f"worker {name} must be a nonempty string")
     return value
+
+
+def _work_topics(
+    args: argparse.Namespace, settings: dict[str, object]
+) -> str | list[str]:
+    overrides: list[str] | None = args.topic
+    if overrides:
+        return overrides[0] if len(overrides) == 1 else overrides
+    if "topics" in settings:
+        if "topic" in settings:
+            raise ConfigError(
+                "worker settings must specify only one of topic and topics"
+            )
+        topics = settings["topics"]
+        if not isinstance(topics, list):
+            raise ConfigError("worker topics must be a list")
+        return [_text(topic, "topics entry") for topic in topics]
+    return _text(settings.get("topic"), "topic")
 
 
 def _seconds(value: object, name: str) -> int:
@@ -118,7 +136,7 @@ def _run(args: argparse.Namespace) -> int:
     config = configuration(args)
     settings = _table(config.values)
     selected = _text(optional_text(args, "domain") or config.domain, "domain")
-    topic = validate_work_topic(_text(_setting(args, settings, "topic", None), "topic"))
+    topic = validate_work_topics(_work_topics(args, settings))
     lease = _seconds(_setting(args, settings, "lease", 600), "lease")
     renew = _seconds(_setting(args, settings, "renew_every", 180), "renew_every")
     poll = _seconds(_setting(args, settings, "poll_interval", 30), "poll_interval")
@@ -175,7 +193,9 @@ def configure_parser(
     parser = subparsers.add_parser("worker", help="Run an echo or plugin worker")
     connection_options(parser)
     parser.add_argument("--domain")
-    parser.add_argument("--topic")
+    parser.add_argument(
+        "--topic", action="append", help="Work topic (repeat to serve several)"
+    )
     parser.add_argument(
         "--handler", dest="worker_handler", help="echo or module:factory"
     )

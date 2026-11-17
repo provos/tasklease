@@ -1,0 +1,18 @@
+--- a/lib/parse.js
++++ b/lib/parse.js
+@@ -544 +544,14 @@
+-    if ((token.type === 'plus' || token.type === 'star') && analysis.risky) {
++    const repeated = token.type === 'plus' || token.type === 'star';
++    if (repeated && !analysis.risky && body.includes('*') && splitTopLevel(body).length === 1) {
++      if (/^[a-zA-Z0-9._-]*\*[a-zA-Z0-9._-]*$/.test(body)) {
++        // A segment wildcard can absorb all intermediate copies of prefix*suffix.
++        // One-or-more needs one copy; zero-or-more needs at most one.
++        token.close = EXTGLOB_CHARS[token.type === 'plus' ? '@' : '?'].close;
++      } else if (tokens.slice(token.tokensIndex + 2).some(t => t.type === 'star' || t.type === 'globstar')) {
++        // Complex wildcard bodies may cross path boundaries or nest repetition.
++        // Use the existing literal fallback. Escaped stars and classes stay intact.
++        analysis.risky = true;
++      }
++    }
++
++    if (repeated && analysis.risky) {

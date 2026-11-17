@@ -93,7 +93,7 @@ try {
     resolve(bundle, "manifest.json"),
     `${JSON.stringify({ service_version: serviceVersion(), wrangler_version: wrangler.version }, null, 2)}\n`,
   );
-  // Ajv's runtime is embedded in generated validators; aws4fetch is bundled
+  // Ajv and fast-deep-equal are embedded in generated validators; aws4fetch is bundled
   // by Wrangler. Vite also injects its module-preload runtime helper.
   const notices = [
     "# Third-party notices\n\n" +
@@ -102,6 +102,7 @@ try {
     ...[
       ["ajv", "LICENSE"],
       ["aws4fetch", "LICENSE"],
+      ["fast-deep-equal", "LICENSE"],
       ["vite", "LICENSE.md"],
     ].map(([name, licenseFile]) => {
       const directory = resolve(root, "node_modules", name);
