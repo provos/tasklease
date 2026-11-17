@@ -604,6 +604,45 @@ describe("HTTP authorization", () => {
     );
   });
 
+  it("logs the claimed topic or the selector count for multi-topic Own", async () => {
+    const { domain, token } = await provision();
+    const topic = "work/linux";
+    const other = "work/any";
+    await post("create", { domain, topic, data: {} }, token);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const own = () =>
+      worker.fetch(
+        new Request("https://tasklease/v1/own", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "X-Worker": "worker" },
+          body: JSON.stringify({
+            domain,
+            topics: [other, topic],
+            hold_seconds: 60,
+          }),
+        }),
+        env,
+      );
+    try {
+      expect((await own()).status).toBe(200);
+      expect(log).toHaveBeenLastCalledWith(
+        expect.objectContaining({ operation: "own", result: "ok", topic }),
+      );
+      await expectError(await own(), 404, "empty");
+      expect(log).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          operation: "own",
+          result: "empty",
+          topic_count: 2,
+        }),
+      );
+      expect(JSON.stringify(log.mock.lastCall)).not.toContain(topic);
+      expect(JSON.stringify(log.mock.calls)).not.toContain(other);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("returns one controlled backend failure and logs only request metadata", async () => {
     const { token, domain } = await provision();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});

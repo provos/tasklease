@@ -51,6 +51,7 @@ from tasklease.names import (
     topic_matches,
 )
 
+_MAX_WAITERS_PER_IDENTITY = 1000
 _MAX_DATA = 256 * 1024
 _MAX_BODY = 16 * _MAX_DATA + 64 * 1024
 _MAX_BLOB = 2 * 1024**3
@@ -659,7 +660,8 @@ class FakeBoard:
                 return response
             if any(
                 self._waiters[topic] >= self._max_waiters
-                or self._identity_waiters[topic, caller["name"]] >= 1000
+                or self._identity_waiters[topic, caller["name"]]
+                >= _MAX_WAITERS_PER_IDENTITY
                 for topic in topics
             ):
                 return _refused()

@@ -108,7 +108,9 @@ package name; see [PyPI's pending-project documentation](https://docs.pypi.org/t
    that restores the old request). For the first release, test fresh
    bootstrap and the earlier-bundle upgrade flow. Record the candidate commit,
    artifact hashes, commands, results and any expected skips in the review log;
-   retain the reports with the release evidence.
+   retain the reports with the release evidence. For the first multi-topic Own
+   release, use the selected release version for the client's minimum-version
+   diagnostic and verify it against the previous deployed Worker.
 4. **Merge and tag the reviewed commit.** Merge the release changes into
    `main` and create an annotated `vMAJOR.MINOR.PATCH` tag using the
    [commands below](#publish-through-the-trusted-publisher). If merging changes

@@ -90,8 +90,12 @@ def validate_work_topics(
 ) -> str | tuple[str, ...]:
     if isinstance(topic, str):
         return validate_work_topic(topic)
+    if not isinstance(topic, (list, tuple)):
+        raise Invalid("worker topics must be a list or tuple of topic names")
+    if not 1 <= len(topic) <= 16:
+        raise Invalid("worker topics must contain 1 to 16 distinct names")
     topics = tuple(validate_work_topic(name) for name in topic)
-    if not 1 <= len(topics) <= 16 or len(set(topics)) != len(topics):
+    if len(set(topics)) != len(topics):
         raise Invalid("worker topics must contain 1 to 16 distinct names")
     return topics
 

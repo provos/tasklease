@@ -12,7 +12,13 @@ literal filename characters, the star can absorb the intervening copies.
 The parser therefore emits one copy for one-or-more, and an optional copy for
 zero-or-more. Captures reflect that single copy. For more complex single
 branches containing a wildcard token, the parser uses its existing literal
-fallback. Existing safe simplifications remain in effect.
+fallback. This guard also applies when callers disable the upstream recursion
+check with `maxExtglobRecursion: false`.
+
+The override covers the build dependency named in the advisory. Repeated
+alternatives and nested negation can still produce costly matches. Keep build
+patterns under repository control. Broader hardening should cover these forms
+when evaluating an upstream replacement. [Tracking issue](https://github.com/provos/tasklease/issues/24)
 
 The dependency policy pins each runtime file, the manifest and the license.
 Regression tests inspect the compiled repetition and exercise filename, path

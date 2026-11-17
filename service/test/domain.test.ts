@@ -720,11 +720,17 @@ describe("DomainObject task transactions", () => {
         ).id;
         clock.mockReturnValue(base + 2000);
         const first = success(
-          await instance.own({ domain, topic, hold_seconds: 1 }, worker),
+          await instance.own(
+            { domain, topics: ["work/any", topic], hold_seconds: 1 },
+            worker,
+          ),
         ).task;
         clock.mockReturnValue(base + 4000);
         const second = success(
-          await instance.own({ domain, topic, hold_seconds: 1 }, worker),
+          await instance.own(
+            { domain, topics: ["work/any", topic], hold_seconds: 1 },
+            worker,
+          ),
         ).task;
         clock.mockReturnValue(base + 5000);
         success(
@@ -1638,6 +1644,37 @@ describe("long-poll Own", () => {
     expect(await parked).toBe("retry");
     await runInDurableObject(stub, (instance: DomainObject) => {
       expect(internals(instance).waiting.size).toBe(0);
+    });
+  });
+
+  it("forwards an unused multi-topic hint only to a waiter on its source topic", async () => {
+    const { domain, stub } = fixture("wait-forward-source");
+    await runInDurableObject(stub, async (instance: DomainObject) => {
+      const a = poll(domain, "work/a");
+      const b = poll(domain, "work/b");
+      await instance.own(a, worker); // Initialize the alarm before the race.
+      // Before yielding: create a task, register a finishing waiter ahead of
+      // both peers, and let a competing claim take the task. The post-commit
+      // hint on B reaches the finishing waiter before it rechecks availability.
+      const posted = instance.create(
+        { domain, topic: b.topic, data: {} },
+        creator,
+      );
+      const finishing = instance.park(
+        { domain, topics: [a.topic, b.topic], hold_seconds: 1 },
+        worker,
+        0,
+      );
+      const onlyA = instance.park(a, worker, 100);
+      const onlyB = instance.park(b, worker, 100);
+      const claimed = instance.own(b, worker);
+      success(await posted);
+      success(await claimed);
+      expect(await Promise.all([finishing, onlyA, onlyB])).toEqual([
+        "timeout",
+        "timeout",
+        "retry",
+      ]);
     });
   });
 

@@ -214,6 +214,19 @@ def test_settings_and_cli_overrides(cli: CLI) -> None:
     }
 
 
+def test_conflicting_worker_selectors_require_an_override(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with cli.config.open("a") as config:
+        config.write('[worker]\ntopic="work/a"\ntopics=["work/b"]\n')
+    assert cli.run(["--once"]) == 1
+    assert "only one of topic and topics" in capsys.readouterr().err
+    assert not cli.requests
+    cli.respond = lambda request: _empty()
+    assert cli.run(["--topic", TOPIC, "--once"]) == 0
+    assert _body(cli.requests[0])["topic"] == TOPIC
+
+
 def test_config_handler_and_topic_used(cli: CLI) -> None:
     with cli.config.open("a") as config:
         config.write('[worker]\ntopic="work/config"\nhandler="echo"\nlease=700\n')
