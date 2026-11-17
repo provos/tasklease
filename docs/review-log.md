@@ -1452,5 +1452,5 @@ persistent Durable Object storage.
 | Native acceptance ZIP | `59ba4de5c552c84936e964ab2c7e2eb215ead1c2dc683952864c4b9155642cc7` |
 | Private evidence ZIP | `f72bb6310be7382b71b58e129691316e456a90693160945c5b3e70edf0c45cd4` |
 
-Live Cloudflare/R2 upgrade acceptance was deferred. Release tagging,
-publishing rehearsal and publication are pending.
+The maintainer waived live Cloudflare/R2 acceptance for 0.6.0 after the
+local tests of both packaged service versions.
