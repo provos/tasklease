@@ -1452,8 +1452,8 @@ persistent Durable Object storage.
 | Native acceptance ZIP | `59ba4de5c552c84936e964ab2c7e2eb215ead1c2dc683952864c4b9155642cc7` |
 | Private evidence ZIP | `f72bb6310be7382b71b58e129691316e456a90693160945c5b3e70edf0c45cd4` |
 
-The maintainer waived live Cloudflare/R2 acceptance for 0.6.0 after the
-local tests of both packaged service versions.
+The maintainer waived live Cloudflare/R2 acceptance as a prepublication
+requirement after the local tests of both packaged service versions.
 
 ## 0.6.0 publication (2026-11-17)
 
@@ -1470,9 +1470,26 @@ local tests of both packaged service versions.
   `SHA256SUMS` from the [GitHub release](https://github.com/provos/tasklease/releases/tag/v0.6.0).
 - Fresh installations of the PyPI wheel on macOS, Linux and Windows passed
   the version, CLI help, Worker bundle and dashboard checks. Live
-  Cloudflare/R2 acceptance was waived for this release.
+  Cloudflare/R2 acceptance was waived before publication.
 
 | Published distribution | SHA-256 |
 | --- | --- |
 | `tasklease-0.6.0-py3-none-any.whl` | `76533b90a0b4e396c689239494b892c399d8bf4eb27b50acd9746908fc1ad37a` |
 | `tasklease-0.6.0.tar.gz` | `4d6e5bdcb9f8a24e82ed276305d418b9bbbfa9f25e0ae3c11a4998009418c65d` |
+
+## 0.6.0 acceptance service upgrade (2026-11-17)
+
+- Upgraded the persistent Cloudflare acceptance service from 0.5.0 to 0.6.0
+  using the published PyPI bundle. The deployer's task and R2 checks passed.
+  A separate `GET /v1/version` confirmed `service_version` was `0.6.0` and
+  `protocol` was `v1`.
+- A published 0.5.0 worker claimed and completed a single-topic task on the
+  upgraded service. Its echo reply preserved the original `origin_id` and
+  message, and the work queue was empty after completion.
+- A published 0.6.0 worker requested `verify/any` followed by `verify/linux`.
+  The `verify/linux` task had the earlier server creation timestamp. The
+  worker completed it first while the newer `verify/any` task remained
+  available, then completed the newer task on the next poll. Both echo replies
+  matched their source tasks.
+- The live worker checks ran in a dedicated test domain. The test queues were
+  verified empty and the temporary identity was revoked.
