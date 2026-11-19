@@ -6,6 +6,26 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-19
+
+### Added
+
+- `tl monitor` opens an **All topics** view with a shared scale for average
+  initial queue wait and time from first claim to completion. Both durations
+  describe the same completed tasks. The view shows the live backlog, oldest
+  waiting task and how many completions were measured. Select a topic to open
+  its hourly charts.
+
+### Compatibility and deployment
+
+- Deploy the bundled 0.7.0 Worker with `tl service deploy` to collect the
+  paired timings. The storage migration preserves queued tasks, leases,
+  credentials and hourly statistics. Earlier hours keep their existing
+  statistics. Paired timings accumulate as tasks complete after the upgrade.
+- Existing 0.6.0 requesters and workers can keep running through the upgrade.
+  The new monitor can use a 0.6.0 service for live backlog and hourly charts
+  while the paired chart awaits measurements from the updated Worker.
+
 ## [0.6.0] - 2026-11-17
 
 ### Added
