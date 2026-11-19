@@ -1493,3 +1493,45 @@ requirement after the local tests of both packaged service versions.
   matched their source tasks.
 - The live worker checks ran in a dedicated test domain. The test queues were
   verified empty and the temporary identity was revoked.
+
+## 0.7.0 candidate acceptance (2026-11-19)
+
+Candidate `753efdc73e18da089bb14ea2ff1e05a54937211e` was built from a clean
+checkout after [PR #25](https://github.com/provos/tasklease/pull/25) was
+squash-merged. The version bump changed no locked dependency versions.
+
+- `make install`, `make check` and `make build` passed. The dependency
+  policy checked 301 registry versions and npm audit reported zero
+  vulnerabilities. The service and dashboard passed 247 and 51 tests.
+  Python and tooling passed 1,283 with 3 platform skips. Conformance passed
+  520 with 37 expected backend and platform skips.
+- `make model-check` passed all five configurations and rejected all six
+  deliberately broken models.
+- The exact candidate wheel and acceptance ZIP passed installed-wheel and
+  no-Node checks on macOS, Linux and Windows. macOS and Linux each passed
+  1,166 tests with 3 Windows-only skips. Windows passed 1,151 tests with 18
+  platform skips, including passing Task Scheduler XML and native file-sharing
+  checks.
+- A loopback upgrade used the published 0.6.0 wheel, whose SHA-256 matched
+  the GitHub release, and the 0.7.0 wheel against the same persistent local
+  Durable Object data. The installed 0.7.0 client read the old snapshot.
+  Queued work, its scoped credential, a held task and historical statistics
+  survived the upgrade. A known first claim on pre-upgrade work contributed
+  paired timings. The earlier claim on reclaimed legacy work remained unknown.
+  The published 0.6.0 worker consumed the queued task and returned the expected
+  echo with the original task origin.
+- Inspected both distributions for name and version metadata, the Apache-2.0
+  license, bundled Worker version, dashboard assets and third-party notices.
+  The local distributions, release notes and checksums are staged for release.
+  Private native reports and logs are retained separately from that archive.
+
+| Candidate artifact | SHA-256 |
+| --- | --- |
+| Wheel | `6b6e48b3efdd5554c201a9e38f46451b160dc576d8c2a2a9458ab131d9a33ee2` |
+| Source distribution | `a37c8262ca5b23b2376897f4cbe46fd5772ed7cd76310a80af53604af132d90d` |
+| Native acceptance ZIP | `de879a750a4ab0d65e402802fba0074ad4dff0e4a7e8068ed326cd8aae8cf286` |
+| GitHub release staging ZIP | `76695f8a9176c3bbd8ef657725668946cf63c47081c3a11183f66cccb5234dda` |
+
+The dedicated acceptance Worker reported 0.6.0 before the hosted check.
+Wrangler required sign-in during the read-only preflight. The hosted upgrade
+and live R2 checks are pending authentication.
