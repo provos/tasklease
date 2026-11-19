@@ -688,9 +688,10 @@ anything broken?" before anything else:
   moved to its error topic, or queued with no live worker.
 
 Below them: the inbox (including unmatched replies) and throughput and
-latency per topic and hour (created / consumed, average and maximum wait
-and run times, re-owns and empty polls), as small inline SVG charts with no
-chart library.
+latency. The all-topics view compares average completion time on a shared
+scale, with time before and after first claim, measurement coverage, and the
+live backlog. Selecting a topic shows its hourly created and consumed counts,
+average and maximum wait and run times, and re-owns.
 
 Health is derived in `monitor/src/health.ts` from the snapshot alone,
 measured against each domain's `generated_at`:

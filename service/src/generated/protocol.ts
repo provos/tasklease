@@ -214,6 +214,15 @@ export interface HourlyStats {
   run_ms_sum: number;
   run_ms_max: number;
   run_count: number;
+  completion_latency?: CompletionLatency;
+}
+/**
+ * Paired latency measurements for tasks consumed in this hour with a known first claim time.
+ */
+export interface CompletionLatency {
+  wait_ms_sum: number;
+  after_claim_ms_sum: number;
+  count: number;
 }
 export interface BlobGetUrlRequest {
   domain: DomainName;

@@ -5,6 +5,7 @@ import {
   decodeSnapshot,
   hourBuckets,
   statsTopics,
+  topicLatencies,
   topics,
   type Snapshot,
 } from "./model";
@@ -136,6 +137,133 @@ describe("snapshot dashboard model", () => {
     expect(result.map((group) => group.domain)).toEqual([
       "acme/pipeline",
       "other",
+    ]);
+  });
+
+  it("weights paired completion samples and keeps unmeasured topics with live backlog", () => {
+    const value = snapshot();
+    const domain = value.domains[0];
+    const live = domain.topics[0];
+    live.available = 125;
+    live.truncated = true;
+    live.oldest_available_at = domain.generated_at - 50_000;
+    const base = domain.stats[0];
+    domain.stats = [
+      { ...base, consumed: 6 },
+      {
+        ...base,
+        topic: "history/slow",
+        consumed: 1,
+        completion_latency: {
+          wait_ms_sum: 400,
+          after_claim_ms_sum: 200,
+          count: 1,
+        },
+      },
+      {
+        ...base,
+        topic: "history/slow",
+        consumed: 4,
+        completion_latency: {
+          wait_ms_sum: 600,
+          after_claim_ms_sum: 400,
+          count: 4,
+        },
+      },
+      {
+        ...base,
+        topic: "history/instant",
+        consumed: 1,
+        completion_latency: { wait_ms_sum: 0, after_claim_ms_sum: 0, count: 1 },
+      },
+    ];
+    expect(topicLatencies(statsTopics(value))).toMatchObject([
+      {
+        topic: "history/slow",
+        waiting: 0,
+        oldestWaitingMs: null,
+        consumed: 5,
+        completion: { count: 5, waitMs: 200, afterClaimMs: 120 },
+      },
+      {
+        topic: "history/instant",
+        consumed: 1,
+        completion: { count: 1, waitMs: 0, afterClaimMs: 0 },
+      },
+      {
+        topic: "work/linux",
+        waiting: 125,
+        oldestWaitingMs: 50_000,
+        consumed: 6,
+        completion: null,
+      },
+    ]);
+  });
+
+  it("ranks by queue wait, breaking measured ties by time after claim and unmeasured ties by backlog", () => {
+    const value = snapshot();
+    const domain = value.domains[0];
+    const live = domain.topics[0];
+    const base = domain.stats[0];
+    domain.topics = [
+      { ...live, topic: "reply/idle", available: 0, oldest_available_at: null },
+      {
+        ...live,
+        topic: "work/shallow",
+        available: 1,
+        oldest_available_at: domain.generated_at - 500,
+      },
+      {
+        ...live,
+        topic: "work/deep",
+        available: 30,
+        oldest_available_at: domain.generated_at - 500,
+      },
+      {
+        ...live,
+        topic: "work/oldest",
+        available: 1,
+        oldest_available_at: domain.generated_at - 1000,
+      },
+    ];
+    domain.stats = [
+      {
+        ...base,
+        topic: "work/instant",
+        consumed: 1,
+        completion_latency: { wait_ms_sum: 0, after_claim_ms_sum: 0, count: 1 },
+      },
+      {
+        ...base,
+        topic: "work/slow-after-claim",
+        consumed: 1,
+        completion_latency: {
+          wait_ms_sum: 0,
+          after_claim_ms_sum: 4000,
+          count: 1,
+        },
+      },
+      {
+        ...base,
+        topic: "work/longest-wait",
+        consumed: 1,
+        completion_latency: {
+          wait_ms_sum: 500,
+          after_claim_ms_sum: 100,
+          count: 1,
+        },
+      },
+    ];
+    expect(
+      topicLatencies(statsTopics(value)).map((entry) => entry.topic),
+    ).toEqual([
+      "work/longest-wait",
+      "work/slow-after-claim",
+      "work/instant",
+      "work/oldest",
+      "work/deep",
+      "work/shallow",
+      "reply/idle",
     ]);
   });
 

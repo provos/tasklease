@@ -12,6 +12,7 @@ import type {
 } from "../src/generated/protocol";
 import { validateMonitorSnapshotResponse } from "../src/generated/validators.js";
 import type { Caller } from "../src/types";
+import { dropCompletionLatencyColumns } from "./migrations";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -48,6 +49,77 @@ function post(
   });
 }
 
+it("projects paired completion latency into the Consume hour only", async () => {
+  const { domain, stub } = fixture("completion-latency");
+  const topic = "work";
+  const hour = Math.ceil(Date.now() / HOUR) * HOUR + DAY;
+  await runInDurableObject(stub, async (instance) => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(hour - 180_000);
+    try {
+      expect(
+        await instance.create({ domain, topic, data: {} }, operator),
+      ).toMatchObject({ ok: true });
+      clock.mockReturnValue(hour - 120_000);
+      const first = await instance.own(
+        { domain, topic, hold_seconds: 600 },
+        operator,
+      );
+      if (!first.ok) throw new Error("Could not claim the task");
+
+      clock.mockReturnValue(hour + 30_000);
+      const moved = await instance.consume(
+        { domain, topic, id: first.task.id, tasks: [{ topic, data: {} }] },
+        operator,
+      );
+      const successor = moved.ok ? moved.ids[0] : undefined;
+      if (!successor) throw new Error("Could not consume the task");
+      // An operator can consume an unclaimed task. Its successor starts a new interval.
+      const forwarded = await instance.consume(
+        { domain, topic, id: successor, tasks: [{ topic, data: {} }] },
+        operator,
+      );
+      expect(forwarded.ok).toBe(true);
+
+      clock.mockReturnValue(hour + 60_000);
+      const second = await instance.own(
+        { domain, topic, hold_seconds: 600 },
+        operator,
+      );
+      if (!second.ok) throw new Error("Could not claim the successor");
+      clock.mockReturnValue(hour + 120_000);
+      expect(
+        await instance.consume(
+          { domain, topic, id: second.task.id, tasks: [] },
+          operator,
+        ),
+      ).toMatchObject({ ok: true });
+
+      const result = await snapshot(
+        await instance.monitorSnapshot({ domain, hours: 2 }, operator),
+      );
+      expect(result.stats).toHaveLength(2);
+      expect(result.stats[0]).toMatchObject({
+        hour: hour - HOUR,
+        wait_count: 1,
+        consumed: 0,
+      });
+      expect(result.stats[0]).not.toHaveProperty("completion_latency");
+      expect(result.stats[1]).toMatchObject({
+        hour,
+        wait_count: 1,
+        consumed: 3,
+        completion_latency: {
+          wait_ms_sum: 90_000,
+          after_claim_ms_sum: 210_000,
+          count: 2,
+        },
+      });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+});
+
 async function identity(
   domain: string,
   scopes: Scopes,
@@ -73,11 +145,14 @@ describe("monitor snapshots", () => {
           operator,
         );
       }
-      state.storage.sql.exec(
-        "INSERT INTO stats_hourly (topic, hour, created) VALUES (?, ?, 7)",
-        "own/history",
-        Math.floor(Date.now() / HOUR) * HOUR,
-      );
+      for (const topic of ["own/history", "private/history"]) {
+        state.storage.sql.exec(
+          `INSERT INTO stats_hourly (topic, hour, consumed, completion_wait_ms_sum,
+             completion_after_claim_ms_sum, completion_count) VALUES (?, ?, 1, 1000, 2000, 1)`,
+          topic,
+          Math.floor(Date.now() / HOUR) * HOUR,
+        );
+      }
     });
     const token = await identity(domain, {
       create: ["private/**"],
@@ -96,6 +171,11 @@ describe("monitor snapshots", () => {
       "own/queue",
       "read/queue",
     ]);
+    expect(result.stats[0]?.completion_latency).toEqual({
+      wait_ms_sum: 1000,
+      after_claim_ms_sum: 2000,
+      count: 1,
+    });
     expect(JSON.stringify(result)).not.toContain("secret");
     expect(result.topics.every((row) => !Object.hasOwn(row, "truncated"))).toBe(
       true,
@@ -328,6 +408,7 @@ describe("monitor snapshots", () => {
       operator,
     );
     await runInDurableObject(stub, (_instance, state) => {
+      dropCompletionLatencyColumns(state.storage.sql);
       state.storage.sql.exec(
         "DROP TABLE create_keys; DROP TABLE monitor_snapshot_chunks; DROP TABLE monitor_snapshots; DROP INDEX tasks_root_origin; ALTER TABLE tasks DROP COLUMN root; ALTER TABLE tasks DROP COLUMN origin_id; UPDATE schema_version SET version = 2",
       );
@@ -339,7 +420,7 @@ describe("monitor snapshots", () => {
     await runInDurableObject(stub, (_instance, state) => {
       expect(
         state.storage.sql.exec("SELECT version FROM schema_version").one(),
-      ).toEqual({ version: 5 });
+      ).toEqual({ version: 6 });
       state.storage.sql.exec(
         "INSERT INTO monitor_snapshots (id, expires_at) VALUES ('orphan', ?)",
         Date.now() + DAY,

@@ -12,9 +12,10 @@ import {
   type RpcTask,
 } from "../src/domain_do";
 import { failure } from "../src/errors";
-import type { Data, HourlyStats } from "../src/generated/protocol";
+import type { Data } from "../src/generated/protocol";
 import { newTaskId } from "../src/ids";
 import type { Caller, Result } from "../src/types";
+import { dropCompletionLatencyColumns } from "./migrations";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -804,6 +805,9 @@ describe("DomainObject task transactions", () => {
             run_ms_sum: 0,
             run_ms_max: 0,
             run_count: 0,
+            completion_wait_ms_sum: 0,
+            completion_after_claim_ms_sum: 0,
+            completion_count: 0,
           },
           {
             topic,
@@ -819,8 +823,11 @@ describe("DomainObject task transactions", () => {
             run_ms_sum: 3000,
             run_ms_max: 2000,
             run_count: 2,
+            completion_wait_ms_sum: 5000,
+            completion_after_claim_ms_sum: 5000,
+            completion_count: 2,
           },
-        ] satisfies HourlyStats[]);
+        ]);
         clock.mockReturnValue(base + HOUR);
         error(
           await instance.own({ domain, topic, hold_seconds: 1 }, worker),
@@ -835,6 +842,108 @@ describe("DomainObject task transactions", () => {
             )
             .toArray(),
         ).toEqual([{ hour: base }]);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+  });
+
+  it.each([
+    { legacyClaims: 1, reclaim: false, measured: 1 },
+    { legacyClaims: 1, reclaim: true, measured: 1 },
+    { legacyClaims: 2, reclaim: true, measured: 0 },
+  ])(
+    "recovers known first claims across schema upgrades ($legacyClaims legacy claims, reclaim=$reclaim)",
+    async ({ legacyClaims, reclaim, measured }) => {
+      const { domain, stub } = fixture("completion-migration");
+      const base = Math.ceil(Date.now() / HOUR) * HOUR + 10 * DAY;
+      const topic = "work/linux";
+      const claim = { domain, topic, hold_seconds: 1 };
+      const legacyTask = await runInDurableObject(
+        stub,
+        async (instance, state) => {
+          const clock = vi.spyOn(Date, "now").mockReturnValue(base);
+          try {
+            success(
+              await instance.create({ domain, topic, data: {} }, creator),
+            );
+            clock.mockReturnValue(base + 2000);
+            let task = success(await instance.own(claim, worker)).task;
+            if (legacyClaims > 1) {
+              clock.mockReturnValue(base + 4000);
+              task = success(await instance.own(claim, worker)).task;
+            }
+            dropCompletionLatencyColumns(state.storage.sql);
+            state.storage.sql.exec("UPDATE schema_version SET version = 5");
+            return task;
+          } finally {
+            clock.mockRestore();
+          }
+        },
+      );
+      await evictDurableObject(stub);
+      await runInDurableObject(stub, async (instance, state) => {
+        const clock = vi.spyOn(Date, "now").mockReturnValue(base + 6000);
+        try {
+          const task = reclaim
+            ? success(await instance.own(claim, worker)).task
+            : legacyTask;
+          clock.mockReturnValue(base + 8000);
+          success(
+            await instance.consume(
+              { domain, topic, id: task.id, tasks: [] },
+              worker,
+            ),
+          );
+          expect(
+            state.storage.sql
+              .exec(
+                `SELECT consumed, completion_wait_ms_sum,
+              completion_after_claim_ms_sum, completion_count FROM stats_hourly`,
+              )
+              .one(),
+          ).toEqual({
+            consumed: 1,
+            completion_wait_ms_sum: measured * 2000,
+            completion_after_claim_ms_sum: measured * 6000,
+            completion_count: measured,
+          });
+        } finally {
+          clock.mockRestore();
+        }
+      });
+    },
+  );
+
+  it("omits paired latency when the clock moves behind the first claim", async () => {
+    const { domain, stub } = fixture("completion-clock");
+    const base = Math.ceil(Date.now() / HOUR) * HOUR + 10 * DAY;
+    const topic = "work/linux";
+    const claim = { domain, topic, hold_seconds: 1 };
+    await runInDurableObject(stub, async (instance, state) => {
+      const clock = vi.spyOn(Date, "now").mockReturnValue(base);
+      try {
+        success(await instance.create({ domain, topic, data: {} }, creator));
+        clock.mockReturnValue(base + 4000);
+        const first = success(await instance.own(claim, worker)).task;
+        clock.mockReturnValue(base + 1000);
+        success(await instance.renew({ ...claim, id: first.id }, worker));
+        clock.mockReturnValue(base + 2500);
+        const latest = success(await instance.own(claim, worker)).task;
+        clock.mockReturnValue(base + 3000);
+        success(
+          await instance.consume(
+            { domain, topic, id: latest.id, tasks: [] },
+            worker,
+          ),
+        );
+        expect(
+          state.storage.sql
+            .exec(
+              "SELECT consumed, run_count, completion_count FROM stats_hourly",
+            )
+            .one(),
+        ).toEqual({ consumed: 1, run_count: 1, completion_count: 0 });
       } finally {
         clock.mockRestore();
       }
@@ -1023,7 +1132,7 @@ describe("DomainObject task transactions", () => {
     await runInDurableObject(stub, (_instance, state) => {
       expect(
         state.storage.sql.exec("SELECT version FROM schema_version").one(),
-      ).toEqual({ version: 5 });
+      ).toEqual({ version: 6 });
       expect(
         state.storage.sql.exec("SELECT value FROM phase_one_marker").one(),
       ).toEqual({ value: "retained" });
@@ -1177,6 +1286,7 @@ describe("origin identity and first-stage cancellation", () => {
       await stub.own({ domain, topic, hold_seconds: 60 }, worker),
     ).task;
     await runInDurableObject(stub, (_instance, state) => {
+      dropCompletionLatencyColumns(state.storage.sql);
       state.storage.sql.exec(
         "DROP TABLE create_keys; DROP INDEX tasks_root_origin; ALTER TABLE tasks DROP COLUMN root; ALTER TABLE tasks DROP COLUMN origin_id; UPDATE schema_version SET version = 3",
       );
@@ -1198,7 +1308,7 @@ describe("origin identity and first-stage cancellation", () => {
     await runInDurableObject(stub, (_instance, state) => {
       expect(
         state.storage.sql.exec("SELECT version FROM schema_version").one(),
-      ).toEqual({ version: 5 });
+      ).toEqual({ version: 6 });
     });
   });
 });
@@ -1416,6 +1526,7 @@ describe("Create idempotency", () => {
       ),
     ).task;
     await runInDurableObject(stub, (_instance, state) => {
+      dropCompletionLatencyColumns(state.storage.sql);
       state.storage.sql.exec(
         "DROP TABLE create_keys; UPDATE schema_version SET version = 4",
       );
@@ -1436,7 +1547,7 @@ describe("Create idempotency", () => {
     await runInDurableObject(stub, (_instance, state) => {
       expect(
         state.storage.sql.exec("SELECT version FROM schema_version").one(),
-      ).toEqual({ version: 5 });
+      ).toEqual({ version: 6 });
     });
   });
 });

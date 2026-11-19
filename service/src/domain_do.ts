@@ -60,10 +60,11 @@ type TaskRow = {
   owner_identity: string | null;
   owner_worker: string | null;
   owned_at: number | null;
+  first_owned_at: number | null;
   data: string;
 };
 
-type TaskMetadataRow = Omit<TaskRow, "data" | "root">;
+type TaskMetadataRow = Omit<TaskRow, "data" | "root" | "first_owned_at">;
 type CreateKeyRow = {
   origin_id: string;
   created_at: number;
@@ -302,8 +303,12 @@ class SnapshotWriter {
   }
 }
 
-type StatsIncrement = Partial<Omit<HourlyStats, "topic" | "hour">>;
-type StatsRow = { [K in keyof HourlyStats]: HourlyStats[K] };
+type StatsRow = Omit<HourlyStats, "completion_latency"> & {
+  completion_wait_ms_sum: number;
+  completion_after_claim_ms_sum: number;
+  completion_count: number;
+};
+type StatsIncrement = Partial<Omit<StatsRow, "topic" | "hour">>;
 
 // Each entry upgrades the previous version. Version 1 is the foundation's
 // schema_version table, and intentionally has no application tables.
@@ -355,6 +360,10 @@ const migrations = [
     PRIMARY KEY (creator, key)
   );
   CREATE INDEX create_keys_expiry ON create_keys (created_at);`,
+  `ALTER TABLE tasks ADD COLUMN first_owned_at INTEGER;
+  ALTER TABLE stats_hourly ADD COLUMN completion_wait_ms_sum INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE stats_hourly ADD COLUMN completion_after_claim_ms_sum INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE stats_hourly ADD COLUMN completion_count INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export class DomainObject extends DurableObject<Env> {
@@ -481,6 +490,7 @@ export class DomainObject extends DurableObject<Env> {
         owner_identity: caller.identity,
         owner_worker: caller.worker,
         owned_at: now,
+        first_owned_at: firstOwnedAt(row),
       };
       this.ctx.storage.sql.exec("DELETE FROM tasks WHERE id = ?", row.id);
       this.insertRow(next);
@@ -845,11 +855,21 @@ export class DomainObject extends DurableObject<Env> {
         ),
       ) as ConsumeResponse["ids"];
       const run = row.owned_at === null ? null : now - row.owned_at;
+      const firstClaim = firstOwnedAt(row);
       this.recordStats(row.topic, now, {
         consumed: 1,
         ...(run === null
           ? {}
           : { run_ms_sum: run, run_ms_max: run, run_count: 1 }),
+        ...(firstClaim !== null &&
+        row.created_at <= firstClaim &&
+        firstClaim <= now
+          ? {
+              completion_wait_ms_sum: firstClaim - row.created_at,
+              completion_after_claim_ms_sum: now - firstClaim,
+              completion_count: 1,
+            }
+          : {}),
       });
       return { ok: true, ids };
     });
@@ -1056,14 +1076,28 @@ export class DomainObject extends DurableObject<Env> {
     comma = false;
     const hour = Math.floor(now / HOUR) * HOUR;
     const since = hour - ((request.hours ?? 24) - 1) * HOUR;
-    for (const row of sql.exec<StatsRow>(
+    for (const stored of sql.exec<StatsRow>(
       `SELECT * FROM stats_hourly WHERE hour >= ? AND hour <= ? ORDER BY topic, hour`,
       since,
       hour,
     )) {
-      if (!visible(row.topic)) continue;
+      if (!visible(stored.topic)) continue;
       if (comma) writer.write(",");
       comma = true;
+      const {
+        completion_wait_ms_sum,
+        completion_after_claim_ms_sum,
+        completion_count,
+        ...stats
+      } = stored;
+      const row: HourlyStats = stats;
+      if (completion_count > 0) {
+        row.completion_latency = {
+          wait_ms_sum: completion_wait_ms_sum,
+          after_claim_ms_sum: completion_after_claim_ms_sum,
+          count: completion_count,
+        };
+      }
       writer.write(JSON.stringify(row));
     }
     writer.write("]}");
@@ -1256,6 +1290,7 @@ export class DomainObject extends DurableObject<Env> {
       owner_identity: null,
       owner_worker: null,
       owned_at: null,
+      first_owned_at: null,
     });
     this.recordStats(topic, now, { created: 1 });
     return id;
@@ -1264,7 +1299,8 @@ export class DomainObject extends DurableObject<Env> {
   private insertRow(row: TaskRow): void {
     this.ctx.storage.sql.exec(
       `INSERT INTO tasks (id, origin_id, root, topic, created_at, lease_until, owned_count, creator,
-       owner_identity, owner_worker, owned_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       owner_identity, owner_worker, owned_at, first_owned_at, data)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       row.id,
       row.origin_id,
       row.root,
@@ -1276,6 +1312,7 @@ export class DomainObject extends DurableObject<Env> {
       row.owner_identity,
       row.owner_worker,
       row.owned_at,
+      row.first_owned_at,
       row.data,
     );
   }
@@ -1288,8 +1325,9 @@ export class DomainObject extends DurableObject<Env> {
     this.ctx.storage.sql.exec(
       `INSERT INTO stats_hourly (
         topic, hour, created, owned, reowned, consumed, deleted,
-        wait_ms_sum, wait_ms_max, wait_count, run_ms_sum, run_ms_max, run_count
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        wait_ms_sum, wait_ms_max, wait_count, run_ms_sum, run_ms_max, run_count,
+        completion_wait_ms_sum, completion_after_claim_ms_sum, completion_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(topic, hour) DO UPDATE SET
         created = created + excluded.created, owned = owned + excluded.owned,
         reowned = reowned + excluded.reowned,
@@ -1297,7 +1335,10 @@ export class DomainObject extends DurableObject<Env> {
         wait_ms_sum = wait_ms_sum + excluded.wait_ms_sum,
         wait_ms_max = MAX(wait_ms_max, excluded.wait_ms_max), wait_count = wait_count + excluded.wait_count,
         run_ms_sum = run_ms_sum + excluded.run_ms_sum,
-        run_ms_max = MAX(run_ms_max, excluded.run_ms_max), run_count = run_count + excluded.run_count`,
+        run_ms_max = MAX(run_ms_max, excluded.run_ms_max), run_count = run_count + excluded.run_count,
+        completion_wait_ms_sum = completion_wait_ms_sum + excluded.completion_wait_ms_sum,
+        completion_after_claim_ms_sum = completion_after_claim_ms_sum + excluded.completion_after_claim_ms_sum,
+        completion_count = completion_count + excluded.completion_count`,
       topic,
       Math.floor(now / HOUR) * HOUR,
       increment.created ?? 0,
@@ -1311,8 +1352,16 @@ export class DomainObject extends DurableObject<Env> {
       increment.run_ms_sum ?? 0,
       increment.run_ms_max ?? 0,
       increment.run_count ?? 0,
+      increment.completion_wait_ms_sum ?? 0,
+      increment.completion_after_claim_ms_sum ?? 0,
+      increment.completion_count ?? 0,
     );
   }
+}
+
+function firstOwnedAt(row: TaskRow): number | null {
+  // Keep a separate timestamp only after the first and latest claims diverge.
+  return row.first_owned_at ?? (row.owned_count === 1 ? row.owned_at : null);
 }
 
 function taskFields(row: TaskMetadataRow): Omit<TaskSummary, "state"> {

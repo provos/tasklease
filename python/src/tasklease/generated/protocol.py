@@ -119,6 +119,12 @@ class SnapshotTopic(TypedDict):
     truncated: NotRequired[Literal[True]]
 
 
+class CompletionLatency(TypedDict):
+    wait_ms_sum: int
+    after_claim_ms_sum: int
+    count: int
+
+
 class HourlyStats(TypedDict):
     topic: TopicName
     hour: Timestamp
@@ -133,6 +139,7 @@ class HourlyStats(TypedDict):
     run_ms_sum: int
     run_ms_max: int
     run_count: int
+    completion_latency: NotRequired[CompletionLatency]
 
 
 class BlobGetUrlRequest(TypedDict):

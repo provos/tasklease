@@ -1,0 +1,30 @@
+{
+  "kind": "response",
+  "body": {
+    "ok": true,
+    "domain": "acme/pipeline",
+    "generated_at": 1700000000000,
+    "topics": [],
+    "stats": [
+      {
+        "topic": "work/linux",
+        "hour": 1699999200000,
+        "created": 1,
+        "owned": 1,
+        "reowned": 0,
+        "consumed": 1,
+        "deleted": 0,
+        "wait_ms_sum": 1000,
+        "wait_ms_max": 1000,
+        "wait_count": 1,
+        "run_ms_sum": 2000,
+        "run_ms_max": 2000,
+        "run_count": 1,
+        "completion_latency": {
+          "wait_ms_sum": 1000,
+          "after_claim_ms_sum": 2000
+        }
+      }
+    ]
+  }
+}
