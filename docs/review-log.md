@@ -1532,6 +1532,13 @@ squash-merged. The version bump changed no locked dependency versions.
 | Native acceptance ZIP | `de879a750a4ab0d65e402802fba0074ad4dff0e4a7e8068ed326cd8aae8cf286` |
 | GitHub release staging ZIP | `76695f8a9176c3bbd8ef657725668946cf63c47081c3a11183f66cccb5234dda` |
 
-The dedicated acceptance Worker reported 0.6.0 before the hosted check.
-Wrangler required sign-in during the read-only preflight. The hosted upgrade
-and live R2 checks are pending authentication.
+The exact candidate wheel upgraded the dedicated Cloudflare acceptance Worker
+from 0.6.0 to 0.7.0. The preflight verified its separate Worker and bucket and
+confirmed the existing seven-day retention rule. The task and R2 deploy probe
+passed. In a dedicated test domain, scoped credentials, queued work, the held
+lease and historical hourly statistics survived the upgrade. Completing the
+held task recorded a paired latency sample. The published 0.6.0 worker
+returned the queued echo with the original task origin. Live R2 rejected a
+mismatched signed `Content-Length` and accepted and returned the exact bytes
+for the signed length. The test queues were empty and the scoped identity was
+revoked. Synthetic probe blobs are covered by the existing retention rule.
