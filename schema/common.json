@@ -546,6 +546,18 @@
         "run_count": {
           "type": "integer",
           "minimum": 0
+        },
+        "completion_latency": {
+          "title": "CompletionLatency",
+          "description": "Paired latency measurements for tasks consumed in this hour with a known first claim time.",
+          "type": "object",
+          "properties": {
+            "wait_ms_sum": { "type": "integer", "minimum": 0 },
+            "after_claim_ms_sum": { "type": "integer", "minimum": 0 },
+            "count": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["wait_ms_sum", "after_claim_ms_sum", "count"],
+          "additionalProperties": false
         }
       },
       "required": [

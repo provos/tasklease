@@ -48,6 +48,18 @@ export interface StatsTopic {
   generated_at: number;
   topic: string;
   rows: HourlyStats[];
+  available: number;
+  oldest_available_at: number | null;
+}
+
+export interface TopicLatency {
+  key: string;
+  domain: string;
+  topic: string;
+  waiting: number;
+  oldestWaitingMs: number | null;
+  consumed: number;
+  completion: { count: number; waitMs: number; afterClaimMs: number } | null;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -112,22 +124,70 @@ export function topics(snapshot: Snapshot | null): TopicView[] {
 export function statsTopics(snapshot: Snapshot | null): StatsTopic[] {
   return (
     snapshot?.domains.flatMap((domain) => {
-      const groups = new Map<string, HourlyStats[]>();
-      for (const topic of domain.topics) groups.set(topic.topic, []);
-      for (const row of domain.stats) {
-        const rows = groups.get(row.topic);
-        if (rows) rows.push(row);
-        else groups.set(row.topic, [row]);
+      const groups = new Map<string, StatsTopic>();
+      function group(topic: string): StatsTopic {
+        const existing = groups.get(topic);
+        if (existing) return existing;
+        const entry: StatsTopic = {
+          key: JSON.stringify([domain.domain, topic]),
+          domain: domain.domain,
+          generated_at: domain.generated_at,
+          topic,
+          rows: [],
+          available: 0,
+          oldest_available_at: null,
+        };
+        groups.set(topic, entry);
+        return entry;
       }
-      return [...groups].map(([topic, rows]) => ({
-        key: JSON.stringify([domain.domain, topic]),
-        domain: domain.domain,
-        generated_at: domain.generated_at,
-        topic,
-        rows,
-      }));
+      for (const topic of domain.topics) {
+        const entry = group(topic.topic);
+        entry.available = topic.available;
+        entry.oldest_available_at = topic.oldest_available_at;
+      }
+      for (const row of domain.stats) group(row.topic).rows.push(row);
+      return [...groups.values()];
     }) ?? []
   );
+}
+
+export function topicLatencies(topics: StatsTopic[]): TopicLatency[] {
+  return topics
+    .map((topic): TopicLatency => {
+      let waitSum = 0;
+      let afterClaimSum = 0;
+      let count = 0;
+      let consumed = 0;
+      for (const row of topic.rows) {
+        consumed += row.consumed;
+        const sample = row.completion_latency;
+        if (!sample) continue;
+        waitSum += sample.wait_ms_sum;
+        afterClaimSum += sample.after_claim_ms_sum;
+        count += sample.count;
+      }
+      return {
+        key: topic.key,
+        domain: topic.domain,
+        topic: topic.topic,
+        waiting: topic.available,
+        oldestWaitingMs:
+          topic.oldest_available_at === null
+            ? null
+            : topic.generated_at - topic.oldest_available_at,
+        consumed,
+        completion: count
+          ? {
+              count,
+              waitMs: waitSum / count,
+              afterClaimMs: afterClaimSum / count,
+            }
+          : null,
+      };
+    })
+    .sort(
+      (a, b) => (b.completion?.waitMs ?? -1) - (a.completion?.waitMs ?? -1),
+    );
 }
 
 export const HOUR = 3_600_000;

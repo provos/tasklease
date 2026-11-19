@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import HourlyChart from "./HourlyChart.svelte";
+  import TopicLatencyChart from "./TopicLatencyChart.svelte";
   import { age, count, dateTime, duration, hourLabel, json } from "./format.ts";
   import {
     health,
@@ -28,6 +29,7 @@
   let lastUpdated = $state<number | null>(null);
   let now = $state(Date.now());
   let selectedStats = $state("");
+  let topicPicker = $state<HTMLSelectElement>();
   let replyPage = $state(1);
   let showUnmatched = $state(false);
   let hourlyOpen = $state(false);
@@ -77,14 +79,10 @@
   );
   const choices = $derived(statsTopics(snapshot));
   const stats = $derived(
-    choices.find((choice) => choice.key === selectedStats) ?? choices[0],
+    choices.find((choice) => choice.key === selectedStats),
   );
   const hourly = $derived(
-    hourBuckets(
-      stats?.rows ?? [],
-      stats?.generated_at ?? snapshot?.generated_at ?? now,
-      loadedHours,
-    ),
+    stats ? hourBuckets(stats.rows, stats.generated_at, loadedHours) : [],
   );
   const reverseHourly = $derived([...hourly].reverse());
   const totals = $derived(
@@ -706,10 +704,12 @@
           </h2>
           {#if choices.length}<label class="topic-picker"
               >Topic<select
+                bind:this={topicPicker}
                 value={stats?.key ?? ""}
                 onchange={(event) => {
                   selectedStats = event.currentTarget.value;
                 }}
+                ><option value="">All topics</option
                 >{#each choices as choice}<option value={choice.key}
                     >{singleDomain
                       ? ""
@@ -744,7 +744,7 @@
                     >{duration(
                       totals.runCount ? totals.runSum / totals.runCount : null,
                     )}</strong
-                  > average run</span
+                  > average after latest claim</span
                 >
               </div>
               <HourlyChart rows={hourly} kind="latency" />
@@ -758,7 +758,7 @@
             ><span
               ><strong
                 >{duration(totals.runCount ? totals.runMax : null)}</strong
-              > max run</span
+              > max after latest claim</span
             ><small>Local times · current hour is partial</small>
           </div>
           <details class="hourly-data" bind:open={hourlyOpen}>
@@ -772,7 +772,9 @@
                     ><tr
                       ><th>Hour</th><th>Created</th><th>Consumed</th><th
                         >Re-owns</th
-                      ><th>Avg / max wait</th><th>Avg / max run</th></tr
+                      ><th>Avg / max wait</th><th
+                        >Avg / max after latest claim</th
+                      ></tr
                     ></thead
                   ><tbody
                     >{#each reverseHourly as row}<tr
@@ -802,6 +804,15 @@
                 </table>
               </div>{/if}
           </details>
+        {:else if choices.length}
+          <TopicLatencyChart
+            topics={choices}
+            showDomain={!singleDomain}
+            onSelect={(key) => {
+              selectedStats = key;
+              topicPicker?.focus();
+            }}
+          />
         {:else}<div class="empty">
             <h3>No activity to chart</h3>
             <p>

@@ -25,7 +25,7 @@ describe("HourlyChart server rendering", () => {
       expect(body).toContain(
         kind === "throughput"
           ? 'aria-label="Hourly created and consumed tasks"'
-          : 'aria-label="Hourly average wait and run times"',
+          : 'aria-label="Hourly average wait and time after latest claim"',
       );
       expect(body).toContain("The current hour is partial.");
       expect(body).toContain(
@@ -101,7 +101,7 @@ describe("HourlyChart server rendering", () => {
 
     expect(body).toContain("<title>Task latency</title>");
     expect(body).toContain("Average wait");
-    expect(body).toContain("Average run");
+    expect(body).toContain("Average after latest claim");
     expect(wait[0][0]).toBe(44);
     expect(wait[0][1]).toBeCloseTo(113.6);
     expect(wait[1]).toEqual([624, 138]);

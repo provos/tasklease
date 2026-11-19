@@ -503,9 +503,15 @@ they are exact, and kept for 30 days.
 | `reowned` | Owns of a task that had been owned before (`owned_count` ≥ 1): a lease ran out |
 | `consumed`, `deleted` | lineages ended in the topic, by Consume or by Delete/Cancel |
 | `wait_ms_sum`, `wait_ms_max`, `wait_count` | for each first Own: `now − created_at`, how long a task waited for a worker |
-| `run_ms_sum`, `run_ms_max`, `run_count` | for each Consume of an owned task: `now − owned_at`, how long the work took |
+| `run_ms_sum`, `run_ms_max`, `run_count` | for each Consume of an owned task: `now − owned_at`, elapsed time since the latest claim |
+| `completion_latency` (optional) | for each Consume of a task with a known first claim: `wait_ms_sum` adds posting to first claim, `after_claim_ms_sum` adds first claim to Consume, and `count` counts the same tasks for both |
 
 Averages are `sum / count`. The service keeps no percentiles.
+Both `completion_latency` measurements belong to the Consume hour. Their
+averages add to mean time from posting to Consume for the measured tasks.
+Time after first claim includes any reclaims and intervening waits. The
+field is absent when an hour has no paired observations, including historical
+hours recorded before the field was introduced.
 
 ### 4.16 Cancel
 
@@ -833,7 +839,7 @@ CREATE TABLE tasks (
   root INTEGER NOT NULL DEFAULT 0, topic TEXT NOT NULL,
   created_at INTEGER NOT NULL, lease_until INTEGER NOT NULL,
   owned_count INTEGER NOT NULL, creator TEXT NOT NULL,
-  owner_identity TEXT, owner_worker TEXT, owned_at INTEGER,
+  owner_identity TEXT, owner_worker TEXT, owned_at INTEGER, first_owned_at INTEGER,
   data TEXT NOT NULL
 );
 CREATE INDEX tasks_pick ON tasks (topic, created_at, id, lease_until);
@@ -858,12 +864,16 @@ CREATE TABLE stats_hourly (
   consumed INTEGER, deleted INTEGER,
   wait_ms_sum INTEGER, wait_ms_max INTEGER, wait_count INTEGER,
   run_ms_sum INTEGER, run_ms_max INTEGER, run_count INTEGER,
+  completion_wait_ms_sum INTEGER NOT NULL DEFAULT 0,
+  completion_after_claim_ms_sum INTEGER NOT NULL DEFAULT 0,
+  completion_count INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (topic, hour)
 );
 ```
 
 `topics.list` queries tasks, pollers and declared topics in one database;
 `monitor.snapshot` also reads hourly statistics. Key rows are internal to Create.
+`first_owned_at` preserves the original claim when a reclaim replaces `owned_at`.
 
 Own scans `tasks_pick` for the first available row per selected topic, then
 compares at most 16 candidates by creation time and ID. The index

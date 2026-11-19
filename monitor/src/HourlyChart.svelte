@@ -35,7 +35,7 @@
             ),
           },
           {
-            name: "Average run",
+            name: "Average after latest claim",
             color: "var(--series-2)",
             values: rows.map((r) =>
               r.run_count ? r.run_ms_sum / r.run_count : 0,
@@ -71,7 +71,7 @@
     role="img"
     aria-label={kind === "throughput"
       ? "Hourly created and consumed tasks"
-      : "Hourly average wait and run times"}
+      : "Hourly average wait and time after latest claim"}
   >
     <title>{kind === "throughput" ? "Task throughput" : "Task latency"}</title>
     <desc

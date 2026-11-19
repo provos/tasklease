@@ -170,6 +170,13 @@ class Builder {
         run_ms_sum: Math.round(consumed * run),
         run_ms_max: consumed ? Math.round(run * 1.6) : 0,
         run_count: consumed,
+        ...(consumed > 0 && {
+          completion_latency: {
+            wait_ms_sum: Math.round(consumed * wait),
+            after_claim_ms_sum: Math.round(consumed * run),
+            count: consumed,
+          },
+        }),
       };
     });
   }

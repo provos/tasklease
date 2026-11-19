@@ -9374,6 +9374,19 @@ var schema137 = {
     run_ms_sum: { type: "integer", minimum: 0 },
     run_ms_max: { type: "integer", minimum: 0 },
     run_count: { type: "integer", minimum: 0 },
+    completion_latency: {
+      title: "CompletionLatency",
+      description:
+        "Paired latency measurements for tasks consumed in this hour with a known first claim time.",
+      type: "object",
+      properties: {
+        wait_ms_sum: { type: "integer", minimum: 0 },
+        after_claim_ms_sum: { type: "integer", minimum: 0 },
+        count: { type: "integer", minimum: 1 },
+      },
+      required: ["wait_ms_sum", "after_claim_ms_sum", "count"],
+      additionalProperties: false,
+    },
   },
   required: [
     "topic",
@@ -10256,8 +10269,222 @@ function validate82(
         }
       }
     }
+    if (data.completion_latency !== void 0) {
+      let data13 = data.completion_latency;
+      if (data13 && typeof data13 == "object" && !Array.isArray(data13)) {
+        if (data13.wait_ms_sum === void 0) {
+          const err46 = {
+            instancePath: instancePath + "/completion_latency",
+            schemaPath: "#/properties/completion_latency/required",
+            keyword: "required",
+            params: { missingProperty: "wait_ms_sum" },
+            message: "must have required property 'wait_ms_sum'",
+          };
+          if (vErrors === null) {
+            vErrors = [err46];
+          } else {
+            vErrors.push(err46);
+          }
+          errors++;
+        }
+        if (data13.after_claim_ms_sum === void 0) {
+          const err47 = {
+            instancePath: instancePath + "/completion_latency",
+            schemaPath: "#/properties/completion_latency/required",
+            keyword: "required",
+            params: { missingProperty: "after_claim_ms_sum" },
+            message: "must have required property 'after_claim_ms_sum'",
+          };
+          if (vErrors === null) {
+            vErrors = [err47];
+          } else {
+            vErrors.push(err47);
+          }
+          errors++;
+        }
+        if (data13.count === void 0) {
+          const err48 = {
+            instancePath: instancePath + "/completion_latency",
+            schemaPath: "#/properties/completion_latency/required",
+            keyword: "required",
+            params: { missingProperty: "count" },
+            message: "must have required property 'count'",
+          };
+          if (vErrors === null) {
+            vErrors = [err48];
+          } else {
+            vErrors.push(err48);
+          }
+          errors++;
+        }
+        for (const key1 in data13) {
+          if (!(
+            key1 === "wait_ms_sum" ||
+            key1 === "after_claim_ms_sum" ||
+            key1 === "count"
+          )) {
+            const err49 = {
+              instancePath: instancePath + "/completion_latency",
+              schemaPath:
+                "#/properties/completion_latency/additionalProperties",
+              keyword: "additionalProperties",
+              params: { additionalProperty: key1 },
+              message: "must NOT have additional properties",
+            };
+            if (vErrors === null) {
+              vErrors = [err49];
+            } else {
+              vErrors.push(err49);
+            }
+            errors++;
+          }
+        }
+        if (data13.wait_ms_sum !== void 0) {
+          let data14 = data13.wait_ms_sum;
+          if (!(
+            typeof data14 == "number" &&
+            !(data14 % 1) &&
+            !isNaN(data14) &&
+            isFinite(data14)
+          )) {
+            const err50 = {
+              instancePath: instancePath + "/completion_latency/wait_ms_sum",
+              schemaPath:
+                "#/properties/completion_latency/properties/wait_ms_sum/type",
+              keyword: "type",
+              params: { type: "integer" },
+              message: "must be integer",
+            };
+            if (vErrors === null) {
+              vErrors = [err50];
+            } else {
+              vErrors.push(err50);
+            }
+            errors++;
+          }
+          if (typeof data14 == "number" && isFinite(data14)) {
+            if (data14 < 0 || isNaN(data14)) {
+              const err51 = {
+                instancePath: instancePath + "/completion_latency/wait_ms_sum",
+                schemaPath:
+                  "#/properties/completion_latency/properties/wait_ms_sum/minimum",
+                keyword: "minimum",
+                params: { comparison: ">=", limit: 0 },
+                message: "must be >= 0",
+              };
+              if (vErrors === null) {
+                vErrors = [err51];
+              } else {
+                vErrors.push(err51);
+              }
+              errors++;
+            }
+          }
+        }
+        if (data13.after_claim_ms_sum !== void 0) {
+          let data15 = data13.after_claim_ms_sum;
+          if (!(
+            typeof data15 == "number" &&
+            !(data15 % 1) &&
+            !isNaN(data15) &&
+            isFinite(data15)
+          )) {
+            const err52 = {
+              instancePath:
+                instancePath + "/completion_latency/after_claim_ms_sum",
+              schemaPath:
+                "#/properties/completion_latency/properties/after_claim_ms_sum/type",
+              keyword: "type",
+              params: { type: "integer" },
+              message: "must be integer",
+            };
+            if (vErrors === null) {
+              vErrors = [err52];
+            } else {
+              vErrors.push(err52);
+            }
+            errors++;
+          }
+          if (typeof data15 == "number" && isFinite(data15)) {
+            if (data15 < 0 || isNaN(data15)) {
+              const err53 = {
+                instancePath:
+                  instancePath + "/completion_latency/after_claim_ms_sum",
+                schemaPath:
+                  "#/properties/completion_latency/properties/after_claim_ms_sum/minimum",
+                keyword: "minimum",
+                params: { comparison: ">=", limit: 0 },
+                message: "must be >= 0",
+              };
+              if (vErrors === null) {
+                vErrors = [err53];
+              } else {
+                vErrors.push(err53);
+              }
+              errors++;
+            }
+          }
+        }
+        if (data13.count !== void 0) {
+          let data16 = data13.count;
+          if (!(
+            typeof data16 == "number" &&
+            !(data16 % 1) &&
+            !isNaN(data16) &&
+            isFinite(data16)
+          )) {
+            const err54 = {
+              instancePath: instancePath + "/completion_latency/count",
+              schemaPath:
+                "#/properties/completion_latency/properties/count/type",
+              keyword: "type",
+              params: { type: "integer" },
+              message: "must be integer",
+            };
+            if (vErrors === null) {
+              vErrors = [err54];
+            } else {
+              vErrors.push(err54);
+            }
+            errors++;
+          }
+          if (typeof data16 == "number" && isFinite(data16)) {
+            if (data16 < 1 || isNaN(data16)) {
+              const err55 = {
+                instancePath: instancePath + "/completion_latency/count",
+                schemaPath:
+                  "#/properties/completion_latency/properties/count/minimum",
+                keyword: "minimum",
+                params: { comparison: ">=", limit: 1 },
+                message: "must be >= 1",
+              };
+              if (vErrors === null) {
+                vErrors = [err55];
+              } else {
+                vErrors.push(err55);
+              }
+              errors++;
+            }
+          }
+        }
+      } else {
+        const err56 = {
+          instancePath: instancePath + "/completion_latency",
+          schemaPath: "#/properties/completion_latency/type",
+          keyword: "type",
+          params: { type: "object" },
+          message: "must be object",
+        };
+        if (vErrors === null) {
+          vErrors = [err56];
+        } else {
+          vErrors.push(err56);
+        }
+        errors++;
+      }
+    }
   } else {
-    const err46 = {
+    const err57 = {
       instancePath,
       schemaPath: "#/type",
       keyword: "type",
@@ -10265,9 +10492,9 @@ function validate82(
       message: "must be object",
     };
     if (vErrors === null) {
-      vErrors = [err46];
+      vErrors = [err57];
     } else {
-      vErrors.push(err46);
+      vErrors.push(err57);
     }
     errors++;
   }
