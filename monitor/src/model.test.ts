@@ -200,6 +200,73 @@ describe("snapshot dashboard model", () => {
     ]);
   });
 
+  it("ranks by queue wait, breaking measured ties by time after claim and unmeasured ties by backlog", () => {
+    const value = snapshot();
+    const domain = value.domains[0];
+    const live = domain.topics[0];
+    const base = domain.stats[0];
+    domain.topics = [
+      { ...live, topic: "reply/idle", available: 0, oldest_available_at: null },
+      {
+        ...live,
+        topic: "work/shallow",
+        available: 1,
+        oldest_available_at: domain.generated_at - 500,
+      },
+      {
+        ...live,
+        topic: "work/deep",
+        available: 30,
+        oldest_available_at: domain.generated_at - 500,
+      },
+      {
+        ...live,
+        topic: "work/oldest",
+        available: 1,
+        oldest_available_at: domain.generated_at - 1000,
+      },
+    ];
+    domain.stats = [
+      {
+        ...base,
+        topic: "work/instant",
+        consumed: 1,
+        completion_latency: { wait_ms_sum: 0, after_claim_ms_sum: 0, count: 1 },
+      },
+      {
+        ...base,
+        topic: "work/slow-after-claim",
+        consumed: 1,
+        completion_latency: {
+          wait_ms_sum: 0,
+          after_claim_ms_sum: 4000,
+          count: 1,
+        },
+      },
+      {
+        ...base,
+        topic: "work/longest-wait",
+        consumed: 1,
+        completion_latency: {
+          wait_ms_sum: 500,
+          after_claim_ms_sum: 100,
+          count: 1,
+        },
+      },
+    ];
+    expect(
+      topicLatencies(statsTopics(value)).map((entry) => entry.topic),
+    ).toEqual([
+      "work/longest-wait",
+      "work/slow-after-claim",
+      "work/instant",
+      "work/oldest",
+      "work/deep",
+      "work/shallow",
+      "reply/idle",
+    ]);
+  });
+
   it("accepts an empty monitor envelope and reports a malformed envelope", () => {
     expect(
       decodeSnapshot({

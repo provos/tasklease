@@ -183,6 +183,7 @@
         for (const key of expandedReplies)
           if (!replyKeys.has(key)) expandedReplies.delete(key);
         snapshot = result;
+        if (selectedStats && !stats) selectedStats = "";
         loadedHours = hours;
         lastUpdated = Date.now();
         now = lastUpdated;

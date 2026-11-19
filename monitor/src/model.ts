@@ -174,7 +174,7 @@ export function topicLatencies(topics: StatsTopic[]): TopicLatency[] {
         oldestWaitingMs:
           topic.oldest_available_at === null
             ? null
-            : topic.generated_at - topic.oldest_available_at,
+            : Math.max(0, topic.generated_at - topic.oldest_available_at),
         consumed,
         completion: count
           ? {
@@ -185,9 +185,18 @@ export function topicLatencies(topics: StatsTopic[]): TopicLatency[] {
           : null,
       };
     })
-    .sort(
-      (a, b) => (b.completion?.waitMs ?? -1) - (a.completion?.waitMs ?? -1),
-    );
+    .sort((a, b) => {
+      if (!a.completion && !b.completion) {
+        return (
+          (b.oldestWaitingMs ?? -1) - (a.oldestWaitingMs ?? -1) ||
+          b.waiting - a.waiting
+        );
+      }
+      return (
+        (b.completion?.waitMs ?? -1) - (a.completion?.waitMs ?? -1) ||
+        (b.completion?.afterClaimMs ?? -1) - (a.completion?.afterClaimMs ?? -1)
+      );
+    });
 }
 
 export const HOUR = 3_600_000;

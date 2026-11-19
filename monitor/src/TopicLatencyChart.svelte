@@ -29,7 +29,7 @@
   <div class="legend">
     <span><i class="queue"></i>Initial queue wait</span>
     <span><i class="after"></i>After first claim</span>
-    <small>Current hour is partial</small>
+    <small>Sorted by average queue wait · Current hour is partial</small>
   </div>
   {#if maximum > 0}
     <div class="scale" aria-hidden="true">
@@ -65,10 +65,10 @@
               >{duration(row.completion.waitMs + row.completion.afterClaimMs)} avg
               total</span
             >
-            <span title={`${row.completion.waitMs} ms`}
+            <span title={`${count(row.completion.waitMs)} ms`}
               ><i class="queue"></i>{duration(row.completion.waitMs)} queued</span
             >
-            <span title={`${row.completion.afterClaimMs} ms`}
+            <span title={`${count(row.completion.afterClaimMs)} ms`}
               ><i class="after"></i>{duration(row.completion.afterClaimMs)} after
               first claim</span
             >

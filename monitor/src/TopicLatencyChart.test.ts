@@ -2,6 +2,7 @@ import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import fixture from "../../schema/examples/monitor.snapshot/valid/response-completion-latency.json";
 import TopicLatencyChart from "./TopicLatencyChart.svelte";
+import { count } from "./format";
 import { type HourlyStats, type StatsTopic } from "./model";
 
 const base = fixture.body.stats[0];
@@ -27,10 +28,11 @@ describe("TopicLatencyChart server rendering", () => {
           topic("second", [
             {
               ...base,
+              consumed: 3,
               completion_latency: {
-                wait_ms_sum: 500,
-                after_claim_ms_sum: 1000,
-                count: 1,
+                wait_ms_sum: 1000,
+                after_claim_ms_sum: 3500,
+                count: 3,
               },
             },
           ]),
@@ -50,6 +52,9 @@ describe("TopicLatencyChart server rendering", () => {
     expect(widths).toHaveLength(4);
     expect(widths[0] + widths[1]).toBeCloseTo(100);
     expect(widths[2] + widths[3]).toBeCloseTo(50);
+    expect(body).toContain("Sorted by average queue wait");
+    expect(body).toContain(`title="${count(1000 / 3)} ms"`);
+    expect(body).toContain(`title="${count(3500 / 3)} ms"`);
     expect(body).toContain("acme/pipeline · ");
     expect(body).toContain("1 of 2 measured");
     expect(body).toContain("101 waiting now");
