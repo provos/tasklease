@@ -1542,3 +1542,30 @@ returned the queued echo with the original task origin. Live R2 rejected a
 mismatched signed `Content-Length` and accepted and returned the exact bytes
 for the signed length. The test queues were empty and the scoped identity was
 revoked. Synthetic probe blobs are covered by the existing retention rule.
+
+## 0.7.0 publication (2026-11-19)
+
+- The annotated tag `v0.7.0` points to
+  `4a50c802b78b7c05e0fac3ffabc6a67b796c54b1`. Only the review log changed
+  after the qualified candidate commit.
+- The [build-only rehearsal](https://github.com/provos/tasklease/actions/runs/44641647358)
+  and [PyPI publishing run](https://github.com/provos/tasklease/actions/runs/44642355571)
+  passed. Both builds matched the candidate's contents after normalizing
+  Worker build paths and the bundle-generation timestamp. Each wheel's
+  `RECORD` hashes were checked separately.
+- Both [PyPI downloads](https://pypi.org/project/tasklease/0.7.0/) matched the
+  publishing run byte for byte. Their PyPI provenance records named
+  `provos/tasklease` and `workflow.yml`, and listed the expected SHA-256
+  hashes. All three [GitHub release](https://github.com/provos/tasklease/releases/tag/v0.7.0)
+  assets were re-downloaded and matched the verified PyPI files and the
+  generated `SHA256SUMS`.
+- Fresh macOS and Linux installations of the exact published wheel passed
+  the CLI version, help, bundled dashboard and Worker checks with Node
+  absent. Native Windows acceptance passed on the qualified candidate.
+  The post-publication Windows reinstall is pending availability of the
+  suspended test VM.
+
+| Published distribution | SHA-256 |
+| --- | --- |
+| `tasklease-0.7.0-py3-none-any.whl` | `bda4f681b77dd9bc74bd654b89b6b8838f853150084f6e66171549a293209d4d` |
+| `tasklease-0.7.0.tar.gz` | `8f7c18c3b21756aeed0641898dab5d66746034996a653abcfb77554761e07c16` |
