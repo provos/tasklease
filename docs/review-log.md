@@ -1616,3 +1616,29 @@ schema.
 | Wheel | `3b110e3a855e5b370378acdb973da527b5cd406665ef55961fc0ab611ec5c664` |
 | Source distribution | `224b4a97ad873e702136e1646cf9fcf2e406906fdfe922a6a23895aea2187d30` |
 | Native acceptance ZIP | `f755a8ce55ee8cc6a56e303d06ac9551eb29a933aff5425b66479c7041cb0ab1` |
+
+## 0.7.1 publication (2026-11-22)
+
+- The annotated tag `v0.7.1` points to
+  `8e352c85d893842686be3fc7a4d9184b7665774c`. The commits differed only in
+  release documentation after the candidate was built.
+- The [build-only rehearsal](https://github.com/provos/tasklease/actions/runs/45119392864)
+  and [PyPI publishing run](https://github.com/provos/tasklease/actions/runs/45119893385)
+  passed. Both matched the qualified distribution contents after normalizing
+  generated Worker paths and the bundle timestamp. Each wheel passed its
+  own `RECORD` integrity check.
+- Both [PyPI downloads](https://pypi.org/project/tasklease/0.7.1/) matched the
+  publishing run byte for byte. PyPI's provenance records identified
+  `provos/tasklease`, `workflow.yml` and the expected SHA-256 digests.
+- Fresh PyPI installs on macOS, Linux and Windows each matched the downloaded
+  wheel and passed the CLI version and help, dashboard and bundled Worker
+  checks with Node absent. The fresh PyPI installation redeployed to the
+  dedicated acceptance Worker and passed the live version, task and R2 probe.
+- The [GitHub Release](https://github.com/provos/tasklease/releases/tag/v0.7.1)
+  uses the changelog entry. Its downloaded wheel and sdist matched the
+  verified PyPI files and the attached `SHA256SUMS`.
+
+| Published distribution | SHA-256 |
+| --- | --- |
+| `tasklease-0.7.1-py3-none-any.whl` | `8ef92d2e4c7fecc5a275a1734d4db1d496ca1d4aa12315beac14bcfc666b1636` |
+| `tasklease-0.7.1.tar.gz` | `67b70279bcd9b19a81664664a599a42df98cd81775c871e78154fbc83658d946` |
