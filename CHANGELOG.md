@@ -6,6 +6,8 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-22
+
 ### Added
 
 - `Store.poll`, `Store.drain` and a new `Store.watch` accept 1 to 16 distinct
@@ -35,6 +37,15 @@ Release preparation and verification are documented in
   new path does not. `Store.default_root()` stays on
   `user_data_path("tasklease")` so mixed-version Windows workers and stop files
   remain compatible across upgrades.
+
+### Compatibility and deployment
+
+- The 0.7.1 client works with the 0.7.0 service. Multi-topic inbox watching
+  uses the `Own` support introduced in service 0.6.0. Single-topic inbox
+  watching continues to send the existing `topic` field.
+- The bundled 0.7.1 Worker has the same protocol and storage schema as 0.7.0.
+  A service upgrade is optional. Existing 0.7.0 requesters and workers can
+  continue running while the Worker is upgraded with `tl service deploy`.
 
 ## [0.7.0] - 2026-11-19
 
