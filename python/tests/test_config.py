@@ -416,6 +416,39 @@ def test_windows_default_config_uses_appauthor_false_with_legacy_fallback(
     assert capsys.readouterr().err == ""
 
 
+def test_windows_token_only_install_falls_back_to_legacy_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    preferred_dir = tmp_path / "tasklease"
+    legacy_dir = preferred_dir / "tasklease"
+
+    def fake_user_config_path(app: str, *, appauthor: object = None) -> Path:
+        assert app == "tasklease"
+        return preferred_dir if appauthor is False else legacy_dir
+
+    monkeypatch.setattr("tasklease.config.sys.platform", "win32")
+    monkeypatch.setattr("tasklease.config.user_config_path", fake_user_config_path)
+
+    # Token-only legacy install (TL_URL + legacy/token, no config.toml anywhere).
+    legacy_dir.mkdir(parents=True)
+    legacy_token = legacy_dir / "token"
+    legacy_token.write_text("tl_legacy-token\n")
+    legacy_token.chmod(0o600)
+    config = load_config(environ={"TL_URL": "https://service.example"})
+    assert config.path == legacy_dir / "config.toml"
+    assert config.token() == "tl_legacy-token"
+    assert "legacy token path" in capsys.readouterr().err
+
+    # Once a token file exists in preferred_dir, use preferred_dir silently.
+    preferred_token = preferred_dir / "token"
+    preferred_token.write_text("tl_new-token\n")
+    preferred_token.chmod(0o600)
+    preferred = load_config(environ={"TL_URL": "https://service.example"})
+    assert preferred.path == preferred_dir / "config.toml"
+    assert preferred.token() == "tl_new-token"
+    assert capsys.readouterr().err == ""
+
+
 def test_named_profile_inherits_top_level_and_respects_environment_precedence(
     tmp_path: Path,
 ) -> None:

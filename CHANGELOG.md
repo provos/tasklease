@@ -13,10 +13,13 @@ Release preparation and verification are documented in
   before deleting the server copy. `DrainResult.replies` exposes saved replies
   in arrival order while preserving `DrainResult(saved, poll_again)` equality.
 - `tl inbox watch --topic ...` watches 1 to 16 inbox topics in `--stream`
-  (NDJSON, default) or `--once` (JSON batch) mode with `WorkerControl`
-  cross-platform stop-file shutdown.
+  (NDJSON, default) or `--once` (JSON batch) mode, emitting each saved reply
+  before claiming the next. `tl inbox stop` stops a running watcher cleanly
+  without contending with `tl worker stop`.
 - `Client` reloads file-backed identity tokens on `401 unauthenticated` and
-  retries at most once per call when the token file's contents changed.
+  retries at most once per call when the token file's contents changed,
+  recomputing long-poll `Own` waits and bounding reload lock waits within the
+  caller's timeout budget.
 - Named config profiles under `[profiles.<name>]` selected with `--profile` or
   `TL_PROFILE`, inheriting top-level settings and overriding per-profile keys,
   token files and `[worker]` tables.
@@ -25,12 +28,13 @@ Release preparation and verification are documented in
 
 ### Fixed
 
-- Default Windows config and data paths pass `appauthor=False` so fresh
-  installs use `%LOCALAPPDATA%\tasklease` instead of doubling
-  `tasklease\tasklease`. Existing Windows installations keep using the legacy
-  data folder whenever it exists (never auto-moved, preventing split worker
-  locks or stop files), and `load_config` falls back to the legacy config file
-  with a warning when the new config file is absent.
+- Default Windows config path passes `appauthor=False` so fresh installs use
+  `%LOCALAPPDATA%\tasklease\config.toml` instead of doubling
+  `tasklease\tasklease`. `load_config` falls back to the legacy folder with a
+  warning when a legacy `config.toml` or token-only `token` file exists and the
+  new path does not. `Store.default_root()` stays on
+  `user_data_path("tasklease")` so mixed-version Windows workers and stop files
+  remain compatible across upgrades.
 
 ## [0.7.0] - 2026-11-19
 

@@ -993,6 +993,142 @@ def test_client_401_retry_respects_call_timeout_budget(
             )
 
 
+def test_client_own_401_retry_recomputes_wait_seconds_preserving_margin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 100.0
+    monkeypatch.setattr("tasklease.client.time.monotonic", lambda: now)
+    sent_bodies: list[dict[str, object]] = []
+    sent_timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal now
+        sent_bodies.append(cast(dict[str, object], json.loads(request.content)))
+        sent_timeouts.append(cast(dict[str, float], request.extensions["timeout"]))
+        if request.headers["authorization"] == "Bearer tl_old":
+            now += 10.0
+            return httpx.Response(
+                401,
+                json={
+                    "ok": False,
+                    "error": {"code": "unauthenticated", "message": "expired"},
+                },
+            )
+        return httpx.Response(
+            404,
+            json={"ok": False, "error": {"code": "empty", "message": "empty"}},
+        )
+
+    original: p.OwnRequest = {
+        "domain": "acme/pipeline",
+        "topic": "work",
+        "hold_seconds": 60,
+        "wait_seconds": 20,
+    }
+    with Client(
+        "https://tasks.example",
+        "tl_old",
+        transport=httpx.MockTransport(handler),
+        token_loader=lambda: "tl_new",
+    ) as client:
+        with pytest.raises(Empty):
+            client.own(original, timeout=25.0)
+    # 25s timeout - 20s wait = 5s margin; 15s left -> retry waits 10s (5s margin).
+    assert sent_bodies[0]["wait_seconds"] == 20
+    assert sent_bodies[1]["wait_seconds"] == 10
+    assert sent_timeouts[1]["read"] == 15.0
+    assert original["wait_seconds"] == 20
+
+    # If remaining budget is smaller than the margin, retry omits wait_seconds.
+    sent_bodies.clear()
+    now = 200.0
+
+    def slow_handler(request: httpx.Request) -> httpx.Response:
+        nonlocal now
+        sent_bodies.append(cast(dict[str, object], json.loads(request.content)))
+        if request.headers["authorization"] == "Bearer tl_old":
+            now += 22.0
+            return httpx.Response(
+                401,
+                json={
+                    "ok": False,
+                    "error": {"code": "unauthenticated", "message": "expired"},
+                },
+            )
+        return httpx.Response(
+            404,
+            json={"ok": False, "error": {"code": "empty", "message": "empty"}},
+        )
+
+    with Client(
+        "https://tasks.example",
+        "tl_old",
+        transport=httpx.MockTransport(slow_handler),
+        token_loader=lambda: "tl_new",
+    ) as client:
+        with pytest.raises(Empty):
+            client.own(original, timeout=25.0)
+    assert "wait_seconds" not in sent_bodies[1]
+
+
+def test_client_reload_lock_wait_respects_total_timeout() -> None:
+    import threading
+    import time as real_time
+
+    entered_loader = threading.Event()
+    release_loader = threading.Event()
+
+    def stalled_loader() -> str:
+        entered_loader.set()
+        release_loader.wait(timeout=5)
+        return "tl_new"
+
+    def reject(request: httpx.Request) -> httpx.Response:
+        if request.headers["authorization"] == "Bearer tl_old":
+            return httpx.Response(
+                401,
+                json={
+                    "ok": False,
+                    "error": {"code": "unauthenticated", "message": "expired"},
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "name": "mac-1",
+                "domains": ["acme"],
+                "scopes": {"create": [], "own": [], "read": []},
+                "operator": False,
+            },
+        )
+
+    with Client(
+        "https://tasks.example",
+        "tl_old",
+        transport=httpx.MockTransport(reject),
+        token_loader=stalled_loader,
+    ) as client:
+        first = threading.Thread(target=lambda: client.identity_whoami({}))
+        first.start()
+        assert entered_loader.wait(timeout=5)
+        started = real_time.monotonic()
+        with pytest.raises(TransportError, match="total_timeout"):
+            client.blob_put_url(
+                {
+                    "domain": "acme",
+                    "name": "log.txt",
+                    "size": 10,
+                    "sha256": "a" * 64,
+                },
+                total_timeout=0.05,
+            )
+        elapsed = real_time.monotonic() - started
+        assert elapsed < 0.5
+        release_loader.set()
+        first.join(timeout=5)
+
+
 def test_client_token_reload_is_thread_safe_under_concurrent_401() -> None:
     import threading
 

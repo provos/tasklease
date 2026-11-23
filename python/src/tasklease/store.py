@@ -11,7 +11,6 @@ import json
 import math
 import re
 import stat
-import sys
 import time
 from collections.abc import Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -57,23 +56,8 @@ _TRANSPORT_PATIENCE = 300.0
 
 
 def default_root() -> Path:
-    """The per-user data directory, independently of configuration location.
-
-    On Windows, prefer the legacy doubled folder whenever it already exists and
-    never auto-move it, so concurrent processes cannot split worker locks, stop
-    files or local reply stores across two directories.
-    """
-    preferred = user_data_path("tasklease", appauthor=False)
-    if sys.platform == "win32":
-        legacy = user_data_path("tasklease")
-        if legacy != preferred:
-            try:
-                use_legacy = legacy.is_dir()
-            except OSError:
-                raise StoreError("Cannot inspect local requester state") from None
-            if use_legacy:
-                return legacy
-    return preferred
+    """The per-user data directory, independently of configuration location."""
+    return user_data_path("tasklease")
 
 
 def hash_id(value: str) -> str:
@@ -273,6 +257,12 @@ class RequestRecord:
 
     def to_dict(self) -> dict[str, object]:
         return self.as_dict()
+
+
+@dataclass
+class _DrainOutcome:
+    count: int = 0
+    poll_again: bool = False
 
 
 @dataclass(frozen=True)
@@ -574,34 +564,31 @@ class Store:
             return existing
         return previous
 
-    def _drain(
+    def _drain_iter(
         self,
         client: Client,
         domain: str,
         reply_topics: tuple[str, ...],
+        outcome: _DrainOutcome,
         *,
         deadline: float | None = None,
         origin_id: str | None = None,
         wait_seconds: int = 0,
         stop: Event | None = None,
-        saved_out: list[ReplyRecord] | None = None,
-    ) -> tuple[list[ReplyRecord], bool]:
-        """Save replies locally before deleting them; report whether to poll again.
+    ) -> Iterator[ReplyRecord]:
+        """Yield each reply right after local save and server Delete.
 
-        Each reply is durably published to disk before its server copy is
-        deleted, so a crash or lost delete never loses a message. Polling again
-        at once is right after replies arrived or after the service held a long
-        poll. An immediate empty, including a wait the service refused
-        (``Empty.wait_refused``), calls for the caller's backoff instead.
+        Every reply is durably published to disk before its server copy is
+        deleted and yielded before the next Own is attempted, so a failure on a
+        later task never suppresses an already-acknowledged reply and callers
+        that discard records retain O(1) memory.
         """
-        records: list[ReplyRecord] = [] if saved_out is None else saved_out
-        initial = len(records)
         for index in range(_BATCH_SIZE):
             if stop is not None and stop.is_set():
-                break
+                return
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
-                break
+                return
             # Only the first Own in a drain may wait: a reply that existed
             # before the call must not be delayed behind a long poll.
             wait = 0 if index else wait_seconds
@@ -629,13 +616,16 @@ class Store:
                     and not error.wait_refused
                     and time.monotonic() - sent >= wait / 2
                 )
-                return records, len(records) > initial or held
+                outcome.poll_again = outcome.count > 0 or held
+                return
             task = response["task"]
             saved = self._save_reply(task, domain, reply_topics)
-            records.append(saved)
+            outcome.count += 1
+            outcome.poll_again = True
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
-                break
+                yield saved
+                return
             try:
                 client.delete(
                     {"domain": domain, "topic": task["topic"], "id": task["id"]},
@@ -643,11 +633,16 @@ class Store:
                 )
             except NotFound:
                 pass  # The durable local reply already survives ID rotation.
+            except TransportError:
+                # Saved durably on disk; yield before letting TransportError
+                # drive retry/backoff so callers observe it without waiting.
+                yield saved
+                raise
+            yield saved
             if origin_id is not None and saved.origin_id == origin_id:
-                break
-        return records, len(records) > initial
+                return
 
-    def _poll_batches(
+    def _poll_replies(
         self,
         client: Client,
         domain: str,
@@ -659,8 +654,10 @@ class Store:
         wait_seconds: int,
         origin_id: str | None = None,
         stop: Event | None = None,
-    ) -> Iterator[list[ReplyRecord]]:
-        """Shared drain, transport-patience and backoff loop for wait and watch."""
+        once: bool = False,
+        yield_idle: bool = False,
+    ) -> Iterator[ReplyRecord | None]:
+        """Shared streaming drain, transport-patience and backoff loop."""
         delay = poll_interval
         failing_since: float | None = None
         last_prune_day = int(time.time() // 86400)
@@ -673,49 +670,60 @@ class Store:
                 self._automatic_prune()
                 last_prune_day = today
             attempted = time.monotonic()
-            batch: list[ReplyRecord] = []
+            outcome = _DrainOutcome()
             try:
-                _, again = self._drain(
+                for record in self._drain_iter(
                     client,
                     domain,
                     topics,
+                    outcome,
                     deadline=deadline,
                     origin_id=origin_id,
                     wait_seconds=wait_seconds,
                     stop=stop,
-                    saved_out=batch,
-                )
+                ):
+                    # Progress clears outage tracking so consumer work never
+                    # eats into a subsequent _TRANSPORT_PATIENCE window.
+                    failing_since = None
+                    yield record
             except TransportError:
-                # Capture failure timestamp before yielding so consumer work
-                # never eats into _TRANSPORT_PATIENCE. Any saved progress starts
-                # a fresh outage window.
                 failed_at = time.monotonic()
-                if batch:
-                    failing_since = failed_at
-                elif failing_since is None:
-                    failing_since = attempted
-                yield batch
+                if yield_idle:
+                    yield None
+                if once and outcome.count > 0:
+                    return
                 if stop is not None and stop.is_set():
                     return
                 if deadline is not None and (
                     failed_at >= deadline or time.monotonic() >= deadline
                 ):
                     return
-                if failed_at - failing_since >= _TRANSPORT_PATIENCE:
-                    raise
+                if outcome.count > 0:
+                    # Replies were delivered in this cycle; start a fresh retry
+                    # window when polling resumes after consumer work.
+                    failing_since = None
+                else:
+                    if failing_since is None:
+                        failing_since = attempted
+                    if failed_at - failing_since >= _TRANSPORT_PATIENCE:
+                        raise
                 again = False
             else:
                 failing_since = None
-                yield batch
+                if yield_idle:
+                    yield None
+                if once and outcome.count > 0:
+                    return
+                again = outcome.poll_again
             if stop is not None and stop.is_set():
                 return
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
                 return
-            # A held long poll or arriving batch resets backoff; an immediate
+            # A held long poll or arriving reply resets backoff; an immediate
             # empty (including wait_refused) or transport failure backs off.
             if again:
-                if batch or wait_seconds:
+                if outcome.count > 0 or wait_seconds:
                     delay = poll_interval
                 continue
             sleep_for = delay * uniform(0.8, 1.2)
@@ -733,7 +741,10 @@ class Store:
         """Drain a bounded batch from 1 to 16 topics, saving locally before Delete."""
         domain, topics = _name(domain, domain=True), _topics(reply_topic)
         self._automatic_prune()
-        return len(self._drain(client, domain, topics)[0])
+        outcome = _DrainOutcome()
+        for _ in self._drain_iter(client, domain, topics, outcome):
+            pass
+        return outcome.count
 
     def poll(
         self,
@@ -755,8 +766,11 @@ class Store:
         _check_wait(wait_seconds)
         domain, topics = _name(domain, domain=True), _topics(reply_topic)
         self._automatic_prune()
-        records, again = self._drain(client, domain, topics, wait_seconds=wait_seconds)
-        return DrainResult(len(records), again, tuple(records))
+        outcome = _DrainOutcome()
+        records = tuple(
+            self._drain_iter(client, domain, topics, outcome, wait_seconds=wait_seconds)
+        )
+        return DrainResult(outcome.count, outcome.poll_again, records)
 
     def watch(
         self,
@@ -773,12 +787,13 @@ class Store:
     ) -> Iterator[ReplyRecord]:
         """Yield replies from 1 to 16 topics as they arrive, saving before Delete.
 
-        With ``once=True``, yields the first non-empty arrival batch and stops.
-        Identical redeliveries after a lost Delete are yielded at least once;
-        conflicting replies are archived and yielded with ``duplicate=True``.
-        Transport errors back off and retry for five minutes before raising,
-        matching :meth:`wait`. A set ``stop`` event halts draining between
-        messages and ends sleeps promptly.
+        Each reply is yielded immediately after it is saved locally and deleted
+        from the service, before the next Own is attempted. With ``once=True``,
+        stops after the first non-empty drain cycle. Identical redeliveries
+        after a lost Delete are yielded at least once; conflicting replies are
+        archived and yielded with ``duplicate=True``. Transport errors back off
+        and retry for five minutes before raising, matching :meth:`wait`. A set
+        ``stop`` event halts draining between messages and ends sleeps promptly.
         """
         _check_timeout(timeout_seconds)
         _check_poll_intervals(poll_interval, max_poll_interval, wait_seconds)
@@ -786,7 +801,7 @@ class Store:
         deadline = (
             None if timeout_seconds is None else time.monotonic() + timeout_seconds
         )
-        for batch in self._poll_batches(
+        for record in self._poll_replies(
             client,
             domain,
             topics,
@@ -795,11 +810,10 @@ class Store:
             max_poll_interval=max_poll_interval,
             wait_seconds=wait_seconds,
             stop=stop,
+            once=once,
         ):
-            if batch:
-                yield from batch
-                if once:
-                    return
+            if record is not None:
+                yield record
 
     def wait(
         self,
@@ -825,7 +839,7 @@ class Store:
         if reply is not None:
             return reply
         record = self._required_request(origin_id)
-        for _ in self._poll_batches(
+        for _ in self._poll_replies(
             client,
             record.domain,
             (record.reply_topic,),
@@ -834,6 +848,7 @@ class Store:
             max_poll_interval=max_poll_interval,
             wait_seconds=wait_seconds,
             origin_id=origin_id,
+            yield_idle=True,
         ):
             reply = self.reply(origin_id)
             if reply is not None:

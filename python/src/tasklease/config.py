@@ -217,16 +217,26 @@ def _resolve_default_config_path() -> Path:
     if sys.platform == "win32":
         legacy = user_config_path("tasklease") / "config.toml"
         if legacy != preferred:
+            preferred_token = preferred.with_name("token")
+            legacy_token = legacy.with_name("token")
             try:
-                use_legacy = not preferred.exists() and legacy.is_file()
+                if not preferred.exists() and legacy.is_file():
+                    reason = f"legacy config path {legacy}"
+                elif (
+                    not preferred.exists()
+                    and not preferred_token.exists()
+                    and legacy_token.is_file()
+                ):
+                    reason = f"legacy token path {legacy_token}"
+                else:
+                    reason = None
             except OSError:
                 raise ConfigError(
                     f"Cannot inspect default configuration path {preferred}"
                 ) from None
-            if use_legacy:
+            if reason is not None:
                 print(
-                    f"Using legacy config path {legacy}; move config.toml and token to "
-                    f"{preferred.parent}",
+                    f"Using {reason}; move config.toml and token to {preferred.parent}",
                     file=sys.stderr,
                 )
                 return legacy

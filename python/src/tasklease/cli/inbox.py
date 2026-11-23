@@ -22,10 +22,11 @@ from tasklease.cli.common import (
     text,
 )
 from tasklease.cli.requester import agent_store
-from tasklease.errors import ConfigError
+from tasklease.config import Config
+from tasklease.errors import ConfigError, TaskleaseError
 from tasklease.names import MAX_OWN_TOPICS, is_topic
 from tasklease.store import Store
-from tasklease.worker_control import WorkerControl
+from tasklease.worker_control import WorkerControl, request_stop
 
 
 def _inbox(args: argparse.Namespace) -> int:
@@ -63,6 +64,18 @@ def _topics(args: argparse.Namespace) -> list[str]:
     return result
 
 
+def _watcher_label(args: argparse.Namespace, config: Config) -> str:
+    return optional_text(args, "worker") or config.agent_id or config.worker_label
+
+
+def _stop(args: argparse.Namespace) -> int:
+    config = configuration(args)
+    label = _watcher_label(args, config)
+    path = request_stop(label, state_dir(args), namespace="watchers")
+    output({"ok": True, "watcher": label, "stop_file": str(path)})
+    return 0
+
+
 def _watch(args: argparse.Namespace) -> int:
     timeout_text = optional_text(args, "timeout")
     timeout = (
@@ -76,10 +89,10 @@ def _watch(args: argparse.Namespace) -> int:
     config = configuration(args)
     selected = domain(args, config)
     wait = requester_wait_seconds(args, config=config)
-    label = optional_text(args, "worker") or config.worker_label
     store = agent_store(args, config=config)
+    watcher_label = _watcher_label(args, config)
     once = flag(args, "once")
-    with WorkerControl(label, stop_root) as control:
+    with WorkerControl(watcher_label, stop_root, namespace="watchers") as control:
         if control.stop.is_set():
             if once:
                 output({"replies": [], "stopped": True})
@@ -96,7 +109,15 @@ def _watch(args: argparse.Namespace) -> int:
                 once=once,
             )
             if once:
-                replies = [record.to_dict() for record in records]
+                replies: list[dict[str, object]] = []
+                try:
+                    for record in records:
+                        replies.append(record.to_dict())
+                except TaskleaseError:
+                    if replies:
+                        output({"replies": replies})
+                        sys.stdout.flush()
+                    raise
                 if replies:
                     output({"replies": replies})
                     return 0
@@ -158,6 +179,17 @@ def configure_parser(
     watch.add_argument(
         "--state-dir",
         type=Path,
-        help="Directory for WorkerControl stop files (default: store root)",
+        help="Directory for inbox watcher stop files (default: store root)",
     )
     watch.set_defaults(handler=_watch)
+    stop = commands.add_parser(
+        "stop", help="Request a graceful inbox watch stop without a token"
+    )
+    connection_options(stop)
+    stop.add_argument(
+        "--state-dir",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help="Directory for inbox watcher stop files (default: store root)",
+    )
+    stop.set_defaults(handler=_stop)

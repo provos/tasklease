@@ -9,32 +9,46 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 from types import FrameType, TracebackType
-from typing import Self
+from typing import Literal, Self
 
 from tasklease.errors import ConfigError
 from tasklease.fsio import ensure_directory
 from tasklease.names import is_worker_label
 from tasklease.store import default_root, hash_id
 
+type StopNamespace = Literal["workers", "watchers"]
 
-def stop_path(worker_label: str, root: Path | None = None) -> Path:
+
+def stop_path(
+    worker_label: str,
+    root: Path | None = None,
+    *,
+    namespace: StopNamespace = "workers",
+) -> Path:
     """Use portable filenames while preserving the label's case-sensitive identity."""
     if not is_worker_label(worker_label):
         raise ConfigError(
             "worker label must contain 1 to 256 letters, digits, ., _ or -"
         )
+    if namespace not in {"workers", "watchers"}:
+        raise ConfigError("stop namespace must be 'workers' or 'watchers'")
     base = default_root() if root is None else root
-    return base.expanduser().absolute() / "workers" / f"{hash_id(worker_label)}.stop"
+    return base.expanduser().absolute() / namespace / f"{hash_id(worker_label)}.stop"
 
 
-def request_stop(worker_label: str, root: Path | None = None) -> Path:
+def request_stop(
+    worker_label: str,
+    root: Path | None = None,
+    *,
+    namespace: StopNamespace = "workers",
+) -> Path:
     """Create a transient marker; no credential or process lookup is needed.
 
     Existence is the complete signal. Unlike durable task records, a marker
     may be consumed immediately, even before this call returns. It carries no
     payload and needs no post-publication flush: power loss also stops workers.
     """
-    path = stop_path(worker_label, root)
+    path = stop_path(worker_label, root, namespace=namespace)
     ensure_directory(path.parent)
     try:
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -63,8 +77,9 @@ class WorkerControl:
         root: Path | None = None,
         *,
         on_second_signal: Callable[[], None] | None = None,
+        namespace: StopNamespace = "workers",
     ) -> None:
-        self.path = stop_path(worker_label, root)
+        self.path = stop_path(worker_label, root, namespace=namespace)
         self.stop = threading.Event()
         self._closed = threading.Event()
         self._signals: dict[int, signal._HANDLER] = {}

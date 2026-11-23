@@ -13,7 +13,7 @@ import math
 import re
 import threading
 import time
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from types import TracebackType
 from typing import NoReturn, Self, cast
 
@@ -163,13 +163,31 @@ class Client:
         with self._token_lock:
             return self._token
 
-    def _reload_token(self, failed_token: str) -> bool:
+    def _raise_deadline_exceeded(self, total_deadline: float | None) -> NoReturn:
+        if total_deadline is not None and time.monotonic() >= total_deadline:
+            raise TransportError(_TOTAL_TIMEOUT_EXCEEDED)
+        raise TransportError("The tasklease service could not be reached")
+
+    def _reload_token(
+        self,
+        failed_token: str,
+        *,
+        deadline: float | None = None,
+        total_deadline: float | None = None,
+    ) -> bool:
         """Reload a file-backed token after 401; return True only if it changed."""
         if self._token_loader is None:
             return False
         # Serialize reloads under _reload_lock so disk I/O never stalls
-        # _current_token() reads on other threads sharing this Client.
-        with self._reload_lock:
+        # _current_token() reads, while still bounding lock waits to the
+        # caller's remaining timeout budget.
+        if deadline is None:
+            self._reload_lock.acquire()
+        else:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not self._reload_lock.acquire(timeout=remaining):
+                self._raise_deadline_exceeded(total_deadline)
+        try:
             if self._current_token() != failed_token:
                 return True
             try:
@@ -181,6 +199,8 @@ class Client:
             with self._token_lock:
                 self._token = fresh
             return True
+        finally:
+            self._reload_lock.release()
 
     def __enter__(self) -> Self:
         self._http.__enter__()
@@ -325,7 +345,15 @@ class Client:
             and total_timeout > 0
             else None
         )
+        tightest_deadline: float | None
+        if call_deadline is not None and total_deadline is not None:
+            tightest_deadline = min(call_deadline, total_deadline)
+        else:
+            tightest_deadline = (
+                call_deadline if call_deadline is not None else total_deadline
+            )
         reloaded = False
+        effective_read_timeout = read_timeout
         while True:
             used_token = self._current_token()
             remaining_timeout = timeout
@@ -342,6 +370,38 @@ class Client:
                         raise TransportError(
                             "The tasklease service could not be reached"
                         )
+                    if operation == "own" and isinstance(request, Mapping):
+                        orig_wait = request.get("wait_seconds")
+                        if (
+                            isinstance(orig_wait, int)
+                            and not isinstance(orig_wait, bool)
+                            and orig_wait > 0
+                        ):
+                            assert timeout is not None
+                            margin = min(MAX_WAIT_GRACE, max(0.0, timeout - orig_wait))
+                            adjusted_wait = max(
+                                0,
+                                min(
+                                    orig_wait,
+                                    math.floor(remaining_timeout - margin),
+                                ),
+                            )
+                            retry_body = dict(request)
+                            if adjusted_wait > 0:
+                                retry_body["wait_seconds"] = adjusted_wait
+                                effective_read_timeout = (
+                                    float(min(adjusted_wait, MAX_WAIT_SECONDS))
+                                    + MAX_WAIT_GRACE
+                                )
+                            else:
+                                retry_body.pop("wait_seconds", None)
+                                effective_read_timeout = None
+                            content = json.dumps(
+                                retry_body,
+                                ensure_ascii=False,
+                                allow_nan=False,
+                                separators=(",", ":"),
+                            ).encode("utf-8")
             response = self._send(
                 "POST",
                 operation,
@@ -349,7 +409,7 @@ class Client:
                 token=used_token,
                 timeout=remaining_timeout,
                 total_timeout=remaining_total,
-                read_timeout=read_timeout,
+                read_timeout=effective_read_timeout,
             )
             body = self._decode(response)
             if body.get("ok") is False:
@@ -369,7 +429,11 @@ class Client:
                         if (
                             error_type is Unauthenticated
                             and not reloaded
-                            and self._reload_token(used_token)
+                            and self._reload_token(
+                                used_token,
+                                deadline=tightest_deadline,
+                                total_deadline=total_deadline,
+                            )
                         ):
                             reloaded = True
                             continue

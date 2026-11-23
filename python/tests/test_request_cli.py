@@ -765,7 +765,8 @@ def test_inbox_watch_once_and_stream_support_multi_topic_and_stop_file(
     assert owns[0]["topics"] == ["reply/a", "reply/b"]
     assert [item["topic"] for item in deletes] == ["reply/a", "reply/b"]
 
-    # --stream emits NDJSON and stops cleanly when a stop file is created.
+    # --stream emits NDJSON and stops cleanly via `tl inbox stop` without
+    # contending with `tl worker stop`.
     state_dir = tmp_path / "stream-state"
     stream_origin = "t_01ARZ3NDEKTSV4RRFFQ69G5FAZ"
     stream_responses = [
@@ -781,7 +782,9 @@ def test_inbox_watch_once_and_stream_support_multi_topic_and_stop_file(
         if operation(request) == "own":
             if stream_responses:
                 return stream_responses.pop(0)
+            # A worker stop file must NOT stop the inbox watcher.
             request_stop("cli", state_dir)
+            request_stop(AGENT, state_dir, namespace="watchers")
             return empty()
         assert operation(request) == "delete"
         return httpx.Response(200, json={"ok": True})
@@ -809,6 +812,54 @@ def test_inbox_watch_once_and_stream_support_multi_topic_and_stop_file(
         if line.strip()
     ]
     assert len(lines) == 1 and lines[0]["data"] == {"msg": "streamed"}
+    # The worker stop file remained untouched for tl worker.
+    assert (state_dir / "workers").exists() and list((state_dir / "workers").iterdir())
+
+    # --stream emits an already-deleted reply even when the next Own gets 401.
+    auth_origin = "t_01ARZ3NDEKTSV4RRFFQ69G5FB0"
+    auth_responses = [
+        reply(
+            {"msg": "before-401"},
+            task_id=auth_origin,
+            topic="reply/a",
+            origin_id=auth_origin,
+        ),
+        httpx.Response(
+            401,
+            json={
+                "ok": False,
+                "error": {"code": "unauthenticated", "message": "revoked"},
+            },
+        ),
+    ]
+
+    def respond_401(request: httpx.Request) -> httpx.Response:
+        if operation(request) == "own":
+            return auth_responses.pop(0)
+        assert operation(request) == "delete"
+        return httpx.Response(200, json={"ok": True})
+
+    cli.respond = respond_401
+    assert (
+        cli.run(
+            [
+                "inbox",
+                "watch",
+                "--topic",
+                "reply/a",
+                "--stream",
+                "--wait-seconds",
+                "0",
+                "--state-dir",
+                str(tmp_path / "auth-state"),
+            ]
+        )
+        == 1
+    )
+    captured = capsys.readouterr()
+    emitted = [json.loads(line) for line in captured.out.splitlines() if line.strip()]
+    assert len(emitted) == 1 and emitted[0]["data"] == {"msg": "before-401"}
+    assert "revoked" in captured.err
 
     # --once returns exit code 3 on timeout.
     cli.respond = lambda request: empty()
@@ -834,9 +885,11 @@ def test_inbox_watch_once_and_stream_support_multi_topic_and_stop_file(
     )
     assert json.loads(capsys.readouterr().out) == {"replies": [], "timed_out": True}
 
-    # Pre-existing stop file exits cleanly without polling.
+    # `tl inbox stop` creates a watcher stop marker that stops `tl inbox watch`.
     prestopped = tmp_path / "prestopped-state"
-    request_stop("cli", prestopped)
+    assert cli.run(["inbox", "stop", "--state-dir", str(prestopped)]) == 0
+    stop_out = json.loads(capsys.readouterr().out)
+    assert stop_out["ok"] is True and stop_out["watcher"] == AGENT
     before = len(cli.requests)
     assert (
         cli.run(

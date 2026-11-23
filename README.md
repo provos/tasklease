@@ -528,9 +528,11 @@ usual locations, without config-directory overrides, are:
 | Windows | `%LOCALAPPDATA%\tasklease\config.toml` |
 
 On Windows, if `%LOCALAPPDATA%\tasklease\config.toml` is absent and the legacy
-`%LOCALAPPDATA%\tasklease\tasklease\config.toml` exists, `tl` falls back to the
-legacy config path with a warning. Local store and worker stop state stays in
-the legacy folder whenever it already exists rather than moving automatically.
+`%LOCALAPPDATA%\tasklease\tasklease\config.toml` (or a legacy `token` file when
+neither new file exists) is present, `tl` falls back to the legacy config folder
+with a warning. Local store and worker stop state stays in
+`platformdirs.user_data_path("tasklease")` for mixed-version upgrade
+compatibility.
 
 Linux follows `XDG_CONFIG_HOME` when set. `tl --help` shows the platform fallback
 path on the current machine. On each client machine, you can place its config

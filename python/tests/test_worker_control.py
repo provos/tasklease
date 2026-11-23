@@ -249,3 +249,20 @@ with WorkerControl(
         if process.poll() is None:
             process.kill()
         process.communicate(timeout=3)
+
+
+def test_worker_and_watcher_stop_namespaces_are_isolated(tmp_path: Path) -> None:
+    worker_stop = request_stop("shared-label", tmp_path, namespace="workers")
+    watcher_stop = request_stop("shared-label", tmp_path, namespace="watchers")
+    assert worker_stop != watcher_stop
+    assert worker_stop.parent.name == "workers"
+    assert watcher_stop.parent.name == "watchers"
+
+    with WorkerControl("shared-label", tmp_path, namespace="watchers") as watcher:
+        assert watcher.stop.is_set()
+        assert not watcher_stop.exists()
+        assert worker_stop.exists()
+
+    with WorkerControl("shared-label", tmp_path, namespace="workers") as worker:
+        assert worker.stop.is_set()
+        assert not worker_stop.exists()
