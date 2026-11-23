@@ -11,12 +11,14 @@ import json
 import math
 import re
 import stat
+import sys
 import time
-from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, replace
+from collections.abc import Collection, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from os import stat_result
 from pathlib import Path
 from random import uniform
+from threading import Event
 from typing import Literal, cast
 
 from platformdirs import user_data_path
@@ -33,6 +35,7 @@ from tasklease.errors import (
 )
 from tasklease.generated import protocol as p
 from tasklease.names import (
+    MAX_OWN_TOPICS,
     is_domain,
     is_idempotency_key,
     is_segment,
@@ -54,8 +57,23 @@ _TRANSPORT_PATIENCE = 300.0
 
 
 def default_root() -> Path:
-    """The per-user data directory, independently of configuration location."""
-    return user_data_path("tasklease")
+    """The per-user data directory, independently of configuration location.
+
+    On Windows, prefer the legacy doubled folder whenever it already exists and
+    never auto-move it, so concurrent processes cannot split worker locks, stop
+    files or local reply stores across two directories.
+    """
+    preferred = user_data_path("tasklease", appauthor=False)
+    if sys.platform == "win32":
+        legacy = user_data_path("tasklease")
+        if legacy != preferred:
+            try:
+                use_legacy = legacy.is_dir()
+            except OSError:
+                raise StoreError("Cannot inspect local requester state") from None
+            if use_legacy:
+                return legacy
+    return preferred
 
 
 def hash_id(value: str) -> str:
@@ -72,11 +90,49 @@ def _name(value: object, *, domain: bool = False) -> str:
     return cast(str, value)
 
 
+def _topics(reply_topic: str | Sequence[str]) -> tuple[str, ...]:
+    if isinstance(reply_topic, str):
+        return (_name(reply_topic),)
+    if isinstance(reply_topic, (bytes, bytearray)) or not isinstance(
+        reply_topic, Sequence
+    ):
+        raise StoreError("reply_topic must be a topic name or sequence of topic names")
+    if not 1 <= len(reply_topic) <= MAX_OWN_TOPICS:
+        raise StoreError(
+            f"reply_topic must contain 1 to {MAX_OWN_TOPICS} distinct topic names"
+        )
+    topics = tuple(_name(topic) for topic in reply_topic)
+    if len(set(topics)) != len(topics):
+        raise StoreError(
+            f"reply_topic must contain 1 to {MAX_OWN_TOPICS} distinct topic names"
+        )
+    return topics
+
+
 def _check_wait(wait_seconds: object) -> None:
     if type(wait_seconds) is not int or not 0 <= wait_seconds <= MAX_WAIT_SECONDS:
         raise StoreError(
             f"wait_seconds must be an integer from 0 to {MAX_WAIT_SECONDS}"
         )
+
+
+def _check_timeout(timeout_seconds: float | None) -> None:
+    if timeout_seconds is not None and (
+        not math.isfinite(timeout_seconds) or timeout_seconds < 0
+    ):
+        raise StoreError("timeout must be a nonnegative finite number of seconds")
+
+
+def _check_poll_intervals(
+    poll_interval: float, max_poll_interval: float, wait_seconds: int
+) -> None:
+    if not math.isfinite(poll_interval) or poll_interval <= 0:
+        raise StoreError("poll interval must be a positive finite number of seconds")
+    if not math.isfinite(max_poll_interval) or max_poll_interval <= 0:
+        raise StoreError(
+            "maximum poll interval must be a positive finite number of seconds"
+        )
+    _check_wait(wait_seconds)
 
 
 def _integer(value: object) -> int:
@@ -221,7 +277,12 @@ class RequestRecord:
 
 @dataclass(frozen=True)
 class DrainResult:
-    """What one :meth:`Store.poll` saved, and how to schedule the next."""
+    """What one :meth:`Store.poll` saved, and how to schedule the next.
+
+    Every entry in ``replies`` was durably published locally before its server
+    copy was deleted (save-then-delete), so a crash never loses a delivered
+    reply.
+    """
 
     saved: int
     """Replies durably saved by this poll."""
@@ -229,6 +290,8 @@ class DrainResult:
     """True to poll again at once: replies arrived, or the service held the
     wait. False after an immediate empty, including a refused wait
     (``Empty.wait_refused``): sleep the caller's interval first."""
+    replies: tuple[ReplyRecord, ...] = field(default=(), compare=False)
+    """Replies durably saved during this poll, in arrival order."""
 
 
 @dataclass(frozen=True)
@@ -463,8 +526,16 @@ class Store:
         _remove(self._request_path(origin_id))
         return "cancelled"
 
-    def _save_reply(self, task: p.Task, domain: str, reply_topic: str) -> ReplyRecord:
-        if task.get("domain") != domain or task.get("topic") != reply_topic:
+    def _save_reply(
+        self, task: p.Task, domain: str, reply_topic: str | Collection[str]
+    ) -> ReplyRecord:
+        allowed = {reply_topic} if isinstance(reply_topic, str) else set(reply_topic)
+        topic = task.get("topic")
+        if (
+            task.get("domain") != domain
+            or not isinstance(topic, str)
+            or topic not in allowed
+        ):
             raise StoreError("Owned reply does not match the requested topic")
         record = self._parse_reply(
             {
@@ -487,39 +558,47 @@ class Store:
         content = _encode(record._content())
         if _encode(previous._content()) != content:
             archive = self._duplicate_path(record.origin_id, content)
-            if _publish(archive, record._saved()) == "exists":
-                value = _read(archive)
-                if value is None:
-                    raise StoreError("Archived reply disappeared after publication")
-                existing = self._parse_reply(value, duplicate=True)
-                if (
-                    existing.origin_id != record.origin_id
-                    or _encode(existing._content()) != content
-                ):
-                    raise StoreError(
-                        "Archived reply content does not match its storage name"
-                    )
+            if _publish(archive, record._saved()) == "created":
+                return replace(record, duplicate=True)
+            value = _read(archive)
+            if value is None:
+                raise StoreError("Archived reply disappeared after publication")
+            existing = self._parse_reply(value, duplicate=True)
+            if (
+                existing.origin_id != record.origin_id
+                or _encode(existing._content()) != content
+            ):
+                raise StoreError(
+                    "Archived reply content does not match its storage name"
+                )
+            return existing
         return previous
 
     def _drain(
         self,
         client: Client,
         domain: str,
-        reply_topic: str,
+        reply_topics: tuple[str, ...],
         *,
         deadline: float | None = None,
         origin_id: str | None = None,
         wait_seconds: int = 0,
-    ) -> tuple[int, bool]:
-        """Return the saved count and whether to poll again without a pause.
+        stop: Event | None = None,
+        saved_out: list[ReplyRecord] | None = None,
+    ) -> tuple[list[ReplyRecord], bool]:
+        """Save replies locally before deleting them; report whether to poll again.
 
-        Polling again at once is right after replies arrived or after the
-        service held a long poll. An immediate empty, including a wait the
-        service refused (``Empty.wait_refused``), calls for the caller's
-        backoff instead.
+        Each reply is durably published to disk before its server copy is
+        deleted, so a crash or lost delete never loses a message. Polling again
+        at once is right after replies arrived or after the service held a long
+        poll. An immediate empty, including a wait the service refused
+        (``Empty.wait_refused``), calls for the caller's backoff instead.
         """
-        count = 0
+        records: list[ReplyRecord] = [] if saved_out is None else saved_out
+        initial = len(records)
         for index in range(_BATCH_SIZE):
+            if stop is not None and stop.is_set():
+                break
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
                 break
@@ -531,11 +610,11 @@ class Store:
                 # caps the read timeout: a reply claimed at the end of a wait
                 # must still arrive rather than stay held unseen.
                 wait = max(0, min(wait, math.floor(remaining - _WAIT_MARGIN)))
-            claim: p.OwnRequest = {
-                "domain": domain,
-                "topic": reply_topic,
-                "hold_seconds": 60,
-            }
+            claim: p.OwnRequest = {"domain": domain, "hold_seconds": 60}
+            if len(reply_topics) == 1:
+                claim["topic"] = reply_topics[0]
+            else:
+                claim["topics"] = list(reply_topics)
             if wait:
                 claim["wait_seconds"] = wait
             sent = time.monotonic()
@@ -550,53 +629,177 @@ class Store:
                     and not error.wait_refused
                     and time.monotonic() - sent >= wait / 2
                 )
-                return count, count > 0 or held
+                return records, len(records) > initial or held
             task = response["task"]
-            saved = self._save_reply(task, domain, reply_topic)
-            count += 1
+            saved = self._save_reply(task, domain, reply_topics)
+            records.append(saved)
             remaining = None if deadline is None else deadline - time.monotonic()
             if remaining is not None and remaining <= 0:
                 break
             try:
                 client.delete(
-                    {"domain": domain, "topic": reply_topic, "id": task["id"]},
+                    {"domain": domain, "topic": task["topic"], "id": task["id"]},
                     timeout=remaining,
                 )
             except NotFound:
                 pass  # The durable local reply already survives ID rotation.
             if origin_id is not None and saved.origin_id == origin_id:
                 break
-        return count, count > 0
+        return records, len(records) > initial
 
-    def drain(self, client: Client, domain: str, reply_topic: str) -> int:
-        """Drain a bounded batch, durably saving every reply before Delete."""
-        domain, reply_topic = _name(domain, domain=True), _name(reply_topic)
+    def _poll_batches(
+        self,
+        client: Client,
+        domain: str,
+        topics: tuple[str, ...],
+        *,
+        deadline: float | None,
+        poll_interval: float,
+        max_poll_interval: float,
+        wait_seconds: int,
+        origin_id: str | None = None,
+        stop: Event | None = None,
+    ) -> Iterator[list[ReplyRecord]]:
+        """Shared drain, transport-patience and backoff loop for wait and watch."""
+        delay = poll_interval
+        failing_since: float | None = None
+        last_prune_day = int(time.time() // 86400)
         self._automatic_prune()
-        return self._drain(client, domain, reply_topic)[0]
+        while (stop is None or not stop.is_set()) and (
+            deadline is None or time.monotonic() < deadline
+        ):
+            today = int(time.time() // 86400)
+            if today != last_prune_day:
+                self._automatic_prune()
+                last_prune_day = today
+            attempted = time.monotonic()
+            batch: list[ReplyRecord] = []
+            try:
+                _, again = self._drain(
+                    client,
+                    domain,
+                    topics,
+                    deadline=deadline,
+                    origin_id=origin_id,
+                    wait_seconds=wait_seconds,
+                    stop=stop,
+                    saved_out=batch,
+                )
+            except TransportError:
+                # Capture failure timestamp before yielding so consumer work
+                # never eats into _TRANSPORT_PATIENCE. Any saved progress starts
+                # a fresh outage window.
+                failed_at = time.monotonic()
+                if batch:
+                    failing_since = failed_at
+                elif failing_since is None:
+                    failing_since = attempted
+                yield batch
+                if stop is not None and stop.is_set():
+                    return
+                if deadline is not None and (
+                    failed_at >= deadline or time.monotonic() >= deadline
+                ):
+                    return
+                if failed_at - failing_since >= _TRANSPORT_PATIENCE:
+                    raise
+                again = False
+            else:
+                failing_since = None
+                yield batch
+            if stop is not None and stop.is_set():
+                return
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                return
+            # A held long poll or arriving batch resets backoff; an immediate
+            # empty (including wait_refused) or transport failure backs off.
+            if again:
+                if batch or wait_seconds:
+                    delay = poll_interval
+                continue
+            sleep_for = delay * uniform(0.8, 1.2)
+            if remaining is not None:
+                sleep_for = min(remaining, sleep_for)
+            if stop is not None:
+                stop.wait(sleep_for)
+            else:
+                time.sleep(sleep_for)
+            delay = min(delay * 1.5, max(poll_interval, max_poll_interval))
+
+    def drain(
+        self, client: Client, domain: str, reply_topic: str | Sequence[str]
+    ) -> int:
+        """Drain a bounded batch from 1 to 16 topics, saving locally before Delete."""
+        domain, topics = _name(domain, domain=True), _topics(reply_topic)
+        self._automatic_prune()
+        return len(self._drain(client, domain, topics)[0])
 
     def poll(
         self,
         client: Client,
         domain: str,
-        reply_topic: str,
+        reply_topic: str | Sequence[str],
         *,
         wait_seconds: int = MAX_WAIT_SECONDS,
     ) -> DrainResult:
         """Drain like :meth:`drain`, holding the first Own on the server.
 
-        For a caller that drains a topic in its own loop, such as a listener
-        on an inbox: the first Own waits up to ``wait_seconds`` for a task
-        (zero does not wait), and the rest of the batch never waits. The
-        result says whether to poll again at once or sleep first, so a
+        Accepts a single topic or 1 to 16 distinct topics (multi-topic requires
+        service 0.6.0 or later). Every reply is durably published locally before
+        its server copy is deleted. The first Own waits up to ``wait_seconds``
+        for a task (zero does not wait), and the rest of the batch never waits.
+        The result says whether to poll again at once or sleep first, so a
         refused wait (the topic's waiter limit, a deployment) does not spin.
         """
         _check_wait(wait_seconds)
-        domain, reply_topic = _name(domain, domain=True), _name(reply_topic)
+        domain, topics = _name(domain, domain=True), _topics(reply_topic)
         self._automatic_prune()
-        saved, again = self._drain(
-            client, domain, reply_topic, wait_seconds=wait_seconds
+        records, again = self._drain(client, domain, topics, wait_seconds=wait_seconds)
+        return DrainResult(len(records), again, tuple(records))
+
+    def watch(
+        self,
+        client: Client,
+        domain: str,
+        reply_topic: str | Sequence[str],
+        *,
+        timeout_seconds: float | None = None,
+        poll_interval: float = 1.0,
+        max_poll_interval: float = 30.0,
+        wait_seconds: int = MAX_WAIT_SECONDS,
+        stop: Event | None = None,
+        once: bool = False,
+    ) -> Iterator[ReplyRecord]:
+        """Yield replies from 1 to 16 topics as they arrive, saving before Delete.
+
+        With ``once=True``, yields the first non-empty arrival batch and stops.
+        Identical redeliveries after a lost Delete are yielded at least once;
+        conflicting replies are archived and yielded with ``duplicate=True``.
+        Transport errors back off and retry for five minutes before raising,
+        matching :meth:`wait`. A set ``stop`` event halts draining between
+        messages and ends sleeps promptly.
+        """
+        _check_timeout(timeout_seconds)
+        _check_poll_intervals(poll_interval, max_poll_interval, wait_seconds)
+        domain, topics = _name(domain, domain=True), _topics(reply_topic)
+        deadline = (
+            None if timeout_seconds is None else time.monotonic() + timeout_seconds
         )
-        return DrainResult(saved, again)
+        for batch in self._poll_batches(
+            client,
+            domain,
+            topics,
+            deadline=deadline,
+            poll_interval=poll_interval,
+            max_poll_interval=max_poll_interval,
+            wait_seconds=wait_seconds,
+            stop=stop,
+        ):
+            if batch:
+                yield from batch
+                if once:
+                    return
 
     def wait(
         self,
@@ -615,71 +818,26 @@ class Store:
         ``TransportError`` backs off the same way and is retried, so a service
         deployment does not end the wait; failures lasting five minutes raise.
         """
-        if not math.isfinite(timeout_seconds) or timeout_seconds < 0:
-            raise StoreError("timeout must be a nonnegative finite number of seconds")
-        if not math.isfinite(poll_interval) or poll_interval <= 0:
-            raise StoreError(
-                "poll interval must be a positive finite number of seconds"
-            )
-        if not math.isfinite(max_poll_interval) or max_poll_interval <= 0:
-            raise StoreError(
-                "maximum poll interval must be a positive finite number of seconds"
-            )
-        _check_wait(wait_seconds)
-        delay = poll_interval
-        failing_since: float | None = None
+        _check_timeout(timeout_seconds)
+        _check_poll_intervals(poll_interval, max_poll_interval, wait_seconds)
         deadline = time.monotonic() + timeout_seconds
         reply = self.reply(origin_id)
         if reply is not None:
             return reply
         record = self._required_request(origin_id)
-        self._automatic_prune()
-        while time.monotonic() < deadline:
-            attempted = time.monotonic()
-            try:
-                _, again = self._drain(
-                    client,
-                    record.domain,
-                    record.reply_topic,
-                    deadline=deadline,
-                    origin_id=origin_id,
-                    wait_seconds=wait_seconds,
-                )
-            except TransportError:
-                # A deployment or network failure ends the held poll; back off
-                # and retry. Own never reposts the request, and a reply claimed
-                # by a lost answer reappears after its 60-second hold. Failures
-                # that persist (a wrong URL, a long outage) are reported, unless
-                # the reply was saved first or the wait's own deadline cut the
-                # last attempt short.
-                if failing_since is None:
-                    failing_since = attempted
-                reply = self.reply(origin_id)
-                if reply is not None:
-                    return reply
-                now = time.monotonic()
-                if now >= deadline:
-                    return None
-                if now - failing_since >= _TRANSPORT_PATIENCE:
-                    raise
-                again = False
-            else:
-                failing_since = None
+        for _ in self._poll_batches(
+            client,
+            record.domain,
+            (record.reply_topic,),
+            deadline=deadline,
+            poll_interval=poll_interval,
+            max_poll_interval=max_poll_interval,
+            wait_seconds=wait_seconds,
+            origin_id=origin_id,
+        ):
             reply = self.reply(origin_id)
             if reply is not None:
                 return reply
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            # A held long poll already provided the delay, and the backoff
-            # starts over. An immediate empty, including a wait the service
-            # refused, and a transport failure back off.
-            if again:
-                if wait_seconds:
-                    delay = poll_interval
-                continue
-            time.sleep(min(remaining, delay * uniform(0.8, 1.2)))
-            delay = min(delay * 1.5, max(poll_interval, max_poll_interval))
         return None
 
     def inbox(self) -> list[ReplyRecord]:

@@ -21,6 +21,7 @@ _IDEMPOTENCY_KEY = re.compile(
 )
 _TOPIC_GLOB = re.compile(r"[a-z0-9.*_-]+(?:/[a-z0-9.*_-]+)*")
 _ERROR = "/error"
+MAX_OWN_TOPICS = 16
 
 
 def is_domain(value: object) -> TypeGuard[str]:

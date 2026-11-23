@@ -6,6 +6,32 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+### Added
+
+- `Store.poll`, `Store.drain` and a new `Store.watch` accept 1 to 16 distinct
+  topics (using 0.6.0 multi-topic `Own`), durably saving every reply locally
+  before deleting the server copy. `DrainResult.replies` exposes saved replies
+  in arrival order while preserving `DrainResult(saved, poll_again)` equality.
+- `tl inbox watch --topic ...` watches 1 to 16 inbox topics in `--stream`
+  (NDJSON, default) or `--once` (JSON batch) mode with `WorkerControl`
+  cross-platform stop-file shutdown.
+- `Client` reloads file-backed identity tokens on `401 unauthenticated` and
+  retries at most once per call when the token file's contents changed.
+- Named config profiles under `[profiles.<name>]` selected with `--profile` or
+  `TL_PROFILE`, inheriting top-level settings and overriding per-profile keys,
+  token files and `[worker]` tables.
+- `tl queue TOPIC [--domain DOMAIN] [--limit N]` inspects a topic's available,
+  held and lapsed tasks alongside recent pollers.
+
+### Fixed
+
+- Default Windows config and data paths pass `appauthor=False` so fresh
+  installs use `%LOCALAPPDATA%\tasklease` instead of doubling
+  `tasklease\tasklease`. Existing Windows installations keep using the legacy
+  data folder whenever it exists (never auto-moved, preventing split worker
+  locks or stop files), and `load_config` falls back to the legacy config file
+  with a warning when the new config file is absent.
+
 ## [0.7.0] - 2026-11-19
 
 ### Added

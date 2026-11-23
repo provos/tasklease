@@ -35,6 +35,7 @@ REPLY = "replied/agent-1"
 TASK = "t_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 TASK2 = "t_01ARZ3NDEKTSV4RRFFQ69G5FAW"
 TASK3 = "t_01ARZ3NDEKTSV4RRFFQ69G5FAX"
+TASK4 = "t_01ARZ3NDEKTSV4RRFFQ69G5FAY"
 KEY = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f"
 
 
@@ -1452,3 +1453,202 @@ def test_poll_on_a_fake_board_reports_a_refused_wait(tmp_path: Path) -> None:
     store = Store("agent-1", tmp_path)
     result = store.poll(board.client("listen-token"), DOMAIN, REPLY)
     assert result == DrainResult(0, False)
+    assert result.replies == ()
+
+
+def test_windows_default_root_prefers_existing_legacy_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    preferred = tmp_path / "tasklease"
+    legacy = preferred / "tasklease"
+
+    def fake_user_data_path(app: str, *, appauthor: object = None) -> Path:
+        assert app == "tasklease"
+        return preferred if appauthor is False else legacy
+
+    monkeypatch.setattr("tasklease.store.sys.platform", "win32")
+    monkeypatch.setattr("tasklease.store.user_data_path", fake_user_data_path)
+    assert stores.default_root() == preferred
+
+    # A regular file at the legacy path is not treated as a data directory.
+    preferred.mkdir(parents=True)
+    legacy.write_text("not a directory")
+    assert stores.default_root() == preferred
+    legacy.unlink()
+
+    # Existing legacy folder is always preferred to prevent split locks/stop files.
+    legacy.mkdir(parents=True)
+    assert stores.default_root() == legacy
+
+
+def test_multi_topic_poll_and_drain_save_before_delete_and_preserve_compat(
+    tmp_path: Path,
+) -> None:
+    now_ms = 1_800_000_000_000
+    board = FakeBoard(DOMAIN, clock=lambda: now_ms)
+    board.add_identity(
+        "sender", "send-token", create=["inbox/personal", "inbox/role/windows"]
+    )
+    board.add_identity(
+        "receiver", "recv-token", own=["inbox/personal", "inbox/role/windows"]
+    )
+    sender = board.client("send-token")
+    receiver = board.client("recv-token")
+    first_id = sender.create(
+        {"domain": DOMAIN, "topic": "inbox/personal", "data": {"msg": "one"}}
+    )["id"]
+    now_ms += 10
+    second_id = sender.create(
+        {"domain": DOMAIN, "topic": "inbox/role/windows", "data": {"msg": "two"}}
+    )["id"]
+    store = Store("win-agent", tmp_path)
+    result = store.poll(
+        receiver, DOMAIN, ["inbox/personal", "inbox/role/windows"], wait_seconds=0
+    )
+    assert result == DrainResult(2, True)
+    assert [(r.origin_id, r.topic, r.data) for r in result.replies] == [
+        (first_id, "inbox/personal", {"msg": "one"}),
+        (second_id, "inbox/role/windows", {"msg": "two"}),
+    ]
+    assert board.tasks == {}
+    assert len(store.inbox()) == 2
+
+    # Direct single-topic _save_reply call remains backwards compatible.
+    third_id = sender.create(
+        {"domain": DOMAIN, "topic": "inbox/personal", "data": {"msg": "three"}}
+    )["id"]
+    owned = receiver.own(
+        {"domain": DOMAIN, "topic": "inbox/personal", "hold_seconds": 60}
+    )["task"]
+    saved = store._save_reply(owned, DOMAIN, "inbox/personal")
+    assert saved.origin_id == third_id
+
+
+def test_multi_topic_validation_rejects_bad_sequences(
+    store: Store, client: Client
+) -> None:
+    for bad in ([], [REPLY, REPLY], [f"reply/{i}" for i in range(17)], b"reply/a"):
+        with pytest.raises(StoreError, match="reply_topic"):
+            store.poll(client, DOMAIN, cast(list[str], bad), wait_seconds=0)
+
+
+def test_watch_once_stream_and_partial_batch_transport_error(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+
+    # once=True yields the first non-empty batch and returns.
+    backend.replies = [
+        task({"n": 1}, TASK, origin_id=TASK),
+        task({"n": 2}, TASK2, origin_id=TASK2),
+    ]
+    got = list(
+        store.watch(client, DOMAIN, [REPLY, "reply/other"], once=True, wait_seconds=0)
+    )
+    assert [r.data for r in got] == [{"n": 1}, {"n": 2}]
+    assert backend.owns[0]["topics"] == [REPLY, "reply/other"]
+
+    # Partial batch where Delete fails on the second item still yields saved items.
+    backend.replies = [
+        task({"n": 3}, TASK3, origin_id=TASK3),
+        task({"n": 4}, TASK4, origin_id=TASK4),
+    ]
+    delete_calls = 0
+
+    def fail_second_delete() -> None:
+        nonlocal delete_calls
+        delete_calls += 1
+        if delete_calls == 2:
+            lost_response()
+
+    backend.on_delete = fail_second_delete
+    stop = threading.Event()
+    streamed = []
+    for record in store.watch(
+        client, DOMAIN, REPLY, stop=stop, wait_seconds=0, timeout_seconds=5
+    ):
+        streamed.append(record.data)
+        if len(streamed) == 2:
+            stop.set()
+    assert streamed == [{"n": 3}, {"n": 4}]
+
+
+def test_conflicting_duplicate_reply_is_reported_in_poll_and_watch(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    backend.replies = [
+        task({"result": "first"}, TASK, origin_id=TASK),
+        task({"result": "second"}, TASK2, origin_id=TASK),
+    ]
+    result = store.poll(client, DOMAIN, REPLY, wait_seconds=0)
+    assert result == DrainResult(2, True)
+    assert [(r.data, r.duplicate) for r in result.replies] == [
+        ({"result": "first"}, False),
+        ({"result": "second"}, True),
+    ]
+
+    # Redelivery of an already-archived conflicting duplicate keeps duplicate=True.
+    backend.replies = [task({"result": "second"}, TASK3, origin_id=TASK)]
+    watched = list(store.watch(client, DOMAIN, REPLY, once=True, wait_seconds=0))
+    assert len(watched) == 1
+    assert watched[0].data == {"result": "second"}
+    assert watched[0].duplicate is True
+
+
+def test_watch_stops_mid_drain_and_resets_backoff_when_wait_zero(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+
+    # Stop event halts multi-item drain between messages.
+    stop = threading.Event()
+    backend.replies = [
+        task({"n": 1}, TASK, origin_id=TASK),
+        task({"n": 2}, TASK2, origin_id=TASK2),
+    ]
+    backend.on_delete = stop.set
+    got = list(store.watch(client, DOMAIN, REPLY, stop=stop, wait_seconds=0))
+    assert [r.data for r in got] == [{"n": 1}]
+    assert len(backend.replies) == 1
+
+    # With wait_seconds=0, idle backoff resets after an arrival.
+    backend.on_delete = lambda: None
+    backend.replies = []
+    calls = 0
+
+    def arrive_on_fourth() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 4:
+            backend.replies.append(task({"n": 3}, TASK3, origin_id=TASK3))
+
+    backend.on_own = arrive_on_fourth
+    clock.sleeps.clear()
+    list(
+        store.watch(
+            client,
+            DOMAIN,
+            REPLY,
+            timeout_seconds=10,
+            poll_interval=1.0,
+            max_poll_interval=4.0,
+            wait_seconds=0,
+        )
+    )
+    # Backoff climbed (1, 1.5, 2.25), then reset back to 1.0 after arrival on call 4.
+    assert clock.sleeps[:4] == [1.0, 1.5, 2.25, 1.0]
+
+    # timeout_seconds=0 returns immediately without polling.
+    before = len(backend.owns)
+    assert list(store.watch(client, DOMAIN, REPLY, timeout_seconds=0)) == []
+    assert len(backend.owns) == before

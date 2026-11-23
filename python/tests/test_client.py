@@ -852,3 +852,195 @@ def test_create_without_key_does_not_probe_version_on_invalid() -> None:
     ) as client:
         with pytest.raises(Invalid):
             client.create({"domain": "acme/pipeline", "topic": "work", "data": {}})
+
+
+def test_client_reloads_rotated_token_once_on_unauthenticated() -> None:
+    seen: list[str] = []
+    current_disk_token = "tl_new-token"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers["authorization"])
+        if request.headers["authorization"] != "Bearer tl_new-token":
+            return httpx.Response(
+                401,
+                json={
+                    "ok": False,
+                    "error": {"code": "unauthenticated", "message": "Invalid token"},
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "name": "mac-1",
+                "domains": ["acme"],
+                "scopes": {"create": [], "own": [], "read": []},
+                "operator": False,
+            },
+        )
+
+    loader_calls = 0
+
+    def load_token() -> str:
+        nonlocal loader_calls
+        loader_calls += 1
+        return current_disk_token
+
+    with Client(
+        "https://tasks.example",
+        "tl_old-token",
+        transport=httpx.MockTransport(handler),
+        token_loader=load_token,
+    ) as client:
+        assert client.identity_whoami({})["name"] == "mac-1"
+        assert client.identity_whoami({})["name"] == "mac-1"
+
+    assert seen == [
+        "Bearer tl_old-token",
+        "Bearer tl_new-token",
+        "Bearer tl_new-token",
+    ]
+    assert loader_calls == 1
+
+
+def test_client_stops_retrying_401_when_token_unchanged_or_rejected() -> None:
+    from tasklease.errors import ConfigError, Unauthenticated
+
+    attempts = 0
+
+    def reject(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        sent = request.headers["authorization"].removeprefix("Bearer ")
+        return httpx.Response(
+            401,
+            json={
+                "ok": False,
+                "error": {"code": "unauthenticated", "message": f"bad {sent}"},
+            },
+        )
+
+    # Same token on disk -> no retry.
+    with Client(
+        "https://tasks.example",
+        "tl_same-token",
+        transport=httpx.MockTransport(reject),
+        token_loader=lambda: "tl_same-token",
+    ) as client:
+        with pytest.raises(Unauthenticated) as caught:
+            client.identity_whoami({})
+    assert attempts == 1
+    assert "tl_same-token" not in str(caught.value)
+
+    # Changed token that also fails -> at most one retry (2 total attempts) and redacts.
+    attempts = 0
+    tokens = iter(["tl_second-token", "tl_third-token"])
+    with Client(
+        "https://tasks.example",
+        "tl_first-token",
+        transport=httpx.MockTransport(reject),
+        token_loader=lambda: next(tokens),
+    ) as client:
+        with pytest.raises(Unauthenticated) as caught:
+            client.identity_whoami({})
+    assert attempts == 2
+    assert "tl_second-token" not in str(caught.value)
+
+    # Reload failure (ConfigError, OSError, or invalid token) raises Unauthenticated.
+    for loader in (
+        lambda: (_ for _ in ()).throw(ConfigError("chmod 600")),
+        lambda: (_ for _ in ()).throw(OSError("transient read failure")),
+        lambda: "invalid token with spaces",
+    ):
+        attempts = 0
+        with Client(
+            "https://tasks.example",
+            "tl_first-token",
+            transport=httpx.MockTransport(reject),
+            token_loader=loader,
+        ) as client:
+            with pytest.raises(Unauthenticated):
+                client.identity_whoami({})
+        assert attempts == 1
+
+
+def test_client_401_retry_respects_call_timeout_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 100.0
+    monkeypatch.setattr("tasklease.client.time.monotonic", lambda: now)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal now
+        now += 6.0
+        return httpx.Response(
+            401,
+            json={
+                "ok": False,
+                "error": {"code": "unauthenticated", "message": "expired"},
+            },
+        )
+
+    with Client(
+        "https://tasks.example",
+        "tl_old",
+        transport=httpx.MockTransport(handler),
+        token_loader=lambda: "tl_new",
+    ) as client:
+        with pytest.raises(TransportError):
+            client.create(
+                {"domain": "acme/pipeline", "topic": "work", "data": {}}, timeout=5.0
+            )
+
+
+def test_client_token_reload_is_thread_safe_under_concurrent_401() -> None:
+    import threading
+
+    barrier = threading.Barrier(2)
+    loader_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.headers["authorization"] == "Bearer tl_old":
+            barrier.wait(timeout=5)
+            return httpx.Response(
+                401,
+                json={
+                    "ok": False,
+                    "error": {"code": "unauthenticated", "message": "expired"},
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "name": "mac-1",
+                "domains": ["acme"],
+                "scopes": {"create": [], "own": [], "read": []},
+                "operator": False,
+            },
+        )
+
+    def load_token() -> str:
+        nonlocal loader_calls
+        loader_calls += 1
+        return "tl_fresh"
+
+    results: list[str] = []
+    with Client(
+        "https://tasks.example",
+        "tl_old",
+        transport=httpx.MockTransport(handler),
+        token_loader=load_token,
+    ) as client:
+        threads = [
+            threading.Thread(
+                target=lambda: results.append(client.identity_whoami({})["name"])
+            )
+            for _ in range(2)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+    assert results == ["mac-1", "mac-1"]
+    assert loader_calls == 1

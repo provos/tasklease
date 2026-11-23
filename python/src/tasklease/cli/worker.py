@@ -19,6 +19,7 @@ from tasklease.cli.common import (
     flag,
     optional_text,
     output,
+    state_dir,
     text,
     wait_seconds,
 )
@@ -47,13 +48,6 @@ def _template(args: argparse.Namespace) -> int:
     )
     sys.stdout.write(resource.read_text(encoding="utf-8"))
     return 0
-
-
-def _table(values: dict[str, object]) -> dict[str, object]:
-    value = values.get("worker", {})
-    if not isinstance(value, dict):
-        raise ConfigError("worker must be a TOML table")
-    return cast(dict[str, object], value)
 
 
 def _setting(
@@ -118,23 +112,27 @@ def _handler(value: str) -> Handler[object, object]:
     return cast(Handler[object, object], instance)
 
 
-def _root(args: argparse.Namespace) -> Path | None:
-    value: object = getattr(args, "state_dir", None)
-    if value is not None and not isinstance(value, Path):
-        raise ConfigError("state-dir must be a path")
-    return value
+def _worker_settings(
+    base: dict[str, object], override: dict[str, object]
+) -> dict[str, object]:
+    """Merge profile [worker] overrides onto base [worker] without topic collisions."""
+    merged = dict(base)
+    if ("topic" in override) ^ ("topics" in override):
+        merged.pop("topics" if "topic" in override else "topic", None)
+    merged.update(override)
+    return merged
 
 
 def _stop(args: argparse.Namespace) -> int:
     label = optional_text(args, "worker") or configuration(args).worker_label
-    path = request_stop(label, _root(args))
+    path = request_stop(label, state_dir(args))
     output({"ok": True, "worker": label, "stop_file": str(path)})
     return 0
 
 
 def _run(args: argparse.Namespace) -> int:
     config = configuration(args)
-    settings = _table(config.values)
+    settings = _worker_settings(*config.table_layers("worker"))
     selected = _text(optional_text(args, "domain") or config.domain, "domain")
     topic = validate_work_topics(_work_topics(args, settings))
     lease = _seconds(_setting(args, settings, "lease", 600), "lease")
@@ -155,10 +153,10 @@ def _run(args: argparse.Namespace) -> int:
         )
     handler = _handler(_text(_setting(args, settings, "handler", "echo"), "handler"))
     label = optional_text(args, "worker") or config.worker_label
-    with WorkerControl(label, _root(args)) as control:
+    with WorkerControl(label, state_dir(args)) as control:
         if control.stop.is_set():
             return 0
-        with client(args) as api:
+        with client(args, config=config) as api:
             capacity = UnlimitedCapacity()
             loop = WorkerLoop(
                 api,

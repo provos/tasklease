@@ -26,7 +26,7 @@ from tasklease.errors import (
     TransportError,
 )
 from tasklease.generated import protocol as p
-from tasklease.names import error_topic, is_domain, is_topic
+from tasklease.names import MAX_OWN_TOPICS, error_topic, is_domain, is_topic
 
 _ERROR_LIMIT = 128 * 1024
 # A hand-back after stop is best effort; this caps each of its HTTP phases.
@@ -92,11 +92,15 @@ def validate_work_topics(
         return validate_work_topic(topic)
     if not isinstance(topic, (list, tuple)):
         raise Invalid("worker topics must be a list or tuple of topic names")
-    if not 1 <= len(topic) <= 16:
-        raise Invalid("worker topics must contain 1 to 16 distinct names")
+    if not 1 <= len(topic) <= MAX_OWN_TOPICS:
+        raise Invalid(
+            f"worker topics must contain 1 to {MAX_OWN_TOPICS} distinct names"
+        )
     topics = tuple(validate_work_topic(name) for name in topic)
     if len(set(topics)) != len(topics):
-        raise Invalid("worker topics must contain 1 to 16 distinct names")
+        raise Invalid(
+            f"worker topics must contain 1 to {MAX_OWN_TOPICS} distinct names"
+        )
     return topics
 
 

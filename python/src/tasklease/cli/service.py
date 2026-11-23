@@ -78,9 +78,17 @@ def _text(args: argparse.Namespace, name: str) -> str | None:
     return value
 
 
+def _service_environment(args: argparse.Namespace) -> dict[str, str]:
+    if getattr(args, "profile", None) is not None:
+        raise ConfigError("--profile is not supported for service commands")
+    environment = dict(os.environ)
+    environment.pop("TL_PROFILE", None)
+    return environment
+
+
 def _run_deploy(args: argparse.Namespace) -> int:
     try:
-        environment = dict(os.environ)
+        environment = _service_environment(args)
         key_id = _text(args, "r2_access_key_id") or environment.get(
             "TL_R2_ACCESS_KEY_ID"
         )
@@ -117,7 +125,7 @@ def _run_deploy(args: argparse.Namespace) -> int:
 
 def _run_status(args: argparse.Namespace) -> int:
     try:
-        environment = dict(os.environ)
+        environment = _service_environment(args)
         override = _text(args, "url")
         if override is not None:
             environment["TL_URL"] = override

@@ -70,6 +70,7 @@ def cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CLI:
         "TL_WORKER",
         "TL_TOKEN",
         "TL_ADMIN_TOKEN",
+        "TL_PROFILE",
         "TL_R2_ACCESS_KEY_ID",
         "TL_R2_SECRET_ACCESS_KEY",
         "CLOUDFLARE_API_TOKEN",
@@ -89,8 +90,20 @@ def cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CLI:
         command.requests.append(request)
         return command.respond(request)
 
-    def factory(url: str, token: str, worker_label: str = "cli") -> Client:
-        return Client(url, token, worker_label, transport=httpx.MockTransport(record))
+    def factory(
+        url: str,
+        token: str,
+        worker_label: str = "cli",
+        *,
+        token_loader: Callable[[], str] | None = None,
+    ) -> Client:
+        return Client(
+            url,
+            token,
+            worker_label,
+            transport=httpx.MockTransport(record),
+            token_loader=token_loader,
+        )
 
     monkeypatch.setattr("tasklease.cli.common.Client", factory)
     return command
@@ -279,10 +292,12 @@ def test_declare_uses_one_config_snapshot_for_domain_and_connection(
 ) -> None:
     reads = 0
 
-    def load_then_change_settings(path: Path | str | None = None) -> Config:
+    def load_then_change_settings(
+        path: Path | str | None = None, *, profile: str | None = None
+    ) -> Config:
         nonlocal reads
         reads += 1
-        selected = load_config(path)
+        selected = load_config(path, profile=profile)
         cli.config.write_text(
             'url="https://changed.example"\ndomain="changed"\nworker_label="changed"\n'
         )
@@ -323,7 +338,10 @@ def test_cli_help_shows_platform_config_fallback(
     arguments: list[str],
 ) -> None:
     directory = Path(tmp_path.anchor) / folder
-    monkeypatch.setattr("tasklease.cli.common.user_config_path", lambda app: directory)
+    monkeypatch.setattr(
+        "tasklease.config.user_config_path",
+        lambda app, *, appauthor=None: directory,
+    )
     with pytest.raises(SystemExit) as caught:
         main(arguments)
     assert caught.value.code == 0
@@ -708,3 +726,144 @@ def test_deploy_without_node_explains_how_to_proceed(
     assert "Install Node.js" in captured.err
     assert "npx" in captured.err
     assert cli.requests == []
+
+
+def test_cli_profile_selects_token_and_reloads_rotated_token_on_401(
+    cli: CLI, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("TL_TOKEN")
+    adviser_token = cli.config.with_name("adviser.token")
+    adviser_token.write_text("tl_adviser-old\n")
+    adviser_token.chmod(0o600)
+    cli.config.write_text(
+        'url = "https://file.example"\n'
+        'domain = "default-only"\n'
+        "[profiles.adviser]\n"
+        'worker_label = "adviser-cli"\n'
+        '[profiles.adviser.token]\nfile = "adviser.token"\n'
+    )
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.headers["authorization"] == "Bearer tl_adviser-old":
+            adviser_token.write_text("tl_adviser-new\n")
+            return httpx.Response(
+                401,
+                json={
+                    "ok": False,
+                    "error": {"code": "unauthenticated", "message": "rotated"},
+                },
+            )
+        return httpx.Response(200, json=example("identity.whoami"))
+
+    cli.respond = respond
+    assert cli.run(["--profile", "adviser", "whoami"]) == 0
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+    assert [r.headers["authorization"] for r in cli.requests] == [
+        "Bearer tl_adviser-old",
+        "Bearer tl_adviser-new",
+    ]
+    assert cli.requests[0].headers["x-worker"] == "adviser-cli"
+
+
+def test_queue_command_reports_states_counts_pollers_and_truncation(
+    cli: CLI, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    now_ms = 2_000_000_000_000
+    monkeypatch.setattr("tasklease.cli.tasks.time.time_ns", lambda: now_ms * 1_000_000)
+    tasks_page = [
+        {
+            "id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "origin_id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "created_at": now_ms - 12_500,
+            "lease_until": now_ms - 17_500,
+            "owned_count": 0,
+            "creator": "mac-1",
+            "owner": None,
+            "owned_at": None,
+            "state": "available",
+        },
+        {
+            # Client clock is ahead of lease_until, but server says held: trust server.
+            "id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+            "origin_id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAW",
+            "created_at": now_ms - 30_000,
+            "lease_until": now_ms - 5_000,
+            "owned_count": 1,
+            "creator": "mac-1",
+            "owner": {"identity": "linux-1", "worker": "verify-a"},
+            "owned_at": now_ms - 10_000,
+            "state": "held",
+        },
+        {
+            "id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAX",
+            "origin_id": "t_01ARZ3NDEKTSV4RRFFQ69G5FAX",
+            "created_at": now_ms - 90_000,
+            "lease_until": now_ms - 1_000,
+            "owned_count": 1,
+            "creator": "mac-1",
+            "owner": {"identity": "linux-1", "worker": "verify-a"},
+            "owned_at": now_ms - 80_000,
+            "state": "available",
+        },
+    ]
+    pollers = [
+        {
+            "identity": "linux-1",
+            "worker": "verify-a",
+            "last_polled_at": now_ms - 5_000,
+            "last_owned_at": now_ms - 10_000,
+        }
+    ]
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if operation(request) == "tasks.list":
+            if body(request).get("cursor") == "page-2":
+                return httpx.Response(200, json={"ok": True, "tasks": tasks_page[2:]})
+            return httpx.Response(
+                200,
+                json={"ok": True, "tasks": tasks_page[:2], "cursor": "page-2"},
+            )
+        if operation(request) == "topic.pollers":
+            return httpx.Response(200, json={"ok": True, "pollers": pollers})
+        pytest.fail(f"Unexpected operation {operation(request)}")
+
+    cli.respond = respond
+    assert cli.run(["queue", "verify/linux"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["domain"] == "default-only"
+    assert result["topic"] == "verify/linux"
+    assert result["counts"] == {"available": 1, "held": 1, "lapsed": 1, "total": 3}
+    assert result["truncated"] is False
+    assert [t["state"] for t in result["tasks"]] == ["available", "held", "lapsed"]
+    assert [t["age_seconds"] for t in result["tasks"]] == [12, 30, 90]
+    assert result["pollers"] == pollers
+
+    # Exact page boundary with more pages reports truncated=True without extra RPC.
+    assert cli.run(["queue", "verify/linux", "--limit", "2"]) == 0
+    limited = json.loads(capsys.readouterr().out)
+    assert limited["counts"]["total"] == 2
+    assert limited["truncated"] is True
+
+    # Invalid topic or limit fails locally before network.
+    before = len(cli.requests)
+    assert cli.run(["queue", "Bad Topic"]) == 1
+    assert "topic" in capsys.readouterr().err
+    for bad_limit in ("0", "-1"):
+        assert cli.run(["queue", "verify/linux", "--limit", bad_limit]) == 1
+        assert "limit" in capsys.readouterr().err
+    assert len(cli.requests) == before
+
+
+def test_service_commands_ignore_tl_profile_and_reject_profile_flag(
+    cli: CLI, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("TL_PROFILE", "adviser")
+    monkeypatch.setattr(
+        "tasklease.cli.service.status",
+        lambda config, environ: {"profile": config.profile, "ok": True},
+    )
+    assert cli.run(["service", "status"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"profile": None, "ok": True}
+
+    assert cli.run(["--profile", "adviser", "service", "status"]) == 4
+    assert "--profile" in capsys.readouterr().err

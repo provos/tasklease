@@ -153,6 +153,7 @@ def cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CLI:
         "TL_WORKER",
         "TL_TOKEN",
         "TL_ADMIN_TOKEN",
+        "TL_PROFILE",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("TL_TOKEN", "tl_test-token")
@@ -160,7 +161,7 @@ def cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CLI:
     config.write_text(f'url="https://file.example"\nagent_id="{AGENT}"\n')
     command = CLI(config, tmp_path / "data", [])
 
-    def data_path(appname: str) -> Path:
+    def data_path(appname: str, *, appauthor: object = None) -> Path:
         assert appname == "tasklease"
         return command.root
 
@@ -168,8 +169,20 @@ def cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CLI:
         command.requests.append(request)
         return command.respond(request)
 
-    def factory(url: str, token: str, worker_label: str = "cli") -> Client:
-        return Client(url, token, worker_label, transport=httpx.MockTransport(record))
+    def factory(
+        url: str,
+        token: str,
+        worker_label: str = "cli",
+        *,
+        token_loader: Callable[[], str] | None = None,
+    ) -> Client:
+        return Client(
+            url,
+            token,
+            worker_label,
+            transport=httpx.MockTransport(record),
+            token_loader=token_loader,
+        )
 
     monkeypatch.setattr("tasklease.store.user_data_path", data_path)
     monkeypatch.setattr("tasklease.cli.common.Client", factory)
@@ -698,3 +711,151 @@ def test_request_without_wait_ignores_the_wait_setting(
     cli.respond = lambda request: httpx.Response(200, json={"ok": True, "id": TASK_ID})
     assert cli.run(request_args()) == 0
     assert json.loads(capsys.readouterr().out)["state"] == "pending"
+
+
+def test_inbox_watch_once_and_stream_support_multi_topic_and_stop_file(
+    cli: CLI, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from tasklease.worker_control import request_stop
+
+    with cli.config.open("a") as config:
+        config.write(f'domain = "{DOMAIN}"\n')
+
+    # --once returns the first non-empty batch across multiple topics as JSON.
+    responses = [
+        reply({"msg": "first"}, task_id=REPLY_ID, topic="reply/a", origin_id=TASK_ID),
+        reply({"msg": "second"}, task_id=OTHER_ID, topic="reply/b", origin_id=OTHER_ID),
+        empty(),
+    ]
+    owns: list[dict[str, object]] = []
+    deletes: list[dict[str, object]] = []
+
+    def respond_once(request: httpx.Request) -> httpx.Response:
+        if operation(request) == "own":
+            owns.append(body(request))
+            return responses.pop(0)
+        assert operation(request) == "delete"
+        deletes.append(body(request))
+        return httpx.Response(200, json={"ok": True})
+
+    cli.respond = respond_once
+    assert (
+        cli.run(
+            [
+                "inbox",
+                "watch",
+                "--topic",
+                "reply/a",
+                "--topic",
+                "reply/b",
+                "--once",
+                "--wait-seconds",
+                "0",
+                "--state-dir",
+                str(tmp_path / "state"),
+            ]
+        )
+        == 0
+    )
+    out = json.loads(capsys.readouterr().out)
+    assert [item["data"] for item in out["replies"]] == [
+        {"msg": "first"},
+        {"msg": "second"},
+    ]
+    assert owns[0]["topics"] == ["reply/a", "reply/b"]
+    assert [item["topic"] for item in deletes] == ["reply/a", "reply/b"]
+
+    # --stream emits NDJSON and stops cleanly when a stop file is created.
+    state_dir = tmp_path / "stream-state"
+    stream_origin = "t_01ARZ3NDEKTSV4RRFFQ69G5FAZ"
+    stream_responses = [
+        reply(
+            {"msg": "streamed"},
+            task_id=stream_origin,
+            topic="reply/a",
+            origin_id=stream_origin,
+        ),
+    ]
+
+    def respond_stream(request: httpx.Request) -> httpx.Response:
+        if operation(request) == "own":
+            if stream_responses:
+                return stream_responses.pop(0)
+            request_stop("cli", state_dir)
+            return empty()
+        assert operation(request) == "delete"
+        return httpx.Response(200, json={"ok": True})
+
+    cli.respond = respond_stream
+    assert (
+        cli.run(
+            [
+                "inbox",
+                "watch",
+                "--topic",
+                "reply/a",
+                "--stream",
+                "--wait-seconds",
+                "0",
+                "--state-dir",
+                str(state_dir),
+            ]
+        )
+        == 0
+    )
+    lines = [
+        json.loads(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.strip()
+    ]
+    assert len(lines) == 1 and lines[0]["data"] == {"msg": "streamed"}
+
+    # --once returns exit code 3 on timeout.
+    cli.respond = lambda request: empty()
+    assert (
+        cli.run(
+            [
+                "inbox",
+                "watch",
+                "--topic",
+                "reply/a",
+                "--once",
+                "--timeout",
+                "1s",
+                "--poll-interval",
+                "1s",
+                "--wait-seconds",
+                "0",
+                "--state-dir",
+                str(tmp_path / "timeout-state"),
+            ]
+        )
+        == 3
+    )
+    assert json.loads(capsys.readouterr().out) == {"replies": [], "timed_out": True}
+
+    # Pre-existing stop file exits cleanly without polling.
+    prestopped = tmp_path / "prestopped-state"
+    request_stop("cli", prestopped)
+    before = len(cli.requests)
+    assert (
+        cli.run(
+            [
+                "inbox",
+                "watch",
+                "--topic",
+                "reply/a",
+                "--once",
+                "--state-dir",
+                str(prestopped),
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out) == {"replies": [], "stopped": True}
+    assert len(cli.requests) == before
+
+    # Duplicate topics fail locally before network.
+    assert cli.run(["inbox", "watch", "--topic", "reply/a", "--topic", "reply/a"]) == 1
+    assert "distinct" in capsys.readouterr().err
+    assert len(cli.requests) == before
