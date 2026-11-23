@@ -273,7 +273,8 @@ commit does not remove metadata from earlier Git commits or existing clones.
 ## Native macOS and Windows checks
 
 Use a fresh virtual environment outside the extracted source, install the
-provided wheel plus `pytest>=8,<10` and `jsonschema>=4,<5`, then run:
+provided wheel plus `pytest>=8,<10`, `jsonschema>=4,<5`, and `hypothesis>=6,<7`,
+then run:
 
 ```sh
 PATH_TO_VENV_PYTHON PATH_TO_BUNDLE/source/scripts/native_acceptance.py \
@@ -299,8 +300,8 @@ produce a passing report.
 Use [the Windows agent prompt](windows-agent-prompt.md) for exact PowerShell
 steps and the required result. Do not weaken package security checks if a
 new development dependency is blocked by a minimum-age policy; native runtime
-acceptance does not need codegen dependencies. An age-qualified pytest and
-JSON Schema environment is sufficient. Native results do not by themselves
+acceptance does not need codegen dependencies. The runtime test tools listed
+above are sufficient. Native results do not by themselves
 prove physical power-loss behavior or unsupported network filesystems.
 
 Before release, also run the isolated Cloudflare/R2 checks and upgrade

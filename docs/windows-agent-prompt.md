@@ -39,7 +39,7 @@ uv venv --python 3.12 $venv
 if ($LASTEXITCODE -ne 0) { throw 'Could not create the acceptance environment' }
 $python = Join-Path $venv 'Scripts\python.exe'
 $cutoff = [DateTime]::UtcNow.AddDays(-7).ToString('yyyy-MM-ddTHH:mm:ssZ')
-uv pip install --python $python --exclude-newer $cutoff $wheel 'pytest>=8,<10' 'jsonschema>=4,<5'
+uv pip install --python $python --exclude-newer $cutoff $wheel 'pytest>=8,<10' 'jsonschema>=4,<5' 'hypothesis>=6,<7'
 if ($LASTEXITCODE -ne 0) { throw 'Could not install the acceptance dependencies' }
 
 $report = Join-Path $base 'native-report.json'

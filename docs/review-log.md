@@ -1569,3 +1569,50 @@ revoked. Synthetic probe blobs are covered by the existing retention rule.
 | --- | --- |
 | `tasklease-0.7.0-py3-none-any.whl` | `bda4f681b77dd9bc74bd654b89b6b8838f853150084f6e66171549a293209d4d` |
 | `tasklease-0.7.0.tar.gz` | `8f7c18c3b21756aeed0641898dab5d66746034996a653abcfb77554761e07c16` |
+
+## 0.7.1 candidate acceptance (2026-11-22)
+
+Candidate `66858d1bee8b5ff750dfe6b00d589f80e1f8ad7b` was built from a clean
+checkout after [PR #26](https://github.com/provos/tasklease/pull/26). The bump
+changed no locked dependency versions or Worker source, protocol or storage
+schema.
+
+- `make install`, `make check` and `make build` passed. The first install
+  encountered a missing file in the shared uv cache and passed with a fresh
+  cache. The dependency policy verified 301 registry versions and npm audit
+  found zero vulnerabilities. The service and dashboard passed 247 and 51
+  tests. Python and tooling passed 1,309 with 3 platform skips. Conformance
+  passed 520 with 37 expected backend and platform skips.
+- `make model-check` passed all five configurations and rejected all six
+  deliberately broken models. Both distributions passed metadata, license,
+  bundled Worker and dashboard inspections, including each wheel `RECORD`
+  hash and agreement between the packaged wheel and sdist files.
+- The exact wheel and acceptance ZIP passed installed-wheel and no-Node
+  checks on macOS and Linux (1,192 passed and 3 Windows-only skips each) and
+  Windows (1,177 passed and 18 platform skips). Native Windows file sharing
+  and both Task Scheduler COM parser tests passed. A native path probe
+  verified the single-directory config path and existing Store location.
+  Runtime tests verified the legacy config and token fallback. Private
+  native reports and logs were retained with the candidate.
+- The installed 0.7.1 wheel upgraded the separate Cloudflare acceptance Worker
+  from 0.7.0. Its preflight confirmed the existing bucket, credentials and
+  retention rule. The upgrade preserved a scoped identity, a queued request,
+  a held lease and historical latency stats. The exact PyPI 0.7.0 requester
+  and worker completed an echo submitted before the upgrade and another
+  submitted after it, preserving both task origins. The deploy probe passed,
+  and live R2 rejected an incorrect signed `Content-Length` and returned the
+  exact bytes for a correct upload.
+- With both Worker versions, the installed 0.7.1 CLI selected named profiles,
+  reported all three queue states with pollers and truncation, drained two
+  inbox topics into durable local storage, streamed NDJSON, and stopped
+  through `tl inbox stop`. The 0.7.1 Worker accepted the new file-backed token
+  on one reload and retry by a running client after a real 401. The first
+  post-upgrade rotation check hit the documented 60-second Worker token
+  cache. The repeat waited for expiry and confirmed one reload. Test queues
+  were cleared and temporary identities revoked.
+
+| Candidate artifact | SHA-256 |
+| --- | --- |
+| Wheel | `3b110e3a855e5b370378acdb973da527b5cd406665ef55961fc0ab611ec5c664` |
+| Source distribution | `224b4a97ad873e702136e1646cf9fcf2e406906fdfe922a6a23895aea2187d30` |
+| Native acceptance ZIP | `f755a8ce55ee8cc6a56e303d06ac9551eb29a933aff5425b66479c7041cb0ab1` |
