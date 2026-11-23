@@ -10,10 +10,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from platformdirs import user_config_path
-
 from tasklease.client import MAX_WAIT_SECONDS, Client
-from tasklease.config import Config, load_config
+from tasklease.config import Config, default_config_path, load_config
 from tasklease.errors import ConfigError
 from tasklease.names import is_domain
 
@@ -23,15 +21,19 @@ def config_option(parser: argparse.ArgumentParser) -> None:
         "--config",
         type=Path,
         default=argparse.SUPPRESS,
-        help=(
-            "Config file (default: TL_CONFIG or "
-            f"{user_config_path('tasklease') / 'config.toml'})"
-        ).replace("%", "%%"),  # argparse interpolates help with the % operator.
+        help=(f"Config file (default: TL_CONFIG or {default_config_path()})").replace(
+            "%", "%%"
+        ),  # argparse interpolates help with the % operator.
     )
 
 
 def connection_options(parser: argparse.ArgumentParser) -> None:
     config_option(parser)
+    parser.add_argument(
+        "--profile",
+        default=argparse.SUPPRESS,
+        help="Named config profile under [profiles.<name>] (default: TL_PROFILE)",
+    )
     parser.add_argument("--url", default=argparse.SUPPRESS)
     parser.add_argument("--worker", default=argparse.SUPPRESS)
 
@@ -74,12 +76,12 @@ def wait_seconds(value: object) -> int:
 def requester_wait_seconds(
     args: argparse.Namespace, *, config: Config | None = None
 ) -> int:
-    """`--wait-seconds`, else the config's top-level `wait_seconds`, else 30."""
+    """`--wait-seconds`, else the config's `wait_seconds`, else 30."""
     value: object = optional_text(args, "wait_seconds")
     if value is None:
         if config is None:
             config = configuration(args)
-        value = config.values.get("wait_seconds", MAX_WAIT_SECONDS)
+        value = config.setting("wait_seconds", MAX_WAIT_SECONDS)
     return wait_seconds(value)
 
 
@@ -93,11 +95,18 @@ def duration_seconds(value: str, *, name: str = "Duration") -> int:
     return int(match[1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[match[2]]
 
 
+def state_dir(args: argparse.Namespace) -> Path | None:
+    value: object = getattr(args, "state_dir", None)
+    if value is not None and not isinstance(value, Path):
+        raise ConfigError("state-dir must be a path")
+    return value
+
+
 def configuration(args: argparse.Namespace) -> Config:
     path: object = getattr(args, "config", None)
     if path is not None and not isinstance(path, (str, Path)):
         raise ConfigError("config must be a path")
-    return load_config(path)
+    return load_config(path, profile=optional_text(args, "profile"))
 
 
 def domain(args: argparse.Namespace, config: Config) -> str:
@@ -123,7 +132,12 @@ def client(
     if not url:
         raise ConfigError("Set the service URL in config.toml or use --url")
     worker = optional_text(args, "worker") or config.worker_label
-    with Client(url, config.token(admin=admin), worker) as api:
+    with Client(
+        url,
+        config.token(admin=admin),
+        worker,
+        token_loader=config.token_loader(admin=admin),
+    ) as api:
         yield api
 
 

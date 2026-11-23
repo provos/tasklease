@@ -8,6 +8,7 @@ import queue
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
 from typing import Self
@@ -70,12 +71,19 @@ def test_monitor_prints_loopback_url_and_closes_on_interrupt(
             events.append("serving")
             raise KeyboardInterrupt
 
-    def factory(url: str, token: str, worker_label: str = "cli") -> Client:
+    def factory(
+        url: str,
+        token: str,
+        worker_label: str = "cli",
+        *,
+        token_loader: Callable[[], str] | None = None,
+    ) -> Client:
         return Client(
             url,
             token,
             worker_label,
             transport=httpx.MockTransport(lambda _: httpx.Response(500)),
+            token_loader=token_loader,
         )
 
     monkeypatch.setattr("tasklease.cli.common.Client", factory)

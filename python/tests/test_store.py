@@ -35,6 +35,7 @@ REPLY = "replied/agent-1"
 TASK = "t_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 TASK2 = "t_01ARZ3NDEKTSV4RRFFQ69G5FAW"
 TASK3 = "t_01ARZ3NDEKTSV4RRFFQ69G5FAX"
+TASK4 = "t_01ARZ3NDEKTSV4RRFFQ69G5FAY"
 KEY = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f"
 
 
@@ -1452,3 +1453,420 @@ def test_poll_on_a_fake_board_reports_a_refused_wait(tmp_path: Path) -> None:
     store = Store("agent-1", tmp_path)
     result = store.poll(board.client("listen-token"), DOMAIN, REPLY)
     assert result == DrainResult(0, False)
+    assert result.replies == ()
+
+
+def test_windows_default_root_stays_on_user_data_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    legacy = tmp_path / "tasklease" / "tasklease"
+
+    def fake_user_data_path(app: str) -> Path:
+        assert app == "tasklease"
+        return legacy
+
+    monkeypatch.setattr("tasklease.store.user_data_path", fake_user_data_path)
+    assert stores.default_root() == legacy
+
+
+def test_multi_topic_poll_and_drain_save_before_delete_and_preserve_compat(
+    tmp_path: Path,
+) -> None:
+    now_ms = 1_800_000_000_000
+    board = FakeBoard(DOMAIN, clock=lambda: now_ms)
+    board.add_identity(
+        "sender", "send-token", create=["inbox/personal", "inbox/role/windows"]
+    )
+    board.add_identity(
+        "receiver", "recv-token", own=["inbox/personal", "inbox/role/windows"]
+    )
+    sender = board.client("send-token")
+    receiver = board.client("recv-token")
+    first_id = sender.create(
+        {"domain": DOMAIN, "topic": "inbox/personal", "data": {"msg": "one"}}
+    )["id"]
+    now_ms += 10
+    second_id = sender.create(
+        {"domain": DOMAIN, "topic": "inbox/role/windows", "data": {"msg": "two"}}
+    )["id"]
+    store = Store("win-agent", tmp_path)
+    result = store.poll(
+        receiver, DOMAIN, ["inbox/personal", "inbox/role/windows"], wait_seconds=0
+    )
+    assert result == DrainResult(2, True)
+    assert [(r.origin_id, r.topic, r.data) for r in result.replies] == [
+        (first_id, "inbox/personal", {"msg": "one"}),
+        (second_id, "inbox/role/windows", {"msg": "two"}),
+    ]
+    assert board.tasks == {}
+    assert len(store.inbox()) == 2
+
+    # Direct single-topic _save_reply call remains backwards compatible.
+    third_id = sender.create(
+        {"domain": DOMAIN, "topic": "inbox/personal", "data": {"msg": "three"}}
+    )["id"]
+    owned = receiver.own(
+        {"domain": DOMAIN, "topic": "inbox/personal", "hold_seconds": 60}
+    )["task"]
+    saved = store._save_reply(owned, DOMAIN, "inbox/personal")
+    assert saved.origin_id == third_id
+
+
+def test_multi_topic_validation_rejects_bad_sequences(
+    store: Store, client: Client
+) -> None:
+    for bad in ([], [REPLY, REPLY], [f"reply/{i}" for i in range(17)], b"reply/a"):
+        with pytest.raises(StoreError, match="reply_topic"):
+            store.poll(client, DOMAIN, cast(list[str], bad), wait_seconds=0)
+
+
+def test_watch_once_stream_and_partial_batch_transport_error(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+
+    # once=True yields the first non-empty batch and returns.
+    backend.replies = [
+        task({"n": 1}, TASK, origin_id=TASK),
+        task({"n": 2}, TASK2, origin_id=TASK2),
+    ]
+    got = list(
+        store.watch(client, DOMAIN, [REPLY, "reply/other"], once=True, wait_seconds=0)
+    )
+    assert [r.data for r in got] == [{"n": 1}, {"n": 2}]
+    assert backend.owns[0]["topics"] == [REPLY, "reply/other"]
+
+    # Partial batch where Delete fails on the second item still yields saved items.
+    backend.replies = [
+        task({"n": 3}, TASK3, origin_id=TASK3),
+        task({"n": 4}, TASK4, origin_id=TASK4),
+    ]
+    delete_calls = 0
+
+    def fail_second_delete() -> None:
+        nonlocal delete_calls
+        delete_calls += 1
+        if delete_calls == 2:
+            lost_response()
+
+    backend.on_delete = fail_second_delete
+    stop = threading.Event()
+    streamed = []
+    for record in store.watch(
+        client, DOMAIN, REPLY, stop=stop, wait_seconds=0, timeout_seconds=5
+    ):
+        streamed.append(record.data)
+        if len(streamed) == 2:
+            stop.set()
+    assert streamed == [{"n": 3}, {"n": 4}]
+
+
+def test_conflicting_duplicate_reply_is_reported_in_poll_and_watch(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    backend.replies = [
+        task({"result": "first"}, TASK, origin_id=TASK),
+        task({"result": "second"}, TASK2, origin_id=TASK),
+    ]
+    result = store.poll(client, DOMAIN, REPLY, wait_seconds=0)
+    assert result == DrainResult(2, True)
+    assert [(r.data, r.duplicate) for r in result.replies] == [
+        ({"result": "first"}, False),
+        ({"result": "second"}, True),
+    ]
+
+    # Redelivery of an already-archived conflicting duplicate keeps duplicate=True.
+    backend.replies = [task({"result": "second"}, TASK3, origin_id=TASK)]
+    watched = list(store.watch(client, DOMAIN, REPLY, once=True, wait_seconds=0))
+    assert len(watched) == 1
+    assert watched[0].data == {"result": "second"}
+    assert watched[0].duplicate is True
+
+
+def test_watch_stops_mid_drain_and_resets_backoff_when_wait_zero(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+
+    # Stop event halts multi-item drain between messages.
+    stop = threading.Event()
+    backend.replies = [
+        task({"n": 1}, TASK, origin_id=TASK),
+        task({"n": 2}, TASK2, origin_id=TASK2),
+    ]
+    backend.on_delete = stop.set
+    got = list(store.watch(client, DOMAIN, REPLY, stop=stop, wait_seconds=0))
+    assert [r.data for r in got] == [{"n": 1}]
+    assert len(backend.replies) == 1
+
+    # With wait_seconds=0, idle backoff resets after an arrival.
+    backend.on_delete = lambda: None
+    backend.replies = []
+    calls = 0
+
+    def arrive_on_fourth() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 4:
+            backend.replies.append(task({"n": 3}, TASK3, origin_id=TASK3))
+
+    backend.on_own = arrive_on_fourth
+    clock.sleeps.clear()
+    list(
+        store.watch(
+            client,
+            DOMAIN,
+            REPLY,
+            timeout_seconds=10,
+            poll_interval=1.0,
+            max_poll_interval=4.0,
+            wait_seconds=0,
+        )
+    )
+    # Backoff climbed (1, 1.5, 2.25), then reset back to 1.0 after arrival on call 4.
+    assert clock.sleeps[:4] == [1.0, 1.5, 2.25, 1.0]
+
+    # timeout_seconds=0 returns immediately without polling.
+    before = len(backend.owns)
+    assert list(store.watch(client, DOMAIN, REPLY, timeout_seconds=0)) == []
+    assert len(backend.owns) == before
+
+
+def test_watch_emits_saved_reply_before_subsequent_auth_error(
+    store: Store, client: Client, backend: Backend
+) -> None:
+    from tasklease.errors import Unauthenticated
+
+    backend.replies = [task({"n": 1}, TASK, origin_id=TASK)]
+    own_calls = 0
+
+    def fail_second_own() -> None:
+        nonlocal own_calls
+        own_calls += 1
+        if own_calls == 2:
+            raise Unauthenticated("rotated")
+
+    backend.on_own = fail_second_own
+    emitted: list[dict[str, object]] = []
+    with pytest.raises(Unauthenticated):
+        for record in store.watch(client, DOMAIN, REPLY, wait_seconds=0):
+            emitted.append(record.data)
+    assert emitted == [{"n": 1}]
+    assert backend.deletes == [{"domain": DOMAIN, "topic": REPLY, "id": TASK}]
+
+
+def test_watch_slow_consumer_does_not_exhaust_transport_patience(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = Clock()
+    monkeypatch.setattr(time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(time, "sleep", clock.sleep)
+    monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+
+    backend.replies = [task({"n": 1}, TASK, origin_id=TASK)]
+    own_calls = 0
+
+    def fail_after_first() -> None:
+        nonlocal own_calls
+        own_calls += 1
+        if own_calls in {2, 3}:
+            lost_response()
+        elif own_calls == 4:
+            backend.replies.append(task({"n": 2}, TASK2, origin_id=TASK2))
+
+    backend.on_own = fail_after_first
+    emitted: list[dict[str, object]] = []
+    for record in store.watch(
+        client,
+        DOMAIN,
+        REPLY,
+        timeout_seconds=400.0,
+        poll_interval=1.0,
+        max_poll_interval=1.0,
+        wait_seconds=0,
+    ):
+        emitted.append(record.data)
+        if len(emitted) == 1:
+            # Consumer spends >300s processing the first reply; the next
+            # TransportError must start a fresh retry window rather than raise.
+            clock.now += 301.0
+        elif len(emitted) == 2:
+            break
+    assert emitted == [{"n": 1}, {"n": 2}]
+
+
+def test_drain_releases_previous_reply_records_instead_of_retaining_batch(
+    store: Store, client: Client, backend: Backend, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import gc
+    import weakref
+
+    backend.replies = [
+        task({"n": 1}, TASK, origin_id=TASK),
+        task({"n": 2}, TASK2, origin_id=TASK2),
+        task({"n": 3}, TASK3, origin_id=TASK3),
+    ]
+    refs: list[weakref.ReferenceType[object]] = []
+    original_save = store._save_reply
+
+    def track_save(
+        item: p.Task, domain: str, reply_topic: str | tuple[str, ...]
+    ) -> object:
+        record = original_save(item, domain, reply_topic)
+        refs.append(weakref.ref(record))
+        return record
+
+    monkeypatch.setattr(store, "_save_reply", track_save)
+    assert store.drain(client, DOMAIN, REPLY) == 3
+    gc.collect()
+    assert [ref() for ref in refs] == [None, None, None]
+
+
+def test_watch_invariant_every_deleted_reply_is_yielded_and_saved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Property test: no fault or slow consumer can leave a deleted task unemitted."""
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    from tasklease.errors import Forbidden, Unauthenticated
+
+    fault_strategy = st.sampled_from(
+        ["ok", "ok", "ok", "transport", "unauthenticated", "forbidden", "stop"]
+    )
+
+    @settings(max_examples=40, deadline=None)
+    @given(
+        payloads=st.lists(
+            st.integers(min_value=0, max_value=3), min_size=1, max_size=5
+        ),
+        own_faults=st.lists(fault_strategy, min_size=1, max_size=8),
+        delete_faults=st.lists(
+            st.sampled_from(["ok", "ok", "transport", "unauthenticated"]),
+            min_size=1,
+            max_size=6,
+        ),
+        consumer_delay=st.sampled_from([0.0, 301.0]),
+        once=st.booleans(),
+    )
+    def check_no_silent_ack(
+        payloads: list[int],
+        own_faults: list[str],
+        delete_faults: list[str],
+        consumer_delay: float,
+        once: bool,
+    ) -> None:
+        import threading
+        from uuid import uuid4
+
+        clock = Clock()
+        monkeypatch.setattr(time, "monotonic", clock.monotonic)
+        monkeypatch.setattr(time, "sleep", clock.sleep)
+        monkeypatch.setattr(stores, "uniform", lambda low, high: 1.0)
+
+        now_ms = 1_800_000_000_000
+        board = FakeBoard(DOMAIN, clock=lambda: now_ms)
+        board.add_identity("sender", "send-tok", create=[REPLY])
+        board.add_identity("watcher", "watch-tok", own=[REPLY])
+        sender = board.client("send-tok")
+        created_origins: list[str] = []
+        for idx, value in enumerate(payloads):
+            now_ms += 1
+            origin = sender.create(
+                {"domain": DOMAIN, "topic": REPLY, "data": {"v": value, "i": idx}}
+            )["id"]
+            created_origins.append(origin)
+
+        stop = threading.Event()
+        wire = board.transport()
+        own_iter = iter(own_faults)
+        delete_iter = iter(delete_faults)
+
+        def fault_transport(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path == "/v1/own":
+                fault = next(own_iter, "stop")
+                if fault == "stop":
+                    stop.set()
+                    return httpx.Response(
+                        404,
+                        json={
+                            "ok": False,
+                            "error": {"code": "empty", "message": "empty"},
+                        },
+                    )
+                if fault == "transport":
+                    raise httpx.ReadError("injected own transport failure")
+                if fault == "unauthenticated":
+                    return httpx.Response(
+                        401,
+                        json={
+                            "ok": False,
+                            "error": {"code": "unauthenticated", "message": "401"},
+                        },
+                    )
+                if fault == "forbidden":
+                    return httpx.Response(
+                        403,
+                        json={
+                            "ok": False,
+                            "error": {"code": "forbidden", "message": "403"},
+                        },
+                    )
+            elif path == "/v1/delete":
+                fault = next(delete_iter, "ok")
+                if fault == "transport":
+                    raise httpx.ReadError("injected delete transport failure")
+                if fault == "unauthenticated":
+                    return httpx.Response(
+                        401,
+                        json={
+                            "ok": False,
+                            "error": {"code": "unauthenticated", "message": "401"},
+                        },
+                    )
+            return wire.handle_request(request)
+
+        local_store = Store("watch-prop", tmp_path / uuid4().hex)
+        yielded_origins: set[str] = set()
+        with Client(
+            board.base_url,
+            "watch-tok",
+            transport=httpx.MockTransport(fault_transport),
+        ) as faulty_client:
+            try:
+                for record in local_store.watch(
+                    faulty_client,
+                    DOMAIN,
+                    REPLY,
+                    timeout_seconds=1000.0,
+                    poll_interval=1.0,
+                    max_poll_interval=1.0,
+                    wait_seconds=0,
+                    stop=stop,
+                    once=once,
+                ):
+                    yielded_origins.add(record.origin_id)
+                    clock.now += consumer_delay
+            except (Unauthenticated, Forbidden, TransportError):
+                pass
+
+        remaining_on_server = {item["origin_id"] for item in board.tasks.values()}
+        deleted_from_server = set(created_origins) - remaining_on_server
+        saved_on_disk = {rec.origin_id for rec in local_store.inbox()}
+        # Invariant 1: Every task removed from the server was yielded to the consumer.
+        assert deleted_from_server <= yielded_origins
+        # Invariant 2: Every yielded reply is durably saved on disk.
+        assert yielded_origins <= saved_on_disk
+
+    check_no_silent_ack()

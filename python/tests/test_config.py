@@ -22,7 +22,10 @@ def test_explicit_config_then_environment_then_platform_default(
     explicit = tmp_path / "explicit.toml"
     environment = tmp_path / "environment.toml"
     default = tmp_path / "default" / "config.toml"
-    monkeypatch.setattr("tasklease.config.user_config_path", lambda app: default.parent)
+    monkeypatch.setattr(
+        "tasklease.config.user_config_path",
+        lambda app, *, appauthor=None: default.parent,
+    )
     assert (
         load_config(explicit, environ={"TL_CONFIG": str(environment)}).path == explicit
     )
@@ -377,3 +380,149 @@ def test_save_deployment_preserves_or_explicitly_updates_pending_marker(
         assert tomllib.loads(config.path.read_text())["cloudflare"][
             "r2_credentials_pending"
         ] is (pending is not False)
+
+
+def test_windows_default_config_uses_appauthor_false_with_legacy_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    preferred_dir = tmp_path / "tasklease"
+    legacy_dir = preferred_dir / "tasklease"
+
+    def fake_user_config_path(app: str, *, appauthor: object = None) -> Path:
+        assert app == "tasklease"
+        return preferred_dir if appauthor is False else legacy_dir
+
+    monkeypatch.setattr("tasklease.config.sys.platform", "win32")
+    monkeypatch.setattr("tasklease.config.user_config_path", fake_user_config_path)
+
+    # Fresh install: resolves to non-doubled directory.
+    assert load_config(environ={}).path == preferred_dir / "config.toml"
+    assert capsys.readouterr().err == ""
+
+    # Legacy config only: falls back with a one-line warning.
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "config.toml").write_text('url = "https://legacy.example"\n')
+    legacy_config = load_config(environ={})
+    assert legacy_config.path == legacy_dir / "config.toml"
+    assert legacy_config.url == "https://legacy.example"
+    warning = capsys.readouterr().err
+    assert "legacy config path" in warning
+
+    # Once preferred config exists, prefer it silently even if legacy remains.
+    (preferred_dir / "config.toml").write_text('url = "https://preferred.example"\n')
+    preferred_config = load_config(environ={})
+    assert preferred_config.path == preferred_dir / "config.toml"
+    assert preferred_config.url == "https://preferred.example"
+    assert capsys.readouterr().err == ""
+
+
+def test_windows_token_only_install_falls_back_to_legacy_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    preferred_dir = tmp_path / "tasklease"
+    legacy_dir = preferred_dir / "tasklease"
+
+    def fake_user_config_path(app: str, *, appauthor: object = None) -> Path:
+        assert app == "tasklease"
+        return preferred_dir if appauthor is False else legacy_dir
+
+    monkeypatch.setattr("tasklease.config.sys.platform", "win32")
+    monkeypatch.setattr("tasklease.config.user_config_path", fake_user_config_path)
+
+    # Token-only legacy install (TL_URL + legacy/token, no config.toml anywhere).
+    legacy_dir.mkdir(parents=True)
+    legacy_token = legacy_dir / "token"
+    legacy_token.write_text("tl_legacy-token\n")
+    legacy_token.chmod(0o600)
+    config = load_config(environ={"TL_URL": "https://service.example"})
+    assert config.path == legacy_dir / "config.toml"
+    assert config.token() == "tl_legacy-token"
+    assert "legacy token path" in capsys.readouterr().err
+
+    # Once a token file exists in preferred_dir, use preferred_dir silently.
+    preferred_token = preferred_dir / "token"
+    preferred_token.write_text("tl_new-token\n")
+    preferred_token.chmod(0o600)
+    preferred = load_config(environ={"TL_URL": "https://service.example"})
+    assert preferred.path == preferred_dir / "config.toml"
+    assert preferred.token() == "tl_new-token"
+    assert capsys.readouterr().err == ""
+
+
+def test_named_profile_inherits_top_level_and_respects_environment_precedence(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.toml"
+    (tmp_path / "base.token").write_text("tl_base-token\n")
+    (tmp_path / "base.token").chmod(0o600)
+    (tmp_path / "adviser.token").write_text("tl_adviser-token\n")
+    (tmp_path / "adviser.token").chmod(0o600)
+    path.write_text(
+        'url = "https://shared.example"\n'
+        'domain = "org/base"\n'
+        'agent_id = "default-agent"\n'
+        'worker_label = "base-worker"\n'
+        "wait_seconds = 30\n"
+        '[token]\nfile = "base.token"\n'
+        '[worker]\nlease = 600\ntopic = "verify/mac"\n'
+        "[profiles.adviser]\n"
+        'agent_id = "adviser"\n'
+        'worker_label = "adviser-worker"\n'
+        "wait_seconds = 10\n"
+        '[profiles.adviser.token]\nfile = "adviser.token"\n'
+        '[profiles.adviser.worker]\ntopic = "inbox/adviser"\n'
+    )
+    adviser = load_config(path, environ={}, profile="adviser")
+    assert adviser.url == "https://shared.example"
+    assert adviser.domain == "org/base"
+    assert adviser.agent_id == "adviser"
+    assert adviser.worker_label == "adviser-worker"
+    assert adviser.setting("wait_seconds") == 10
+    assert adviser.token() == "tl_adviser-token"
+    assert adviser.table("worker") == {"lease": 600, "topic": "inbox/adviser"}
+
+    via_env = load_config(
+        path,
+        environ={
+            "TL_PROFILE": "adviser",
+            "TL_AGENT_ID": "env-agent",
+            "TL_TOKEN": "tl_env-override",
+        },
+    )
+    assert via_env.profile == "adviser"
+    assert via_env.agent_id == "env-agent"
+    assert via_env.token() == "tl_env-override"
+    assert via_env.token_loader() is None
+
+    # Explicit profile overrides TL_PROFILE.
+    assert load_config(
+        path, environ={"TL_PROFILE": "missing"}, profile="adviser"
+    ).token() == ("tl_adviser-token")
+
+
+def test_profile_validation_is_lazy_and_token_loader_tracks_file_only(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "config.toml"
+    token_file = tmp_path / "token"
+    token_file.write_text("tl_first-token\n")
+    token_file.chmod(0o600)
+    path.write_text(
+        'url = "https://tasks.example"\n[profiles.unrelated]\ncommands = ["build"]\n'
+    )
+    # Unselected profiles are ignored.
+    base = load_config(path, environ={})
+    assert base.url == "https://tasks.example"
+    loader = base.token_loader()
+    assert loader is not None and loader() == "tl_first-token"
+    assert base.token_loader(admin=True) is None
+    token_file.write_text("tl_rotated-token\n")
+    assert loader() == "tl_rotated-token"
+
+    # Missing or invalid profiles fail eagerly even when env vars are set.
+    with pytest.raises(ConfigError, match="not defined"):
+        load_config(path, environ={"TL_URL": "https://env.example"}, profile="unknown")
+    with pytest.raises(ConfigError, match="TL_PROFILE"):
+        load_config(path, environ={"TL_PROFILE": ""})
+    with pytest.raises(ConfigError, match="profile"):
+        load_config(path, environ={}, profile="")

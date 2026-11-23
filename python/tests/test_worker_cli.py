@@ -99,6 +99,7 @@ def cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CLI:
         "TL_WORKER",
         "TL_TOKEN",
         "TL_ADMIN_TOKEN",
+        "TL_PROFILE",
     ):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("TL_TOKEN", "tl_worker-test-secret")
@@ -113,8 +114,20 @@ def cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CLI:
         command.requests.append(request)
         return command.respond(request)
 
-    def factory(url: str, token: str, worker_label: str = "cli") -> Client:
-        return Client(url, token, worker_label, transport=httpx.MockTransport(record))
+    def factory(
+        url: str,
+        token: str,
+        worker_label: str = "cli",
+        *,
+        token_loader: Callable[[], str] | None = None,
+    ) -> Client:
+        return Client(
+            url,
+            token,
+            worker_label,
+            transport=httpx.MockTransport(record),
+            token_loader=token_loader,
+        )
 
     monkeypatch.setattr("tasklease.cli.common.Client", factory)
     return command
@@ -450,3 +463,57 @@ def test_worker_names_an_old_service_and_the_opt_out(
     assert "[worker] wait_seconds" in error
     # The documented opt-out restores the old request.
     assert cli.run(["--topic", TOPIC, "--once", "--wait-seconds", "0"]) == 0
+
+
+def test_worker_profile_merges_worker_settings(
+    cli: CLI, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with cli.config.open("a") as config:
+        config.write(
+            '[worker]\nlease = 900\ntopic = "work/base"\n'
+            '[profiles.gpu]\nworker_label = "gpu-worker"\n'
+            '[profiles.gpu.worker]\ntopic = "work/gpu"\nwait_seconds = 5\n'
+            '[profiles.multi]\nworker_label = "multi-worker"\n'
+            '[profiles.multi.worker]\ntopics = ["work/a", "work/b"]\n'
+            '[profiles.bad.worker]\ntopic = "work/a"\ntopics = ["work/b"]\n'
+        )
+    cli.respond = lambda request: _empty()
+    assert cli.run(["--profile", "gpu", "--once"]) == 0
+    assert _body(cli.requests[0]) == {
+        "domain": DOMAIN,
+        "topic": "work/gpu",
+        "hold_seconds": 900,
+        "wait_seconds": 5,
+    }
+    assert cli.requests[0].headers["x-worker"] == "gpu-worker"
+
+    # Profile topics overrides base topic without a false topic/topics conflict.
+    assert cli.run(["--profile", "multi", "--once"]) == 0
+    assert _body(cli.requests[1]) == {
+        "domain": DOMAIN,
+        "topics": ["work/a", "work/b"],
+        "hold_seconds": 900,
+    }
+    assert cli.requests[1].headers["x-worker"] == "multi-worker"
+
+    # Both topic and topics in the same profile table is still rejected.
+    assert cli.run(["--profile", "bad", "--once"]) == 1
+
+    # worker stop also honors --profile for its worker label.
+    capsys.readouterr()
+    assert (
+        main(
+            [
+                "--config",
+                str(cli.config),
+                "--profile",
+                "gpu",
+                "worker",
+                "stop",
+                "--state-dir",
+                str(cli.state),
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["worker"] == "gpu-worker"

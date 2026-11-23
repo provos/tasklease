@@ -6,6 +6,36 @@ Release preparation and verification are documented in
 
 ## [Unreleased]
 
+### Added
+
+- `Store.poll`, `Store.drain` and a new `Store.watch` accept 1 to 16 distinct
+  topics (using 0.6.0 multi-topic `Own`), durably saving every reply locally
+  before deleting the server copy. `DrainResult.replies` exposes saved replies
+  in arrival order while preserving `DrainResult(saved, poll_again)` equality.
+- `tl inbox watch --topic ...` watches 1 to 16 inbox topics in `--stream`
+  (NDJSON, default) or `--once` (JSON batch) mode, emitting each saved reply
+  before claiming the next. `tl inbox stop` stops a running watcher cleanly
+  without contending with `tl worker stop`.
+- `Client` reloads file-backed identity tokens on `401 unauthenticated` and
+  retries at most once per call when the token file's contents changed,
+  recomputing long-poll `Own` waits and bounding reload lock waits within the
+  caller's timeout budget.
+- Named config profiles under `[profiles.<name>]` selected with `--profile` or
+  `TL_PROFILE`, inheriting top-level settings and overriding per-profile keys,
+  token files and `[worker]` tables.
+- `tl queue TOPIC [--domain DOMAIN] [--limit N]` inspects a topic's available,
+  held and lapsed tasks alongside recent pollers.
+
+### Fixed
+
+- Default Windows config path passes `appauthor=False` so fresh installs use
+  `%LOCALAPPDATA%\tasklease\config.toml` instead of doubling
+  `tasklease\tasklease`. `load_config` falls back to the legacy folder with a
+  warning when a legacy `config.toml` or token-only `token` file exists and the
+  new path does not. `Store.default_root()` stays on
+  `user_data_path("tasklease")` so mixed-version Windows workers and stop files
+  remain compatible across upgrades.
+
 ## [0.7.0] - 2026-11-19
 
 ### Added

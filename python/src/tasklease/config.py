@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+import sys
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
@@ -73,12 +74,65 @@ class Config:
     _environ: Mapping[str, str] = field(
         default_factory=lambda: dict(os.environ), repr=False
     )
+    profile: str | None = None
 
     def __post_init__(self) -> None:
         self.path = self.path.expanduser().absolute()
+        if self.profile is not None:
+            if not isinstance(self.profile, str) or not self.profile:
+                raise ConfigError("profile must be a nonempty string")
+            self._profile_table()
+
+    def _profile_table(self) -> dict[str, object]:
+        if self.profile is None:
+            return {}
+        profiles = self.values.get("profiles")
+        if profiles is not None and not isinstance(profiles, dict):
+            raise ConfigError("profiles must be a TOML table")
+        selected: object = (
+            cast(dict[str, object], profiles).get(self.profile)
+            if isinstance(profiles, dict)
+            else None
+        )
+        if selected is None:
+            raise ConfigError(f"Profile {self.profile!r} is not defined in {self.path}")
+        if not isinstance(selected, dict):
+            raise ConfigError(f"Profile {self.profile!r} must be a TOML table")
+        return cast(dict[str, object], selected)
+
+    def setting(self, key: str, default: object = None) -> object:
+        """Read a setting from the active profile, falling back to top level."""
+        profile = self._profile_table()
+        if key in profile:
+            return profile[key]
+        return self.values.get(key, default)
+
+    def table_layers(self, key: str) -> tuple[dict[str, object], dict[str, object]]:
+        """Read a top-level TOML table and its optional active-profile override."""
+        base = self.values.get(key)
+        if base is not None and not isinstance(base, dict):
+            raise ConfigError(f"{key} must be a TOML table")
+        base_table = dict(cast(dict[str, object], base)) if base is not None else {}
+        profile = self._profile_table()
+        if key not in profile:
+            return base_table, {}
+        override = profile[key]
+        if not isinstance(override, dict):
+            raise ConfigError(f"{key} must be a TOML table")
+        return base_table, dict(cast(dict[str, object], override))
+
+    def table(self, key: str) -> dict[str, object]:
+        """Read a TOML table, merging profile overrides onto top-level entries."""
+        base_table, override_table = self.table_layers(key)
+        base_table.update(override_table)
+        return base_table
 
     def _setting(self, key: str, environment: str) -> str | None:
-        value: object = self._environ.get(environment, self.values.get(key))
+        value: object = (
+            self._environ[environment]
+            if environment in self._environ
+            else self.setting(key)
+        )
         if value is None:
             return None
         if not isinstance(value, str) or not value:
@@ -124,10 +178,7 @@ class Config:
             return _token(self._environ[environment], environment)
         if admin:
             raise ConfigError("Set TL_ADMIN_TOKEN for identity administration")
-        table = self.values.get("token", {})
-        if not isinstance(table, dict):
-            raise ConfigError("token must be a TOML table")
-        token_table = cast(dict[str, object], table)
+        token_table = self.table("token")
         filename = token_table.get("file", "token")
         if not isinstance(filename, str) or not filename:
             raise ConfigError("token.file must be a nonempty path string")
@@ -149,9 +200,54 @@ class Config:
             ) from None
         return _token(value, "token.file")
 
+    def token_loader(self, admin: bool = False) -> Callable[[], str] | None:
+        """Return a reloader for file-backed identity credentials, else None."""
+        if admin or "TL_TOKEN" in self._environ:
+            return None
+        return lambda: self.token(admin=False)
+
+
+def default_config_path() -> Path:
+    """Platform-native user configuration path without a doubled Windows folder."""
+    return user_config_path("tasklease", appauthor=False) / "config.toml"
+
+
+def _resolve_default_config_path() -> Path:
+    preferred = default_config_path()
+    if sys.platform == "win32":
+        legacy = user_config_path("tasklease") / "config.toml"
+        if legacy != preferred:
+            preferred_token = preferred.with_name("token")
+            legacy_token = legacy.with_name("token")
+            try:
+                if not preferred.exists() and legacy.is_file():
+                    reason = f"legacy config path {legacy}"
+                elif (
+                    not preferred.exists()
+                    and not preferred_token.exists()
+                    and legacy_token.is_file()
+                ):
+                    reason = f"legacy token path {legacy_token}"
+                else:
+                    reason = None
+            except OSError:
+                raise ConfigError(
+                    f"Cannot inspect default configuration path {preferred}"
+                ) from None
+            if reason is not None:
+                print(
+                    f"Using {reason}; move config.toml and token to {preferred.parent}",
+                    file=sys.stderr,
+                )
+                return legacy
+    return preferred
+
 
 def load_config(
-    path: Path | str | None = None, *, environ: Mapping[str, str] | None = None
+    path: Path | str | None = None,
+    *,
+    environ: Mapping[str, str] | None = None,
+    profile: str | None = None,
 ) -> Config:
     """Select an explicit path, TL_CONFIG, or the platform's user config."""
     environment = dict(os.environ if environ is None else environ)
@@ -162,11 +258,19 @@ def load_config(
                 raise ConfigError("TL_CONFIG must be a nonempty path")
             path = selected
         else:
-            path = user_config_path("tasklease") / "config.toml"
+            path = _resolve_default_config_path()
     if isinstance(path, str) and not path:
         raise ConfigError("config path must be nonempty")
+    if profile is None:
+        selected_profile = environment.get("TL_PROFILE")
+        if selected_profile is not None:
+            if not selected_profile:
+                raise ConfigError("TL_PROFILE must be a nonempty profile name")
+            profile = selected_profile
+    elif not profile:
+        raise ConfigError("profile must be a nonempty string")
     resolved = Path(path).expanduser().absolute()
-    return Config(resolved, _read_values(resolved), environment)
+    return Config(resolved, _read_values(resolved), environment, profile=profile)
 
 
 def save_deployment(

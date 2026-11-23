@@ -14,6 +14,7 @@ from tasklease.cli.common import (
     message,
     optional_text,
     output,
+    state_dir,
 )
 from tasklease.errors import ConfigError
 from tasklease.monitor.server import MonitorServer, validate_domain_selection
@@ -22,11 +23,9 @@ from tasklease.monitor.server import MonitorServer, validate_domain_selection
 def _run(args: argparse.Namespace) -> int:
     selected_domain = validate_domain_selection(optional_text(args, "domain"))
     port: object = getattr(args, "port", 0)
-    state_root: object = getattr(args, "state_dir", None)
+    state_root = state_dir(args)
     if type(port) is not int or not 0 <= port <= 65535:
         raise ConfigError("port must be an integer from 0 to 65535")
-    if state_root is not None and not isinstance(state_root, Path):
-        raise ConfigError("state-dir must be a path")
     with (
         client(args) as api,
         MonitorServer(

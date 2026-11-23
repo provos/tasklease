@@ -1,7 +1,9 @@
 """Typed synchronous access to the tasklease wire protocol.
 
-No operation is retried: a lost response can mean that a mutation succeeded.
-Callers decide how to recover using the operation's fencing semantics.
+Transport failures are never retried: a lost response can mean that a mutation
+succeeded, and callers decide how to recover using fencing semantics. The one
+automatic retry is a single side-effect-free retry after ``401 unauthenticated``
+when a configured ``token_loader`` returns a freshly rotated token.
 """
 
 from __future__ import annotations
@@ -9,8 +11,9 @@ from __future__ import annotations
 import json
 import math
 import re
+import threading
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from types import TracebackType
 from typing import NoReturn, Self, cast
 
@@ -24,6 +27,7 @@ from tasklease.errors import (
     ProtocolError,
     TaskleaseError,
     TransportError,
+    Unauthenticated,
     WaitUnsupported,
 )
 from tasklease.generated import protocol as p
@@ -94,6 +98,9 @@ def reject_nonfinite(value: str) -> NoReturn:
     raise ValueError("Nonfinite JSON number")
 
 
+_TOTAL_TIMEOUT_EXCEEDED = "Blob signing total_timeout exceeded"
+
+
 class _TimedResponseStream(httpx.SyncByteStream):
     """Check elapsed signing time between network response body chunks."""
 
@@ -109,7 +116,7 @@ class _TimedResponseStream(httpx.SyncByteStream):
 
     def check(self) -> None:
         if time.monotonic() >= self.deadline:
-            raise TransportError("Blob signing total_timeout exceeded")
+            raise TransportError(_TOTAL_TIMEOUT_EXCEEDED)
 
     def close(self) -> None:
         self.stream.close()
@@ -134,6 +141,7 @@ class Client:
         *,
         transport: httpx.BaseTransport | None = None,
         timeout: float | httpx.Timeout | None = 30.0,
+        token_loader: Callable[[], str] | None = None,
     ) -> None:
         self._base_url = validate_url(base_url)
         if not is_bearer_token(token):
@@ -143,10 +151,56 @@ class Client:
                 "worker_label must contain 1 to 256 letters, digits, ., _ or -"
             )
         self._token = token
+        self._token_loader = token_loader
+        self._token_lock = threading.Lock()
+        self._reload_lock = threading.Lock()
         self._worker_label = worker_label
         self._http = httpx.Client(
             transport=transport, timeout=timeout, follow_redirects=False
         )
+
+    def _current_token(self) -> str:
+        with self._token_lock:
+            return self._token
+
+    def _raise_deadline_exceeded(self, total_deadline: float | None) -> NoReturn:
+        if total_deadline is not None and time.monotonic() >= total_deadline:
+            raise TransportError(_TOTAL_TIMEOUT_EXCEEDED)
+        raise TransportError("The tasklease service could not be reached")
+
+    def _reload_token(
+        self,
+        failed_token: str,
+        *,
+        deadline: float | None = None,
+        total_deadline: float | None = None,
+    ) -> bool:
+        """Reload a file-backed token after 401; return True only if it changed."""
+        if self._token_loader is None:
+            return False
+        # Serialize reloads under _reload_lock so disk I/O never stalls
+        # _current_token() reads, while still bounding lock waits to the
+        # caller's remaining timeout budget.
+        if deadline is None:
+            self._reload_lock.acquire()
+        else:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not self._reload_lock.acquire(timeout=remaining):
+                self._raise_deadline_exceeded(total_deadline)
+        try:
+            if self._current_token() != failed_token:
+                return True
+            try:
+                fresh = self._token_loader()
+            except (TaskleaseError, OSError):
+                return False
+            if not is_bearer_token(fresh) or fresh == failed_token:
+                return False
+            with self._token_lock:
+                self._token = fresh
+            return True
+        finally:
+            self._reload_lock.release()
 
     def __enter__(self) -> Self:
         self._http.__enter__()
@@ -169,6 +223,7 @@ class Client:
         operation: str,
         content: bytes | None = None,
         *,
+        token: str | None = None,
         timeout: float | None = None,
         total_timeout: float | None = None,
         read_timeout: float | None = None,
@@ -186,15 +241,16 @@ class Client:
                 )
             deadline = time.monotonic() + total_timeout
             timeout = total_timeout if timeout is None else min(timeout, total_timeout)
-        headers = (
-            {
-                "Authorization": f"Bearer {self._token}",
+        headers: dict[str, str]
+        if method == "POST":
+            bearer = self._current_token() if token is None else token
+            headers = {
+                "Authorization": f"Bearer {bearer}",
                 "X-Worker": self._worker_label,
                 "Content-Type": "application/json",
             }
-            if method == "POST"
-            else {}
-        )
+        else:
+            headers = {}
         try:
             url = f"{self._base_url}/v1/{operation}"
             bounded: httpx.Timeout | None = None
@@ -275,33 +331,121 @@ class Client:
             ).encode("utf-8")
         except (TypeError, ValueError, UnicodeError, RecursionError):
             raise Invalid("Request must contain valid JSON values") from None
-        response = self._send(
-            "POST",
-            operation,
-            content,
-            timeout=timeout,
-            total_timeout=total_timeout,
-            read_timeout=read_timeout,
+        started = time.monotonic()
+        call_deadline = (
+            started + timeout
+            if timeout is not None and math.isfinite(timeout) and timeout > 0
+            else None
         )
-        body = self._decode(response)
-        if body.get("ok") is False:
-            error = body.get("error")
-            if isinstance(error, dict):
-                details = cast(dict[str, object], error)
-                code, message = details.get("code"), details.get("message")
-                error_type = API_ERRORS.get(code) if isinstance(code, str) else None
-                if (
-                    error_type is not None
-                    and isinstance(message, str)
-                    and response.status_code == error_type.status_code
-                ):
-                    message = message.replace(self._token, "[redacted]")
-                    if error_type is Empty:
-                        raise Empty(
-                            message, wait_refused=details.get("wait_refused") is True
+        total_deadline = (
+            started + total_timeout
+            if total_timeout is not None
+            and not isinstance(total_timeout, bool)
+            and math.isfinite(total_timeout)
+            and total_timeout > 0
+            else None
+        )
+        tightest_deadline: float | None
+        if call_deadline is not None and total_deadline is not None:
+            tightest_deadline = min(call_deadline, total_deadline)
+        else:
+            tightest_deadline = (
+                call_deadline if call_deadline is not None else total_deadline
+            )
+        reloaded = False
+        effective_read_timeout = read_timeout
+        while True:
+            used_token = self._current_token()
+            remaining_timeout = timeout
+            remaining_total = total_timeout
+            if reloaded:
+                now = time.monotonic()
+                if total_deadline is not None:
+                    remaining_total = total_deadline - now
+                    if remaining_total <= 0:
+                        raise TransportError(_TOTAL_TIMEOUT_EXCEEDED)
+                if call_deadline is not None:
+                    remaining_timeout = call_deadline - now
+                    if remaining_timeout <= 0:
+                        raise TransportError(
+                            "The tasklease service could not be reached"
                         )
-                    raise error_type(message)
-            raise ProtocolError("The service returned an invalid error envelope")
+                    if operation == "own" and isinstance(request, Mapping):
+                        orig_wait = request.get("wait_seconds")
+                        if (
+                            isinstance(orig_wait, int)
+                            and not isinstance(orig_wait, bool)
+                            and orig_wait > 0
+                        ):
+                            assert timeout is not None
+                            margin = min(MAX_WAIT_GRACE, max(0.0, timeout - orig_wait))
+                            adjusted_wait = max(
+                                0,
+                                min(
+                                    orig_wait,
+                                    math.floor(remaining_timeout - margin),
+                                ),
+                            )
+                            retry_body = dict(request)
+                            if adjusted_wait > 0:
+                                retry_body["wait_seconds"] = adjusted_wait
+                                effective_read_timeout = (
+                                    float(min(adjusted_wait, MAX_WAIT_SECONDS))
+                                    + MAX_WAIT_GRACE
+                                )
+                            else:
+                                retry_body.pop("wait_seconds", None)
+                                effective_read_timeout = None
+                            content = json.dumps(
+                                retry_body,
+                                ensure_ascii=False,
+                                allow_nan=False,
+                                separators=(",", ":"),
+                            ).encode("utf-8")
+            response = self._send(
+                "POST",
+                operation,
+                content,
+                token=used_token,
+                timeout=remaining_timeout,
+                total_timeout=remaining_total,
+                read_timeout=effective_read_timeout,
+            )
+            body = self._decode(response)
+            if body.get("ok") is False:
+                error = body.get("error")
+                if isinstance(error, dict):
+                    details = cast(dict[str, object], error)
+                    code, message = details.get("code"), details.get("message")
+                    error_type = API_ERRORS.get(code) if isinstance(code, str) else None
+                    if (
+                        error_type is not None
+                        and isinstance(message, str)
+                        and response.status_code == error_type.status_code
+                    ):
+                        # A 401 happens before the service reads the request body
+                        # or touches any Durable Object, so a single retry with a
+                        # freshly rotated token has no side effects.
+                        if (
+                            error_type is Unauthenticated
+                            and not reloaded
+                            and self._reload_token(
+                                used_token,
+                                deadline=tightest_deadline,
+                                total_deadline=total_deadline,
+                            )
+                        ):
+                            reloaded = True
+                            continue
+                        message = message.replace(used_token, "[redacted]")
+                        if error_type is Empty:
+                            raise Empty(
+                                message,
+                                wait_refused=details.get("wait_refused") is True,
+                            )
+                        raise error_type(message)
+                raise ProtocolError("The service returned an invalid error envelope")
+            break
         if response.status_code != 200 or body.get("ok") is not True:
             raise ProtocolError("The service returned an invalid success envelope")
         for name, value_type in _SUCCESS_FIELDS[operation].items():

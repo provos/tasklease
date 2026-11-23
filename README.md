@@ -518,21 +518,33 @@ agent on this machine.
 ## Client configuration
 
 `tl` selects a config in this order: `--config PATH`, then `TL_CONFIG`, then
-`platformdirs.user_config_path("tasklease")/config.toml`. The usual locations,
-without config-directory overrides, are:
+`platformdirs.user_config_path("tasklease", appauthor=False)/config.toml`. The
+usual locations, without config-directory overrides, are:
 
 | Platform | Default config file |
 | --- | --- |
 | macOS | `~/Library/Application Support/tasklease/config.toml` |
 | Linux | `~/.config/tasklease/config.toml` |
-| Windows | `%LOCALAPPDATA%\tasklease\tasklease\config.toml` |
+| Windows | `%LOCALAPPDATA%\tasklease\config.toml` |
+
+On Windows, if `%LOCALAPPDATA%\tasklease\config.toml` is absent and the legacy
+`%LOCALAPPDATA%\tasklease\tasklease\config.toml` (or a legacy `token` file when
+neither new file exists) is present, `tl` falls back to the legacy config folder
+with a warning. Local store and worker stop state stays in
+`platformdirs.user_data_path("tasklease")` for mixed-version upgrade
+compatibility.
 
 Linux follows `XDG_CONFIG_HOME` when set. `tl --help` shows the platform fallback
 path on the current machine. On each client machine, you can place its config
 at that path as `config.toml` and its token beside it, then omit `--config`.
-Keep explicitly named configs when using several identities on one machine;
-`service.toml` holds deployment settings, while `operator.toml`,
-`requester.toml` and `worker.toml` above select their respective identities.
+To select one of several identities in a single config file, define
+`[profiles.<name>]` tables (inheriting top-level settings and overriding keys
+such as `domain`, `agent_id`, `worker_label`, `[profiles.<name>.token]` or
+`[profiles.<name>.worker]`) and pass `--profile NAME` or set `TL_PROFILE`.
+File-backed identity tokens are reloaded automatically on `401 unauthenticated`
+and retried at most once per call when the file contents changed. You can also
+keep explicitly named configs such as `service.toml`, `operator.toml`,
+`requester.toml` and `worker.toml`.
 
 `[token] file` defaults to `token` beside the selected config. Relative paths
 are resolved against that config's directory, absolute paths are accepted,
