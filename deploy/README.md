@@ -56,6 +56,11 @@ plutil -lint ~/Library/LaunchAgents/dev.tasklease.WORKER_LABEL.plist
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/dev.tasklease.WORKER_LABEL.plist
 ```
 
+The template sets `ProcessType` to `Interactive`. With another process type the
+agent's processes ran at priority 20 beside 31 for the user's own, so on a busy
+Mac a worker's jobs took two to three times as long as the same work started
+from a terminal.
+
 Run `tl --config /absolute/path/to/config.toml --worker WORKER_LABEL worker stop`
 to finish the current task. Successful exit does not restart the worker;
 `launchctl kickstart gui/UID/dev.tasklease.WORKER_LABEL` starts it again.
